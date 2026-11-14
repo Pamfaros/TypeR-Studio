@@ -258,7 +258,7 @@
         antiAlias: ANTI_ALIAS_IN[text.antiAlias] || "antiAliasSmooth",
         textClickPoint: { horizontal: (originX / doc.width) * 100, vertical: (originY / doc.height) * 100 },
         textStyleRange: ranges,
-        paragraphStyleRange: [{ from: 0, to: value.length, paragraphStyle: Object.assign({ alignment, autoLeadingPercentage: (text.paragraphStyle && text.paragraphStyle.autoLeading) || 1.2 }, text.paragraphStyle && text.paragraphStyle.hanging ? { hangingRoman: true } : {}, bounds && text.paragraphStyle && text.paragraphStyle.autoHyphenate === true ? { hyphenate: true } : {}) }],
+        paragraphStyleRange: [{ from: 0, to: value.length, paragraphStyle: Object.assign({ alignment, autoLeadingPercentage: (text.paragraphStyle && text.paragraphStyle.autoLeading) || 1.2 }, text.paragraphStyle && text.paragraphStyle.hanging ? { hangingRoman: true } : {}, bounds && text.paragraphStyle && text.paragraphStyle.autoHyphenate === true ? Object.assign({ hyphenate: true }, hyphenationFromPsd(text.paragraphStyle, scale)) : {}) }],
         textShape: [bounds
           ? { textType: "box", orientation: text.orientation === "vertical" ? "vertical" : "horizontal", box: { width: (bounds[2] - bounds[0]) * scale, height: (bounds[3] - bounds[1]) * scale, autoHeight: false } }
           : { textType: "point", orientation: text.orientation === "vertical" ? "vertical" : "horizontal" }],
@@ -775,6 +775,27 @@
 
   const JUSTIFY_OUT = { left: "left", right: "right", center: "center" };
 
+  // A paragraph's own hyphenation settings, where they aren't Photoshop's usual ones (words
+  // longer than 6 letters, 2 letters on each side, a zone of 36): the zone is a length of the
+  // text, as its sizes are
+  const hyphenationFromPsd = (paragraph, scale) => Object.assign({},
+    paragraph.hyphenatedWordSize && paragraph.hyphenatedWordSize !== 6 ? { hyphenateWordSize: paragraph.hyphenatedWordSize } : {},
+    paragraph.preHyphen && paragraph.preHyphen !== 2 ? { hyphenatePreLength: paragraph.preHyphen } : {},
+    paragraph.postHyphen && paragraph.postHyphen !== 2 ? { hyphenatePostLength: paragraph.postHyphen } : {},
+    typeof paragraph.zone === "number" && paragraph.zone * scale !== 36 ? { hyphenationZone: paragraph.zone * scale } : {});
+  // What a text's lines hang on, written as it is set here: Photoshop sets the lines again from
+  // these when it updates the text. Left out, Photoshop takes its own (an Auto Leading of 120%).
+  const paragraphToPsd = (paragraph) => Object.assign({
+    justification: JUSTIFY_OUT[paragraph && paragraph.alignment] || "center",
+    autoLeading: (paragraph && paragraph.autoLeadingPercentage) || 1.2,
+    // Photoshop hyphenates unless told not to: it would cut words TypeR keeps whole
+    autoHyphenate: Boolean(paragraph && paragraph.hyphenate),
+  }, paragraph && paragraph.hangingRoman ? { hanging: true } : {}, paragraph && paragraph.hyphenate ? Object.assign({},
+    paragraph.hyphenateWordSize ? { hyphenatedWordSize: paragraph.hyphenateWordSize } : {},
+    paragraph.hyphenatePreLength ? { preHyphen: paragraph.hyphenatePreLength } : {},
+    paragraph.hyphenatePostLength ? { postHyphen: paragraph.hyphenatePostLength } : {},
+    paragraph.hyphenationZone !== undefined ? { zone: paragraph.hyphenationZone } : {}) : {});
+
   const styleToPsd = (style, resolution) => {
     const color = style.color || { red: 0, green: 0, blue: 0 };
     const out = {
@@ -817,8 +838,7 @@
       antiAlias: ANTI_ALIAS_OUT[lt.antiAlias] || "smooth",
       shapeType: box ? "box" : "point",
       style: styleToPsd(ranges[0] ? ranges[0].textStyle : {}, doc.resolution),
-      // Photoshop hyphenates unless told not to: it would cut words TypeR keeps whole
-      paragraphStyle: Object.assign({ justification: JUSTIFY_OUT[paragraph && paragraph.alignment] || "center", autoHyphenate: Boolean(paragraph && paragraph.hyphenate) }, paragraph && paragraph.hangingRoman ? { hanging: true } : {}),
+      paragraphStyle: paragraphToPsd(paragraph),
     };
     if (box) {
       // A little room, so that Photoshop's own line heights don't hide the last line.
