@@ -466,6 +466,72 @@
   // keeps at least this many pixels from the letters
   const CLEAR = 3;
 
+  // The rules in a window of `bw` by `bh` pixels (see plainOf): what isn't the background (`off`)
+  // in runs at least `long` pixels along a row or a column, no more than `thick` pixels across
+  // (a black label, a filled box, isn't a rule), in pieces that go on well outside the area, `far`
+  // pixels from it at least (`dist`, `inside` on it): a letter's stroke, even one the detection
+  // cut short (a long dash), stays within the area or barely leaves it. 1 on a rule.
+  const rulesOf = (bw, bh, off, dist, inside, far, long, thick) => {
+    const size = bw * bh;
+    const offs = new Uint8Array(size);
+    for (let i = 0; i < size; i++) offs[i] = off(i) ? 1 : 0;
+    // Along `n` lines of `m` pixels (`at(line, k)`, the pixel), the long runs, kept where they're thin
+    const runs = (n, m, at) => {
+      const marked = new Uint8Array(size);
+      for (let line = 0; line < n; line++) {
+        let start = 0;
+        for (let k = 0; k <= m; k++) {
+          if (k < m && offs[at(line, k)]) continue;
+          if (k - start >= long) for (let j = start; j < k; j++) marked[at(line, j)] = 1;
+          start = k + 1;
+        }
+      }
+      // Across: no more than `thick` marked pixels in a row
+      const thin = new Uint8Array(size);
+      for (let k = 0; k < m; k++) {
+        let start = 0;
+        for (let line = 0; line <= n; line++) {
+          if (line < n && marked[at(line, k)]) continue;
+          if (line - start <= thick) for (let j = start; j < line; j++) thin[at(j, k)] = 1;
+          start = line + 1;
+        }
+      }
+      return thin;
+    };
+    const across = runs(bh, bw, (y, x) => y * bw + x);
+    const down = runs(bw, bh, (x, y) => y * bw + x);
+    const rule = new Uint8Array(size);
+    const stack = new Int32Array(size);
+    const piece = new Int32Array(size);
+    for (let start = 0; start < size; start++) {
+      if (rule[start] || !(across[start] || down[start])) continue;
+      // Marked 2 while its piece is gathered, then 1 if it reaches outside the area, 0 if not
+      let top = 0;
+      let count = 0;
+      let outside = false;
+      stack[top++] = start;
+      rule[start] = 2;
+      while (top) {
+        const i = stack[--top];
+        piece[count++] = i;
+        const x0 = i % bw;
+        const y0 = (i - x0) / bw;
+        if (dist[i] !== inside && (dist[i] >= far || !dist[i] || !x0 || !y0 || x0 === bw - 1 || y0 === bh - 1)) outside = true;
+        for (let ny = Math.max(0, y0 - 1); ny <= Math.min(bh - 1, y0 + 1); ny++) {
+          for (let nx = Math.max(0, x0 - 1); nx <= Math.min(bw - 1, x0 + 1); nx++) {
+            const n = ny * bw + nx;
+            if (rule[n] || !(across[n] || down[n])) continue;
+            rule[n] = 2;
+            stack[top++] = n;
+          }
+        }
+      }
+      for (let k = 0; k < count; k++) rule[piece[k]] = outside ? 1 : 4;
+    }
+    for (let i = 0; i < size; i++) if (rule[i] !== 1) rule[i] = 0;
+    return rule;
+  };
+
   // Least squares: the six numbers of a smooth shading (1, u, v, u², uv, v²) for each channel,
   // from the samples `use` keeps. Null when they can't be told apart (too few, all in a line).
   const fitShading = (count, us, vs, colours, use) => {
@@ -806,28 +872,45 @@
       for (let c = 0; c < 3; c++) if (Math.abs(rgba[page + c] - bg(u, v, c)) > TOLERANCE) return true;
       return false;
     };
-    const kept = new Uint8Array(bw * bh);
+    let kept = null;
     let deepest = 0;
-    tail = 0;
-    for (let s = 0; s < count; s++) {
-      if (ds[s] !== 1 || use[s]) continue;
-      kept[at[s]] = 2;
-      queue[tail++] = at[s];
-    }
-    for (let head = 0; head < tail; head++) {
-      const i = queue[head];
-      const x = i % bw;
-      const y = (i - x) / bw;
-      for (let ny = Math.max(0, y - 1); ny <= Math.min(bh - 1, y + 1); ny++) {
-        for (let nx = Math.max(0, x - 1); nx <= Math.min(bw - 1, x + 1); nx++) {
-          const n = ny * bw + nx;
-          if (dist[n] !== ON || kept[n] || !off(n)) continue;
-          kept[n] = 1;
-          if (depth[n] > deepest) deepest = depth[n];
-          queue[tail++] = n;
+    // `rules`: pixels kept as they are (3), however deep they run, the BFS going on from them
+    const follow = (rules) => {
+      kept = new Uint8Array(bw * bh);
+      deepest = 0;
+      tail = 0;
+      if (rules) {
+        for (let i = 0; i < bw * bh; i++) {
+          if (!rules[i]) continue;
+          kept[i] = 3;
+          queue[tail++] = i;
         }
       }
-    }
+      for (let s = 0; s < count; s++) {
+        if (ds[s] !== 1 || use[s] || kept[at[s]]) continue;
+        kept[at[s]] = 2;
+        queue[tail++] = at[s];
+      }
+      for (let head = 0; head < tail; head++) {
+        const i = queue[head];
+        const x = i % bw;
+        const y = (i - x) / bw;
+        for (let ny = Math.max(0, y - 1); ny <= Math.min(bh - 1, y + 1); ny++) {
+          for (let nx = Math.max(0, x - 1); nx <= Math.min(bw - 1, x + 1); nx++) {
+            const n = ny * bw + nx;
+            if (dist[n] !== ON || kept[n] || !off(n)) continue;
+            kept[n] = 1;
+            if (depth[n] > deepest) deepest = depth[n];
+            queue[tail++] = n;
+          }
+        }
+      }
+    };
+    follow(null);
+    // Gone deep: maybe along a rule or a frame across the area (a title's underline, a caption's
+    // box, a panel's border), straight, thin, and coming from far outside it. That one is kept as
+    // it is, the letters around it painted over; what branches off it is still followed.
+    if (deepest > limit) follow(rulesOf(bw, bh, off, dist, ON, band, Math.max(24, LINE * band), Math.max(3, Math.ceil(band / 2))));
     // Deeper than the edge, it runs under the letters, unless it keeps CLEAR of them and stays
     // shallower than those around where it goes deep: then it's an outline the letters come
     // close to, the selection reaching past it (the detection's mask has a margin of its own
@@ -887,7 +970,7 @@
     for (let y = 0; y < area.height; y++) {
       for (let x = 0; x < area.width; x++) {
         const j = y * area.width + x;
-        if (!area.data[j] || kept[(ay + y) * bw + ax + x] === 1) continue;
+        if (!area.data[j] || kept[(ay + y) * bw + ax + x] === 1 || kept[(ay + y) * bw + ax + x] === 3) continue;
         data[j] = 1;
         painted++;
         if (!pixels) continue;
