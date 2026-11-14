@@ -40,9 +40,13 @@
     return `${italic ? "italic " : ""}${weight} ${sizePx}px "${family}", "Wildjess", sans-serif`;
   };
 
+  // Photoshop's Faux Bold sets each letter 0.027 of the size wider, the last one of a line too
+  // (measured in Photoshop 2026, in 3 fonts at 16 and 40 px)
+  const FAUX_BOLD_SPACING = 0.027;
   const setRunFont = (ctx, textStyle, sizePx) => {
     ctx.font = cssFont(textStyle, sizePx);
-    if ("letterSpacing" in ctx) ctx.letterSpacing = textStyle.tracking ? `${(textStyle.tracking / 1000) * sizePx}px` : "0px";
+    const spacing = (textStyle.tracking || 0) / 1000 + (textStyle.syntheticBold ? FAUX_BOLD_SPACING : 0);
+    if ("letterSpacing" in ctx) ctx.letterSpacing = spacing ? `${spacing * sizePx}px` : "0px";
     if ("fontKerning" in ctx) ctx.fontKerning = textStyle.autoKern === "manual" ? "none" : "normal";
     if ("fontVariantCaps" in ctx) ctx.fontVariantCaps = textStyle.fontCaps === "smallCaps" ? "small-caps" : "normal";
     if ("lang" in ctx) ctx.lang = languageTagOf(textStyle);
@@ -193,6 +197,12 @@
     if (!runs.length) return { advance: 0, ascent: 0, descent: 0, inkLeft: 0, inkRight: 0, fontAscent: 0, fontDescent: 0, placed };
     return { advance, ascent, descent, inkLeft, inkRight, fontAscent, fontDescent, placed };
   };
+  // The tracking after a line's last letter, which Photoshop leaves out of the line's width,
+  // both to fit it and to align it: n letters take n - 1 trackings (measured in Photoshop 2026)
+  const trailingTracking = (m) => {
+    const last = m.placed[m.placed.length - 1];
+    return last && last.run.style.tracking ? (last.run.style.tracking / 1000) * last.size * last.scaleX : 0;
+  };
 
   // Paragraph text: the size of its box is in the shape, its top left in the click point
   const boxShape = (lt) => {
@@ -263,8 +273,9 @@
   // lines, and Photoshop sets them again when the file is updated or the text edited there.
   // - A line breaks at its spaces only: a word with hyphens ("Orbia-san") stays whole, and a
   //   "?" after a space can start a line.
-  // - A line fits by the width it is set at: without the spaces that end it, and with Roman
-  //   Hanging Punctuation (`hanging`) without the punctuation that hangs out of the box.
+  // - A line fits by the width it is set at: without the spaces that end it, nor the tracking
+  //   after its last letter, and with Roman Hanging Punctuation (`hanging`) without the
+  //   punctuation that hangs out of the box.
   // - With Hyphenate on, a word that doesn't fit is cut with a hyphen at the last syllable that
   //   does: only a word longer than the word size, never next to its own hyphens or
   //   apostrophes, and not when the line without it already stops within the zone.
@@ -274,14 +285,15 @@
     const isGap = (ch) => ch === " " || ch === "\t";
     const setWidth = (lineRuns) => {
       const m = measureRuns(lineRuns, resolution);
-      if (!hanging) return m.advance;
+      const advance = m.advance - trailingTracking(m);
+      if (!hanging) return advance;
       const [hangLeft, hangRight] = hangsOf(m);
-      return m.advance - hangLeft - hangRight;
+      return advance - hangLeft - hangRight;
     };
     const fits = (from, to) => setWidth(sliceRuns(runs, from, to)) <= width;
     // Between two letters of a word, nothing hangs, and the letter that ends the line keeps
     // the kerning it has with the next one
-    const fitsInside = (from, to) => measureRuns(sliceRuns(runs, from, to + 1), resolution).advance - measureRuns(sliceRuns(runs, to, to + 1), resolution).advance <= width;
+    const fitsInside = (from, to) => measureRuns(sliceRuns(runs, from, to + 1), resolution).advance - measureRuns(sliceRuns(runs, to, to + 1), resolution).advance - trailingTracking(measureRuns(sliceRuns(runs, to - 1, to), resolution)) <= width;
     const withHyphen = (from, to) => {
       const out = sliceRuns(runs, from, to);
       const last = out[out.length - 1];
@@ -506,7 +518,7 @@
       const shown = spaces ? measureRuns(sliceRuns(runs, 0, lineText.length - spaces), resolution) : m;
       // Roman Hanging Punctuation: what hangs is left out of the line's width
       const [hangLeft, hangRight] = paragraph.hangingRoman ? hangsOf(shown) : [0, 0];
-      const set = shown.advance - hangLeft - hangRight;
+      const set = shown.advance - trailingTracking(shown) - hangLeft - hangRight;
       let x;
       if (frame) x = align === "left" ? 0 : align === "right" ? frame.width - set : (frame.width - set) / 2;
       else x = align === "left" ? 0 : align === "right" ? -set : -set / 2;
