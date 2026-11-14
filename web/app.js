@@ -6884,7 +6884,7 @@
         ui.stage.setPointerCapture(event.pointerId);
       } else {
         ops.endLiveMove(false);
-        beginEdit(text);
+        beginEdit(text, false, event, true);
       }
       return;
     }
@@ -7008,7 +7008,7 @@
     }
     if (tool === "text") {
       const hit = textAt(point);
-      if (hit) beginEdit(hit);
+      if (hit) beginEdit(hit, false, event, true);
       else {
         // A click: point text. A drag: a text box, as in Photoshop.
         gesture = Object.assign(base, { kind: "textBox" });
@@ -7471,7 +7471,7 @@
       renderOptions();
     } else if (kind === "move") {
       ops.endLiveMove(!cancelled);
-      if (!cancelled && !current.moved && current.tapEdit) beginEdit(current.tapEdit);
+      if (!cancelled && !current.moved && current.tapEdit) beginEdit(current.tapEdit, false, event);
       // Moved while typed in: the caret goes along. Only clicked: the edit ends, as anywhere outside.
       if (current.endsEdit) {
         if (current.moved || cancelled) placeEditor();
@@ -7486,7 +7486,7 @@
     } else if (kind === "pan") {
       if (current.moved) return;
       if (current.tapEnds) endEdit();
-      else if (current.tapEdit) beginEdit(current.tapEdit);
+      else if (current.tapEdit) beginEdit(current.tapEdit, false, event);
       else if (current.tapText) ops.selectLayer(current.tapText.id);
       else if (current.tapWand === "new" && ops.selectionContains(point[0], point[1])) {
         const area = textAreaAt(point);
@@ -7942,7 +7942,7 @@
     while (inWord(end)) end++;
     return [start, end];
   };
-  // A triple-click takes the paragraph
+  // Four clicks take the paragraph
   const paragraphAround = (text, index) => {
     let start = index;
     let end = index;
@@ -7950,22 +7950,29 @@
     while (end < text.length && !/[\r\n]/.test(text[end])) end++;
     return [start, end];
   };
-  const unitAround = (unit, text, index) => (unit === 2 ? wordAround(text, index) : unit === 3 ? paragraphAround(text, index) : [index, index]);
+  // As Photoshop's Type tool: a click puts the caret, two take the word, three the line, four
+  // the paragraph and five the whole text
+  const lineAround = (index) => {
+    const lines = typedLines();
+    if (!lines.length) return [index, index];
+    const line = lines[lineOfIndex(lines, index)];
+    return [line.start, line.end];
+  };
+  const unitAround = (unit, text, index) => (unit === 2 ? wordAround(text, index) : unit === 3 ? lineAround(index) : unit === 4 ? paragraphAround(text, index) : unit === 5 ? [0, text.length] : [index, index]);
 
   let typeDrag = null;
   let typeClick = null;
   // Up and down keep to the x the caret started from, as in any editor
   let caretGoal = null;
-  ui.editor.addEventListener("pointerdown", (event) => {
+  // A press on the typed text: also the click that opens a text, the caret going where it was
+  // clicked (`drag`: the button is still down, and dragging selects)
+  const pressTyped = (event, drag) => {
     caretGoal = null;
-    // Ctrl + click on a Mac asks for the menu, spelling suggestions included
-    if (!typingOnPage() || event.button !== 0 || (IS_MAC && event.ctrlKey)) return;
-    event.preventDefault();
     ui.editor.focus({ preventScroll: true });
     const index = indexAtPoint(typedLines(), typedPoint(event));
     const now = performance.now();
     const again = typeClick && now - typeClick.time < 500 && Math.hypot(event.clientX - typeClick.x, event.clientY - typeClick.y) < 6;
-    const unit = again ? (typeClick.unit % 3) + 1 : 1;
+    const unit = again ? (typeClick.unit % 5) + 1 : 1;
     typeClick = { time: now, x: event.clientX, y: event.clientY, unit };
     const { selectionStart, selectionEnd, selectionDirection } = ui.editor;
     let anchor;
@@ -7977,9 +7984,19 @@
       anchor = unitAround(unit, ui.editor.value, index);
       selectTyped(anchor[0], anchor[1]);
     }
-    typeDrag = { id: event.pointerId, anchor, unit };
-    ui.editor.setPointerCapture(event.pointerId);
+    typeDrag = null;
+    if (drag) {
+      typeDrag = { id: event.pointerId, anchor, unit };
+      ui.editor.setPointerCapture(event.pointerId);
+    }
     schedule(false);
+  };
+  ui.editor.addEventListener("pointerdown", (event) => {
+    caretGoal = null;
+    // Ctrl + click on a Mac asks for the menu, spelling suggestions included
+    if (!typingOnPage() || event.button !== 0 || (IS_MAC && event.ctrlKey)) return;
+    event.preventDefault();
+    pressTyped(event, true);
   });
   ui.editor.addEventListener("pointermove", (event) => {
     if (!typeDrag || typeDrag.id !== event.pointerId || !typingOnPage()) return;
@@ -8029,7 +8046,9 @@
 
   const SPELLING_LANGUAGES = { englishLanguage: "en-US", ukenglishLanguage: "en-GB", standardFrenchLanguage: "fr", canadianFrenchLanguage: "fr-CA", spanishLanguage: "es", italianLanguage: "it", germanLanguageReformed1996: "de", oldGermanLanguage: "de", standardPortugueseLanguage: "pt-PT", brazilianPortugueseLanguage: "pt-BR", kdutchLanguageOldRules: "nl", polishLanguage: "pl", russianLanguage: "ru", ukranianLanguage: "uk", turkishLanguage: "tr" };
 
-  const beginEdit = (layer, isNew) => {
+  // `press`: the click that opened it, where the caret goes (`drag`: its button still down). A
+  // text opened otherwise, by a double-click on its thumbnail or Cmd+Enter, is all selected.
+  const beginEdit = (layer, isNew, press, drag) => {
     if (!layer) return;
     if (layer.locked) {
       toast(T("This layer is locked."));
@@ -8047,6 +8066,7 @@
     placeEditor();
     ui.editor.focus();
     if (Shell.touch) ui.editor.setSelectionRange(ui.editor.value.length, ui.editor.value.length);
+    else if (press && typingOnPage()) pressTyped(press, drag);
     else if (!isNew) ui.editor.select();
     schedule(false);
     renderStatus();
