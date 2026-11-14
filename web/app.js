@@ -8989,10 +8989,13 @@
   const soloLayer = (layer) => {
     const doc = app.doc;
     if (!doc) return;
+    // The step an action records: Show, with Toggle Others
+    const sole = doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id;
     if (solo && solo.docId === doc.id && solo.id === layer.id) {
       const { before } = solo;
       solo = null;
       ops.setLayers(doc.state.layers.map((item) => (before.has(item.id) && (item.visible !== false) !== before.get(item.id) ? Object.assign({}, item, { visible: before.get(item.id) }) : item)), "Show Other Layers");
+      recordStep("soloLayer", { name: layer.name, current: sole });
       return;
     }
     const byId = new Map(doc.state.layers.map((item) => [item.id, item]));
@@ -9004,6 +9007,7 @@
       const visible = family.has(item.id) ? (item.id === layer.id ? true : item.visible !== false) : above.has(item.id);
       return (item.visible !== false) === visible ? item : Object.assign({}, item, { visible });
     }), "Hide Other Layers");
+    recordStep("soloLayer", { name: layer.name, current: sole });
   };
 
   // Photoshop's colour labels, which tint the eye's cell. A folder's goes to what it holds.
@@ -9219,13 +9223,10 @@
           event.stopPropagation();
           toggleMaskLink(layer, part);
         });
-    // The step an action records: Show, with Toggle Others
-    const sole = doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id;
         row.appendChild(link);
         const box = document.createElement("span");
         box.className = "layer__mask" + (part === "vector" ? " layer__mask--vector" : "") + (targeted === part ? " is-target" : "") + (off ? " is-off" : "");
         box.dataset.part = part;
-      recordStep("soloLayer", { name: layer.name, current: sole });
         box.appendChild(maskThumbOf(layer, doc, part));
         box.title = part === "vector" ? T("Vector mask. Shift + click: disable. Alt + click: show it alone. Cmd + click: load it as a selection.").replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl") : T("Layer mask. Shift + click: disable. Alt + click: show it alone. Cmd + click: load it as a selection. Double-click: its properties.").replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl");
         if (doc.maskView && doc.maskView.id === layer.id && doc.maskView.part === part) box.classList.add("is-viewed");
@@ -9237,7 +9238,6 @@
           }
           if (event.metaKey || event.ctrlKey) {
             ops.maskToSelection(layer.id, event.shiftKey && event.altKey ? "intersect" : event.shiftKey ? "add" : event.altKey ? "subtract" : null, part);
-    recordStep("soloLayer", { name: layer.name, current: sole });
             return;
           }
           if (!(doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id)) ops.selectLayer(layer.id);
@@ -18482,7 +18482,7 @@
       isText,
       modalOpen: () => ui.modal.open || Boolean(ui.layerStyle),
       setFill,
+      soloLayer,
     },
   };
 })();
-      soloLayer,
