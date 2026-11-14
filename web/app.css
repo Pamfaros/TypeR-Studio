@@ -1248,6 +1248,7 @@ body.is-dragging-tool, body.is-dragging-tool * { cursor: grabbing !important; }
 .fxdlg__unit { color: var(--muted); font-size: 11px; }
 .fxdlg__fields input[type="color"] { justify-self: start; width: 46px; height: 24px; border-radius: 4px; overflow: hidden; }
 .fxdlg__fields input[type="color"]::-webkit-color-swatch { border-radius: 3px; }
+.fxdlg__pane.has-targets input[type="color"].is-target { outline: 2px solid var(--blue); outline-offset: 2px; }
 .fxdlg__control--wide > * { grid-column: 2 / -1; }
 .fxdlg__blend { justify-self: start; width: min(100%, 200px); height: 24px; border-radius: 4px; color: var(--text); }
 .fxdlg__dial { position: relative; justify-self: start; width: 30px; height: 30px; margin: -3px 0; border-radius: 50%; background: var(--ui-dark); box-shadow: inset 0 0 0 1px var(--line); cursor: grab; touch-action: none; }
@@ -1459,4 +1460,3 @@ html.touch .levels__values input { width: 72px; height: 40px; }
 .themes__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .themes__actions:empty { display: none; }
 .modal__body .themes__hint { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
-.fxdlg__pane.has-targets input[type="color"].is-target { outline: 2px solid var(--blue); outline-offset: 2px; }
