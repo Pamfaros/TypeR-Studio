@@ -149,7 +149,7 @@
     let fontAscent = 0;
     let fontDescent = 0;
     const placed = [];
-    runs.forEach((run) => {
+    runs.forEach((run, index) => {
       const size = sizePxOf(run.style, resolution);
       setRunFont(measureCtx, run.style, size);
       measureCtx.textAlign = "left";
