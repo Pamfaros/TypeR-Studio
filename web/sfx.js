@@ -3744,6 +3744,15 @@
     drawOverlay();
   };
 
+  // Opened from the Window menu, its tab or a reset of the workspace: filled as it shows,
+  // without waiting for something to happen on the page
+  const pane = $("pane-sfx");
+  if (pane && window.MutationObserver) {
+    new MutationObserver(() => {
+      if (!pane.hidden) renderPanel(true);
+    }).observe(pane, { attributes: true, attributeFilter: ["hidden"] });
+  }
+
   const head = $("head-sfx");
   if (head) head.textContent = T("SFX");
 
