@@ -1308,7 +1308,7 @@
     'slct{ null: ref(name Lyr "…") | ref(indx Lyr n) | ref(Enmr Lyr Ordn.Frwr|Bckw|Frnt|Back), selectionModifier?: enum selectionModifierType.addToSelection|addToSelectionContinuous|removeFromSelection, MkVs: bool, LyrI?: [long] } | { null: ref(Enmr Chnl Chnl.RGB |…) } (a channel) | { null: ref(Clss <tool>) } (a tool)',
     [["null", "Target"], ["selectionModifier", "Modifier"], ["MkVs", "Make Visible"]]);
   event("selectNoLayers", "", "Deselect Layers", false, "file", `selectNoLayers{ ${TARGET} }`);
-  event("show", "Shw ", "Show", false, "file+played", `Shw { null: [ref(Enmr Lyr Ordn.Trgt)], TglO?: bool }`, [["null", "Target"]]);
+  event("show", "Shw ", "Show", false, "file+played", `Shw { null: [ref(Enmr Lyr Ordn.Trgt)], TglO?: bool }`, [["null", "Target"], ["TglO", "Toggle Others"]]);
   event("hide", "Hd  ", "Hide", false, "file+played", `Hd  { null: [ref(Enmr Lyr Ordn.Trgt)] }`, [["null", "Target"]]);
   event("set", "setd", "Set", false, "file+played",
     "setd{ " + TARGET + ", T: Objc Lyr{ Nm?, Opct?: UntF #Prc, Md?: enum BlnM, fillOpacity?: UntF #Prc, layerLocking?: Objc layerLocking{…} } } (layer properties) | { null: ref(prop Chnl fsel), T: enum Ordn.Al  |None|Prvs, or Objc Rctn{ Top, Left, Btom, Rght } | Elps{…}, AntA?: bool } (the selection) | { null: ref(prop Prpr Lefx < Enmr Lyr Ordn.Trgt), T: Objc Lefx{ Scl: UntF #Prc, DrSh|IrSh|OrGl|IrGl|ebbl|FrFX|SoFi|GrFl|patternFill|ChFX: Objc …{ enab: bool, … } } } (layer style) | { null: ref(prop Clr  FrgC|BckC), T: Objc RGBC|HSBC|Grsc|CMYC{…} } (a color)",
@@ -1640,7 +1640,8 @@
         selectionModifier: o.add ? enumv("selectionModifierType", "addToSelection") : undefined,
         MkVs: Boolean(o.makeVisible),
       }),
-    showLayer: (o) => step("show", { null: list([ref(layerRef(o))]) }),
+    // { toggleOthers: true }: Alt + click on its eye, the others hidden or shown again
+    showLayer: (o) => step("show", { null: list([ref(layerRef(o))]), TglO: o && o.toggleOthers ? true : undefined }),
     hideLayer: (o) => step("hide", { null: list([ref(layerRef(o))]) }),
     // { opacity, fillOpacity, mode }. Photoshop 2026 applies a name given with other
     // properties and drops the rest (it records a rename as a step of its own): renameLayer

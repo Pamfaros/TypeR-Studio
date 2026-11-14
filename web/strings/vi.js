@@ -411,6 +411,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Show": "Hiện",
     "Hide": "Ẩn",
     "Set": "Đặt",
+    "Toggle Others": "Bật/tắt các lớp khác",
     "Transform": "Biến đổi",
     "Skew": "Nghiêng",
     "Flip": "Lật",

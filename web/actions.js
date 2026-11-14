@@ -1014,7 +1014,17 @@
   const showOrHide = (item, shown) => {
     const list = get(item.descriptor, "null");
     const values = list && list.type === "VlLs" ? list.values : list ? [list] : [];
-    if (!values.length || !values.every(isLayerRef) || (get(item.descriptor, "TglO") && get(item.descriptor, "TglO").value)) return null;
+    if (!values.length || !values.every(isLayerRef)) return null;
+    const others = get(item.descriptor, "TglO");
+    if (others && others.value) {
+      // Alt + click on its eye: that layer alone, or the others back
+      if (!shown || values.length !== 1) return null;
+      return () => {
+        needDoc();
+        const layer = layerById((layersOfRef(values[0].refs) || [])[0]);
+        if (layer) host.soloLayer(layer);
+      };
+    }
     return () => {
       needDoc();
       values.forEach((v) => (layersOfRef(v.refs) || []).forEach((id) => {
@@ -1614,6 +1624,8 @@
     // The Styles panel (styles.js): a style by its name, and No Style
     applyStyle: ({ name }) => [ATN.make.applyStyle({ name })],
     clearStyle: () => [ATN.make.clearLayerStyle()],
+    // Alt + click on an eye (the layer as Photoshop names it: the current one, or by its name)
+    soloLayer: ({ name, current }) => [ATN.make.showLayer(current ? { toggleOthers: true } : { name, toggleOthers: true })],
   };
   const record = (kind, values) => {
     if (!recording() || !RECORDED[kind]) return;

@@ -411,6 +411,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Show": "보기",
     "Hide": "숨기기",
     "Set": "설정",
+    "Toggle Others": "다른 레이어 전환",
     "Transform": "변형",
     "Skew": "기울이기",
     "Flip": "뒤집기",

@@ -9219,10 +9219,13 @@
           event.stopPropagation();
           toggleMaskLink(layer, part);
         });
+    // The step an action records: Show, with Toggle Others
+    const sole = doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id;
         row.appendChild(link);
         const box = document.createElement("span");
         box.className = "layer__mask" + (part === "vector" ? " layer__mask--vector" : "") + (targeted === part ? " is-target" : "") + (off ? " is-off" : "");
         box.dataset.part = part;
+      recordStep("soloLayer", { name: layer.name, current: sole });
         box.appendChild(maskThumbOf(layer, doc, part));
         box.title = part === "vector" ? T("Vector mask. Shift + click: disable. Alt + click: show it alone. Cmd + click: load it as a selection.").replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl") : T("Layer mask. Shift + click: disable. Alt + click: show it alone. Cmd + click: load it as a selection. Double-click: its properties.").replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl");
         if (doc.maskView && doc.maskView.id === layer.id && doc.maskView.part === part) box.classList.add("is-viewed");
@@ -9234,6 +9237,7 @@
           }
           if (event.metaKey || event.ctrlKey) {
             ops.maskToSelection(layer.id, event.shiftKey && event.altKey ? "intersect" : event.shiftKey ? "add" : event.altKey ? "subtract" : null, part);
+    recordStep("soloLayer", { name: layer.name, current: sole });
             return;
           }
           if (!(doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id)) ops.selectLayer(layer.id);
@@ -18465,3 +18469,4 @@
     },
   };
 })();
+      soloLayer,

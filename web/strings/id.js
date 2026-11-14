@@ -411,6 +411,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Show": "Tampilkan",
     "Hide": "Sembunyikan",
     "Set": "Atur",
+    "Toggle Others": "Alihkan Lainnya",
     "Transform": "Transformasi",
     "Skew": "Miringkan",
     "Flip": "Balik",

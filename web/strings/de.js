@@ -411,6 +411,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Show": "Einblenden",
     "Hide": "Ausblenden",
     "Set": "Festlegen",
+    "Toggle Others": "Andere umschalten",
     "Transform": "Transformieren",
     "Skew": "Neigen",
     "Flip": "Spiegeln",
