@@ -14420,7 +14420,7 @@
     const blurred = lead ? ops.textBlur(lead) : 0;
     const refused = texts.map((layer) => ops.textBlurRefusal(layer)).find(Boolean) || null;
     let mode = refused ? "rasterize" : "editable";
-    let radius = preset > 0 ? preset : blurred || (lastFilter ? lastFilter.radius : 2);
+    let radius = preset > 0 ? preset : blurred || (lastFilter && lastFilter.radius) || 2;
     let previewOn = true;
     // The step before the dialog, by itself (see openLayerStyle); in Rasterize, the step once the
     // texts are pixels. Each try starts again from there, so that it blurs the pixels as they were.
@@ -14632,6 +14632,16 @@
   // Filter > Last Filter: the same blur again, on what is chosen now
   const runLastFilter = () => {
     if (!lastFilter || !app.doc) return;
+    // Motion Blur's, with its angle and distance
+    if (lastFilter.kind === "motion") {
+      try {
+        applyMotionBlur(lastFilter);
+        recordStep("motionBlur", { angle: lastFilter.angle, distance: lastFilter.distance });
+      } catch (error) {
+        toast(error.message || String(error));
+      }
+      return;
+    }
     settleForResize();
     const target = ops.gaussianBlurTarget();
     if (target.error) {
@@ -14659,6 +14669,246 @@
     }
     rasterizeForBlur(ids).forEach((id) => ops.gaussianBlur(radius, { id }));
     recordStep("gaussianBlur", { radius });
+  };
+
+  /* ---- Filter > Blur > Motion Blur: Photoshop's, on pixels or a mask; a text is rasterized ---- */
+  // Photoshop can't blur a text in motion and keep it a text (no layer effect does it, as a Drop
+  // Shadow does a Gaussian Blur): it asks to rasterize it first, and so does TypeR. Angle from
+  // -90° to 90° (a line has two ends), Distance from 1 to 2000 pixels, as Photoshop's.
+  const MOTION_DISTANCE_MAX = 2000;
+  const sliderOfDistance = (d) => Math.round((Math.log10(Math.max(1, d)) / Math.log10(MOTION_DISTANCE_MAX)) * 1000);
+  const distanceOfSlider = (v) => Math.max(1, Math.round(10 ** ((v / 1000) * Math.log10(MOTION_DISTANCE_MAX))));
+  const motionAngle = (a) => {
+    let v = Math.round(Number(a) || 0) % 180;
+    if (v > 90) v -= 180;
+    if (v < -90) v += 180;
+    return v;
+  };
+  // `preset`: an action's { angle, distance } to start from. Resolves with them once applied,
+  // null when cancelled or not possible.
+  const showMotionBlur = async (preset) => {
+    const doc = app.doc;
+    if (!doc) return null;
+    settleForResize();
+    const target = ops.gaussianBlurTarget();
+    if (target.error) {
+      toast(blurWhy(target.error));
+      return null;
+    }
+    const texts = target.kind === "text" ? styleTargets() : [];
+    if (target.kind === "text" && !texts.length) {
+      toast(styleRefusal());
+      return null;
+    }
+    const kept = lastFilter && lastFilter.kind === "motion" ? lastFilter : null;
+    let angle = motionAngle(preset ? preset.angle : kept ? kept.angle : 0);
+    let distance = Math.max(1, Math.min(MOTION_DISTANCE_MAX, Math.round(preset ? preset.distance : kept ? kept.distance : 10)));
+    let previewOn = true;
+    // As Gaussian Blur's: each try starts again from the step before the dialog, or from the
+    // texts made pixels
+    const base = doc.history[doc.historyIndex];
+    const rasterIds = texts.length ? rasterizeForBlur(texts.map((layer) => layer.id)) : [];
+    const rasterBase = texts.length ? doc.history[doc.historyIndex] : null;
+    const backTo = (step) => {
+      const at = doc.history.indexOf(step);
+      if (at >= 0) ops.rollbackHistory(at);
+    };
+    const token = `gesture:motion-blur:${Date.now()}`;
+    const onScreen = () => {
+      const v = view();
+      return { left: -v.x / v.zoom, top: -v.y / v.zoom, right: (stageW - v.x) / v.zoom, bottom: (stageH - v.y) / v.zoom };
+    };
+    let partial = false;
+    const run = (full) => {
+      if (app.doc !== doc) return null;
+      backTo(rasterBase || base);
+      partial = false;
+      if (!previewOn && !full) return null;
+      let error = null;
+      (rasterIds.length ? rasterIds.map((id) => ({ id })) : [{}]).forEach((options) => {
+        const done = ops.motionBlur(angle, distance, Object.assign({ coalesce: token, area: full ? null : onScreen() }, options));
+        if (done.error) error = error || done.error;
+        if (done.partial) partial = true;
+      });
+      return error;
+    };
+
+    const make = (tag, className, parent, text) => {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (text !== undefined) el.textContent = text;
+      if (parent) parent.appendChild(el);
+      return el;
+    };
+    const body = make("div", "mask-props blur-props motion-props");
+    // Angle: the dial and the number, as Layer Style's
+    const angleLine = make("label", "mask-props__row", body);
+    make("span", "", angleLine, T("Angle"));
+    const dial = make("span", "fxdlg__dial motion-props__dial", angleLine);
+    dial.dir = "ltr";
+    dial.title = T("Drag to set the angle. Shift: by 15°.");
+    const hand = make("i", "fxdlg__hand motion-props__hand", dial);
+    const angleField = make("input", "", angleLine);
+    angleField.type = "number";
+    angleField.min = "-90";
+    angleField.max = "90";
+    angleField.step = "1";
+    angleField.setAttribute("aria-label", T("Angle"));
+    make("span", "mask-props__unit", angleLine, "°");
+    const line = make("label", "mask-props__row", body);
+    make("span", "", line, T("Distance"));
+    const range = make("input", "", line);
+    range.type = "range";
+    range.min = "0";
+    range.max = "1000";
+    range.setAttribute("aria-label", T("Distance"));
+    const number = make("input", "", line);
+    number.type = "number";
+    number.min = "1";
+    number.max = String(MOTION_DISTANCE_MAX);
+    number.step = "1";
+    number.setAttribute("aria-label", T("Distance"));
+    make("span", "mask-props__unit", line, "px");
+    if (texts.length) make("p", "modal__hint", body, T("The text becomes pixels: its words can't be edited any more."));
+    const partNote = make("p", "modal__hint", body, T("The preview blurs the part of the page on screen; OK blurs it all."));
+    partNote.hidden = true;
+    const previewRow = make("label", "levels__preview", body);
+    const previewBox = make("input", "", previewRow);
+    previewBox.type = "checkbox";
+    previewBox.checked = true;
+    make("span", "", previewRow, T("Preview"));
+
+    let frame = 0;
+    let timer = 0;
+    let slow = false;
+    const queue = () => {
+      const go = () => {
+        frame = 0;
+        timer = 0;
+        const t0 = performance.now();
+        run(false);
+        slow = performance.now() - t0 > 60;
+        partNote.hidden = !partial;
+      };
+      if (slow) {
+        clearTimeout(timer);
+        timer = setTimeout(go, 150);
+      } else if (!frame) frame = requestAnimationFrame(go);
+    };
+    // The dial points along the blur, both ways
+    const showAngle = () => { hand.style.transform = `rotate(${-angle}deg)`; };
+    const setAngle = (value, from) => {
+      angle = motionAngle(value);
+      if (from !== angleField) angleField.value = String(angle);
+      showAngle();
+      queue();
+    };
+    const setDistance = (value, from) => {
+      distance = Math.max(1, Math.min(MOTION_DISTANCE_MAX, Math.round(Number(value) || 1)));
+      if (from !== range) range.value = String(sliderOfDistance(distance));
+      if (from !== number) number.value = String(distance);
+      showSliderFill(range);
+      queue();
+    };
+    dial.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      dial.setPointerCapture(event.pointerId);
+      const box = dial.getBoundingClientRect();
+      const turnTo = (e) => {
+        let v = Math.round((Math.atan2(box.top + box.height / 2 - e.clientY, e.clientX - box.left - box.width / 2) * 180) / Math.PI);
+        if (e.shiftKey) v = Math.round(v / 15) * 15;
+        setAngle(v);
+      };
+      const stop = () => {
+        dial.removeEventListener("pointermove", turnTo);
+        dial.removeEventListener("pointerup", stop);
+        dial.removeEventListener("pointercancel", stop);
+      };
+      dial.addEventListener("pointermove", turnTo);
+      dial.addEventListener("pointerup", stop);
+      dial.addEventListener("pointercancel", stop);
+      turnTo(event);
+    });
+    angleField.addEventListener("input", () => { if (angleField.value !== "" && !Number.isNaN(Number(angleField.value))) setAngle(angleField.value, angleField); });
+    angleField.addEventListener("change", () => setAngle(angleField.value));
+    range.addEventListener("input", () => setDistance(distanceOfSlider(Number(range.value)), range));
+    number.addEventListener("input", () => { if (number.value !== "" && !Number.isNaN(Number(number.value))) setDistance(number.value, number); });
+    number.addEventListener("change", () => setDistance(number.value));
+    previewBox.addEventListener("change", () => {
+      previewOn = previewBox.checked;
+      queue();
+    });
+    angleField.value = String(angle);
+    showAngle();
+    setDistance(distance);
+    // Enter is OK from either field (a form with two of them doesn't send itself)
+    body.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing || event.target.tagName === "BUTTON") return;
+      const form = body.closest("form");
+      if (!form) return;
+      event.preventDefault();
+      setAngle(angleField.value, angleField);
+      setDistance(number.value, number);
+      form.requestSubmit();
+    });
+
+    const pending = dialog({
+      title: T("Motion Blur"),
+      body,
+      ready: () => ui.modal.classList.add("modal--levels"),
+    });
+    // The page has to be seen: the window moves by its title, as Gaussian Blur's
+    const modal = ui.modal;
+    const head = modal.querySelector(".modal__head");
+    head.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const [x0, y0] = (modal.style.translate || "0px 0px").split(" ").map((value) => parseFloat(value) || 0);
+      const { clientX, clientY } = event;
+      head.setPointerCapture(event.pointerId);
+      const move = (e) => { modal.style.translate = `${x0 + e.clientX - clientX}px ${y0 + e.clientY - clientY}px`; };
+      const stop = () => {
+        head.removeEventListener("pointermove", move);
+        head.removeEventListener("pointerup", stop);
+        head.removeEventListener("pointercancel", stop);
+      };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", stop);
+      head.addEventListener("pointercancel", stop);
+    });
+    number.focus();
+    number.select();
+    const answer = await pending;
+    modal.style.translate = "";
+    if (frame) cancelAnimationFrame(frame);
+    clearTimeout(timer);
+    if (app.doc !== doc) return null;
+    if (!answer) {
+      backTo(base);
+      return null;
+    }
+    const error = run(true);
+    ops.sealHistory();
+    if (error) toast(blurWhy(error));
+    else recordStep("motionBlur", { angle, distance });
+    lastFilter = { kind: "motion", angle, distance };
+    renderMenusState();
+    return error ? null : { angle, distance };
+  };
+  // Motion Blur without its dialog, as an action or Last Filter plays it: a text rasterized first
+  const applyMotionBlur = ({ angle, distance }) => {
+    if (!app.doc) return;
+    settleForResize();
+    const target = ops.gaussianBlurTarget();
+    if (target.error) throw new Error(blurWhy(target.error));
+    if (target.kind !== "text") {
+      const done = ops.motionBlur(motionAngle(angle), distance);
+      if (done.error) throw new Error(blurWhy(done.error));
+      return;
+    }
+    const texts = styleTargets();
+    if (!texts.length) throw new Error(styleRefusal());
+    rasterizeForBlur(texts.map((layer) => layer.id)).forEach((id) => ops.motionBlur(motionAngle(angle), distance, { id }));
   };
 
   const isParagraph = (layer) => {
@@ -16397,7 +16647,11 @@
     ["Filter", [
       { label: "Last Filter", keys: "Alt+Cmd+F", enabled: () => hasDoc() && Boolean(lastFilter), action: runLastFilter },
       null,
-      { label: "Gaussian Blur…", enabled: hasDoc, action: () => showGaussianBlur() },
+      // Filter > Blur, as Photoshop's
+      { label: "Blur", title: () => TL("Blur (filter menu)", "Blur"), submenu: [
+        { label: "Gaussian Blur…", enabled: hasDoc, action: () => showGaussianBlur() },
+        { label: "Motion Blur…", enabled: hasDoc, action: () => showMotionBlur() },
+      ] },
     ]],
     ["View", [
       { label: "Zoom In", keys: "Cmd+=", enabled: hasDoc, browserWhenOff: true, action: () => zoomStep(1) },
@@ -18857,6 +19111,8 @@
       applyLevels,
       showGaussianBlur,
       applyGaussianBlur,
+      showMotionBlur,
+      applyMotionBlur,
       applyTransform,
       cancelTransform,
       askRadius,

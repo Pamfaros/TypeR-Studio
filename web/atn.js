@@ -1548,6 +1548,7 @@
   };
   const make = {
     gaussianBlur: (o) => step("gaussianBlur", { "Rds ": px(o.radius) }),
+    motionBlur: (o) => step("motionBlur", { Angl: int(o.angle), Dstn: px(o.distance) }),
     // { input: [black, white], gamma, output: [black, white], channel: "Cmps" | "red" | … }
     levels: (o) =>
       step("levels", {

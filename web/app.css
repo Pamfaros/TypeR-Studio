@@ -605,6 +605,9 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .blur-props__modes { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .modal__body .blur-props__mode { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .modal__body .blur-props__mode input { width: auto; height: auto; }
+/* Motion Blur's angle: a line through the dial, both ways */
+.modal__body .motion-props__dial { justify-self: start; margin: 0; }
+.motion-props .motion-props__hand { width: 24px; margin-left: -12px; transform-origin: 50% 50%; }
 /* Select > Color Range */
 .modal.modal--crange { width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
 .crange { display: grid; gap: 10px; }

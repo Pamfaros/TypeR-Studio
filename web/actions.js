@@ -444,6 +444,19 @@
         } else host.applyGaussianBlur(radius);
       };
     },
+    // Motion Blur: its angle and distance, the dialog when the step shows it
+    motionBlur(item) {
+      const distance = pixels(get(item.descriptor, "Dstn"));
+      const angleOf = get(item.descriptor, "Angl");
+      if (!(distance >= 1)) return null;
+      const angle = angleOf && typeof angleOf.value === "number" ? angleOf.value : 0;
+      return async () => {
+        needDoc();
+        if (withDialog(item)) {
+          if (!(await host.showMotionBlur({ angle, distance }))) throw new Stopped();
+        } else host.applyMotionBlur({ angle, distance });
+      };
+    },
     imageSize(item) {
       const d = item.descriptor;
       // No values: the dialog asks, as Photoshop's does
@@ -1611,6 +1624,7 @@
       })];
     },
     gaussianBlur: ({ radius }) => [ATN.make.gaussianBlur({ radius })],
+    motionBlur: ({ angle, distance }) => [ATN.make.motionBlur({ angle, distance })],
     transform: (t) => [ATN.make.transform({
       x: Math.round(t.dx * 100) / 100,
       y: Math.round(t.dy * 100) / 100,
@@ -1676,7 +1690,7 @@
     "Layer:New Layer", "Layer:New Group", "Layer:Duplicate Layer", "Layer:Delete Layer", "Layer:Group Layers", "Layer:Merge Down", "Layer:Merge Visible", "Layer:Flatten Image", "Layer:Clear Layer Style",
     "Layer:Blending Options…", "Layer:Stroke…", "Layer:Inner Shadow…", "Layer:Inner Glow…", "Layer:Colour Overlay…", "Layer:Gradient Overlay…", "Layer:Outer Glow…", "Layer:Drop Shadow…",
     "Edit:Fill with Foreground Colour", "Edit:Fill with Background Colour", "Edit:Content-Aware Fill…", "Edit:Clear", "Edit:Free Transform",
-    "Filter:Gaussian Blur…", "Filter:Last Filter",
+    "Filter:Gaussian Blur…", "Filter:Motion Blur…", "Filter:Last Filter",
   ]);
   // Commands never recorded: the files, the view, the windows, the settings, the tools
   const IGNORED_GROUPS = new Set(["File", "View", "Window", "Help", "Tools", "Mouse", "Actions"]);

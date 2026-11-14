@@ -7722,6 +7722,89 @@
   const blurReach = (variance) => (variance > 0 ? Math.ceil(Math.sqrt(variance) * 4.5) + 1 : 0);
   // A preview blurs only the part of a larger layer that is on screen
   const BLUR_PREVIEW_PIXELS = 4e6;
+  // What a blur does to a plane of numbers, and how far it reaches: Gaussian Blur's, given by
+  // its variance, or another filter's own { plane(plane, W, H), reach } (Motion Blur's)
+  const blurOf = (how) => (typeof how === "number" ? { reach: blurReach(how), plane: (plane, W, H) => blurPlane(plane, W, H, how) } : how);
+
+  /* Filter > Blur > Motion Blur: each pixel the mean of those on a line through it at `angle`
+     (0: across, 90: up and down, counterclockwise as Photoshop's): `distance` + 1 pixels of it,
+     as many each side, the one more ahead for an odd distance (measured in Photoshop 2026: a
+     line 1 pixel wide comes out as d + 1 pixels of 1 / (d + 1)). Each line is laid along a row
+     of pixels (a column when it is steeper than 45°), whole pixels up or down as it goes, and
+     averaged by a running sum: as quick for a long blur as for a short one. The edges carry on
+     past the picture, as Gaussian Blur's. */
+  const MOTION_MAX = 2000;
+  const motionKernel = (angle, distance) => {
+    const length = Math.max(0, Math.min(MOTION_MAX, Number(distance) || 0));
+    const turn = ((Number(angle) || 0) * Math.PI) / 180;
+    const c = Math.cos(turn);
+    const sn = -Math.sin(turn);
+    return { reach: Math.ceil(length / 2) + 2, plane: (plane, W, H) => motionPlane(plane, W, H, c, sn, length) };
+  };
+  // Along each line: `get(i)` the line's i-th pixel (i from 0 to n - 1), `put(i, v)` its mean,
+  // over `half` pixels each side (a fraction of a pixel at the ends)
+  const motionLine = (n, get, put, half, shift, ext) => {
+    const m = Math.ceil(half + Math.abs(shift)) + 1;
+    const len = n + 2 * m;
+    const sum = ext.sums;
+    const val = ext.vals;
+    sum[0] = 0;
+    for (let i = 0; i < len; i++) {
+      const v = get(Math.max(0, Math.min(n - 1, i - m)));
+      val[i] = v;
+      sum[i + 1] = sum[i] + v;
+    }
+    // The integral of the line up to t (in pixels, the pixel i covering i - 0.5 to i + 0.5)
+    const upTo = (t) => {
+      const u = t + m + 0.5;
+      const i = Math.floor(u);
+      return sum[i] + (u - i) * val[i];
+    };
+    const width = 2 * half;
+    for (let i = 0; i < n; i++) put(i, (upTo(i + shift + half) - upTo(i + shift - half)) / width);
+  };
+  const motionPlane = (plane, W, H, c, sn, length) => {
+    if (length < 1 || !W || !H) return;
+    const across = Math.abs(c) >= Math.abs(sn);
+    // Pixels along: x for a line closer to horizontal, y otherwise; `step`: how far the other
+    // way each one goes
+    const n = across ? W : H;
+    const other = across ? H : W;
+    const step = across ? sn / c : c / sn;
+    const along = across ? c : sn;
+    const half = ((Math.round(length) + 1) / 2) * Math.abs(along);
+    const shift = Math.round(length) % 2 ? Math.abs(along) / 2 : 0;
+    if (half < 0.5) return;
+    const off = new Int32Array(n);
+    let lo = 0;
+    let hi = 0;
+    for (let i = 0; i < n; i++) {
+      off[i] = Math.round(i * step);
+      if (off[i] < lo) lo = off[i];
+      if (off[i] > hi) hi = off[i];
+    }
+    const out = new Float32Array(plane.length);
+    const m = Math.ceil(half + Math.abs(shift)) + 1;
+    const ext = { sums: new Float64Array(n + 2 * m + 1), vals: new Float64Array(n + 2 * m) };
+    const index = across ? (i, o) => o * W + i : (i, o) => i * W + o;
+    for (let r = -hi; r < other - lo; r++) {
+      // The pixels of this line inside the picture: one run of them
+      let a = -1;
+      let b = -1;
+      for (let i = 0; i < n; i++) {
+        const o = r + off[i];
+        if (o < 0 || o >= other) {
+          if (a >= 0) break;
+          continue;
+        }
+        if (a < 0) a = i;
+        b = i;
+      }
+      if (a < 0) continue;
+      motionLine(b - a + 1, (i) => plane[index(a + i, r + off[a + i])], (i, v) => { out[index(a + i, r + off[a + i])] = v; }, half, shift, ext);
+    }
+    plane.set(out);
+  };
   // Small blurs: the sampled Gaussian of that variance, its width found by halving
   const blurKernels = new Map();
   const blurKernel = (variance) => {
@@ -7882,13 +7965,13 @@
     if (!opaque) {
       alpha = new Float32Array(N);
       for (let i = 0; i < N; i++) alpha[i] = data[i * 4 + 3];
-      blurPlane(alpha, W, H, variance);
+      blurOf(variance).plane(alpha, W, H);
     }
     const plane = new Float32Array(N);
     for (let c = 0; c < 3; c++) {
       if (opaque) for (let i = 0; i < N; i++) plane[i] = data[i * 4 + c];
       else for (let i = 0; i < N; i++) plane[i] = (data[i * 4 + c] * data[i * 4 + 3]) / 255;
-      blurPlane(plane, W, H, variance);
+      blurOf(variance).plane(plane, W, H);
       for (let y = out.top; y < out.bottom; y++) {
         for (let x = out.left, i = y * W + out.left, k = (y - out.top) * ow; x < out.right; x++, i++, k++) {
           const s = weight ? weight[k] / 255 : 1;
@@ -7949,7 +8032,7 @@
   // it as far as the blur reaches, within the page and the picture, whose edges carry on past
   // them. Null when nothing is left.
   const blurRegions = (doc, vis, variance, grows, area) => {
-    const margin = blurReach(variance);
+    const margin = blurOf(variance).reach;
     const whole = unionOf(vis, { left: 0, top: 0, right: doc.width, bottom: doc.height });
     let out = grows ? whole : vis;
     const selection = doc.state.selection;
@@ -8009,7 +8092,7 @@
     for (let y = from.top; y < from.bottom; y++) {
       for (let x = from.left; x < from.right; x++) plane[(y - read.top) * W + x - read.left] = own[((y - vis.top) * pw + x - vis.left) * 4 + 3] - outside;
     }
-    blurPlane(plane, W, H, variance);
+    blurOf(variance).plane(plane, W, H);
     const box = unionOf(vis, out);
     const bw = box.right - box.left;
     const result = new ImageData(bw, box.bottom - box.top);
@@ -11507,11 +11590,22 @@
     // tries it out in; `options.area`: a part of the page, for a quick look at a large layer
     // (only that part is blurred). { partial } when done, { error } when not.
     gaussianBlur(radius, options = {}) {
+      const variance = blurVariance(radius);
+      return ops.blurWith(variance || null, "Gaussian Blur", options);
+    },
+    // Filter > Blur > Motion Blur, as Photoshop's: `angle` in degrees, `distance` in pixels (1
+    // to 2000), on what Gaussian Blur works on, with its options
+    motionBlur(angle, distance, options = {}) {
+      return ops.blurWith(distance >= 1 ? motionKernel(angle, distance) : null, "Motion Blur", options);
+    },
+    // A blur (a Gaussian's variance, or a kernel: see blurOf) on Gaussian Blur's target, as the
+    // step `name`
+    blurWith(how, name, options = {}) {
       const doc = app.doc;
       const target = options.id !== undefined ? { kind: "pixels", id: options.id } : ops.gaussianBlurTarget();
       if (target.error) return target;
       if (target.kind === "text") return { error: "text" };
-      const variance = blurVariance(radius);
+      const variance = how;
       if (!variance) return { partial: false };
       let done;
       if (target.kind === "pixels") {
@@ -11520,14 +11614,14 @@
         if (lockOf(layer, "pixels")) return { error: "locked" };
         done = blurredRaster(doc, layer, variance, options.area);
         if (done.error) return done;
-        commitState(doc, "Gaussian Blur", { layers: replaceLayer(doc, layer, withPixels(layer, done.canvas, done.x, done.y, pageMask(layer, doc))) }, options.coalesce, () => pageRect(doc, done.rect.left, done.rect.top, done.rect.right, done.rect.bottom));
+        commitState(doc, name, { layers: replaceLayer(doc, layer, withPixels(layer, done.canvas, done.x, done.y, pageMask(layer, doc))) }, options.coalesce, () => pageRect(doc, done.rect.left, done.rect.top, done.rect.right, done.rect.bottom));
       } else {
         const holder = maskHolder(doc, target.kind === "quick" ? "quick" : "mask", target.id);
         if (!holder) return { error: "none" };
         done = blurredMask(doc, holder, variance, options.area);
         if (done.error) return done;
         const change = target.kind === "quick" ? { quickMask: done.mask } : { layers: replaceLayer(doc, holder, { mask: done.mask }) };
-        commitState(doc, "Gaussian Blur", change, options.coalesce, () => pageRect(doc, done.rect.left, done.rect.top, done.rect.right, done.rect.bottom));
+        commitState(doc, name, change, options.coalesce, () => pageRect(doc, done.rect.left, done.rect.top, done.rect.right, done.rect.bottom));
       }
       if (!options.coalesce) firePanelEvent(EVENT_HISTORY);
       return { partial: done.partial };
