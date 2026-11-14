@@ -6609,6 +6609,7 @@
   // the first finger's corner keeps the distance it moved
   const carried = (current, point) => (current.carry ? [point[0] + current.carry.dx, point[1] + current.carry.dy] : point);
   const drawMarquee = (current, event) => {
+    keysLetGo(current, event);
     const [x0, y0, x1, y1] = marqueeBox(current, event);
     setDrag(current.kind === "ellipse" ? ellipsePath(x0, y0, x1, y1) : `M${x0} ${y0}H${x1}V${y1}H${x0}Z`);
     hud(`${Math.round(x1 - x0)} × ${Math.round(y1 - y0)} px`, event);
@@ -6819,7 +6820,6 @@
       if (gesture && gesture.kind === "retouch") window.TypeRRetouch.cancel(gesture);
       gesture = null;
       setDrag("");
-    keysLetGo(current, event);
       hud(null);
       event.preventDefault();
       return;
@@ -7367,6 +7367,7 @@
       current.points.push(point);
       setDrag("M" + current.points.map((p) => `${p[0]} ${p[1]}`).join("L"));
     } else if (current.kind === "textBox" || current.kind === "clean") {
+      keysLetGo(current, event);
       const [x0, y0, x1, y1] = marqueeBox(current, event);
       setDrag(`M${x0} ${y0}H${x1}V${y1}H${x0}Z`);
       hud(`${Math.round(x1 - x0)} × ${Math.round(y1 - y0)} px`, event);
@@ -7577,7 +7578,6 @@
   });
 
   const textAt = (point, slack = 6) => {
-      keysLetGo(current, event);
     const doc = app.doc;
     for (let i = doc.state.layers.length - 1; i >= 0; i--) {
       const layer = doc.state.layers[i];
