@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "Otwarte dokumenty ({count})",
     "A folder": "Folder",
     "Choose a folder…": "Wybierz folder…",
+    "Default folder": "Folder domyślny",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "Otwórz, Otwórz strony i Zapis wsadowy zaczynają w tym folderze, podobnie jak Zapisz jako i Eksportuj dla strony, która nie jest jeszcze plikiem. Bez folderu każde okno otwiera się tam, gdzie było ostatnio.",
     "No folder chosen yet.": "Nie wybrano folderu.",
     "Looking for images…": "Szukanie obrazów…",
     "{count} images": "Obrazy: {count}",

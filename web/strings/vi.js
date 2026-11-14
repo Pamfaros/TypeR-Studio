@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "Tài liệu đang mở ({count})",
     "A folder": "Một thư mục",
     "Choose a folder…": "Chọn thư mục…",
+    "Default folder": "Thư mục mặc định",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "Mở, Mở trang và Lưu hàng loạt bắt đầu ở thư mục này, Lưu thành và Xuất cũng vậy với trang chưa là tệp. Khi chưa đặt, mỗi hộp thoại mở ở nơi bạn dùng lần trước.",
     "No folder chosen yet.": "Chưa chọn thư mục.",
     "Looking for images…": "Đang tìm hình ảnh…",
     "{count} images": "{count} hình ảnh",

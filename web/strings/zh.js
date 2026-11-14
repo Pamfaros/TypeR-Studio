@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "打开的文档（{count}）",
     "A folder": "一个文件夹",
     "Choose a folder…": "选择文件夹…",
+    "Default folder": "默认文件夹",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "打开、打开页面和批量保存从此文件夹开始；尚未成为文件的页面，其存储为和导出也是如此。未设置时，各自在上次的位置打开。",
     "No folder chosen yet.": "尚未选择文件夹。",
     "Looking for images…": "正在查找图像…",
     "{count} images": "{count} 张图像",

@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "열린 문서 ({count})",
     "A folder": "폴더",
     "Choose a folder…": "폴더 선택…",
+    "Default folder": "기본 폴더",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "열기, 페이지 열기, 일괄 저장은 이 폴더에서 시작합니다. 아직 파일이 아닌 페이지의 다른 이름으로 저장과 내보내기도 마찬가지입니다. 설정하지 않으면 마지막으로 있던 곳에서 열립니다.",
     "No folder chosen yet.": "선택한 폴더가 없습니다.",
     "Looking for images…": "이미지를 찾는 중…",
     "{count} images": "이미지 {count}개",

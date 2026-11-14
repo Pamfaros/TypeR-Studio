@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "Açık belgeler ({count})",
     "A folder": "Bir klasör",
     "Choose a folder…": "Klasör seç…",
+    "Default folder": "Varsayılan klasör",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "Aç, Sayfaları aç ve Toplu kaydet bu klasörde başlar; henüz dosya olmayan bir sayfa için Farklı Kaydet ve Dışa aktar da öyle. Klasör yoksa her biri en son bulunduğunuz yerde açılır.",
     "No folder chosen yet.": "Henüz klasör seçilmedi.",
     "Looking for images…": "Görseller aranıyor…",
     "{count} images": "{count} görsel",

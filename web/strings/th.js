@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "เอกสารที่เปิดอยู่ ({count})",
     "A folder": "โฟลเดอร์",
     "Choose a folder…": "เลือกโฟลเดอร์…",
+    "Default folder": "โฟลเดอร์เริ่มต้น",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "เปิด เปิดหน้า และบันทึกเป็นชุด จะเริ่มที่โฟลเดอร์นี้ รวมถึงบันทึกเป็นและส่งออกสำหรับหน้าที่ยังไม่เป็นไฟล์ หากไม่ได้ตั้งไว้ แต่ละอันจะเปิดที่เดิมครั้งล่าสุด",
     "No folder chosen yet.": "ยังไม่ได้เลือกโฟลเดอร์",
     "Looking for images…": "กำลังค้นหารูปภาพ…",
     "{count} images": "{count} รูป",

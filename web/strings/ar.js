@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "المستندات المفتوحة ({count})",
     "A folder": "مجلد",
     "Choose a folder…": "اختيار مجلد…",
+    "Default folder": "المجلد الافتراضي",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "تبدأ «فتح» و«فتح صفحات» و«حفظ دفعة واحدة» في هذا المجلد، وكذلك «حفظ باسم» و«تصدير» لصفحة ليست ملفًا بعد. بدون مجلد، يفتح كلٌّ منها حيث كنت آخر مرة.",
     "No folder chosen yet.": "لم يُختر أي مجلد بعد.",
     "Looking for images…": "جارٍ البحث عن الصور…",
     "{count} images": "عدد الصور: {count}",

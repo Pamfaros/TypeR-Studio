@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "Documentos abiertos ({count})",
     "A folder": "Una carpeta",
     "Choose a folder…": "Elegir una carpeta…",
+    "Default folder": "Carpeta predeterminada",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "Abrir, Abrir páginas y Guardar por lotes empiezan en esta carpeta, igual que Guardar como y Exportar para una página que aún no es un archivo. Sin carpeta, cada uno se abre donde estuvo la última vez.",
     "No folder chosen yet.": "Ninguna carpeta elegida.",
     "Looking for images…": "Buscando imágenes…",
     "{count} images": "{count} imágenes",

@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "Dokumen terbuka ({count})",
     "A folder": "Sebuah folder",
     "Choose a folder…": "Pilih folder…",
+    "Default folder": "Folder bawaan",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "Buka, Buka halaman, dan Simpan sekaligus dimulai di folder ini, begitu juga Simpan Sebagai dan Ekspor untuk halaman yang belum menjadi file. Tanpa folder, masing-masing terbuka di tempat terakhir Anda.",
     "No folder chosen yet.": "Belum ada folder yang dipilih.",
     "Looking for images…": "Mencari gambar…",
     "{count} images": "{count} gambar",

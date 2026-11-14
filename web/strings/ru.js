@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "Открытые документы ({count})",
     "A folder": "Папка",
     "Choose a folder…": "Выбрать папку…",
+    "Default folder": "Папка по умолчанию",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "Открыть, Открыть страницы и Пакетное сохранение начинают с этой папки, как и Сохранить как и Экспорт для страницы, которая ещё не файл. Без папки каждое окно открывается там, где вы были в прошлый раз.",
     "No folder chosen yet.": "Папка не выбрана.",
     "Looking for images…": "Поиск изображений…",
     "{count} images": "Изображений: {count}",

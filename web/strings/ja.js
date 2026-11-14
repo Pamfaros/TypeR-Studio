@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "開いているドキュメント（{count}）",
     "A folder": "フォルダー",
     "Choose a folder…": "フォルダーを選択…",
+    "Default folder": "既定のフォルダー",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "開く、ページを開く、一括保存はこのフォルダーから始まります。まだファイルになっていないページの別名で保存と書き出しも同様です。未設定のときは、前回の場所で開きます。",
     "No folder chosen yet.": "フォルダーが選択されていません。",
     "Looking for images…": "画像を探しています…",
     "{count} images": "{count} 枚の画像",

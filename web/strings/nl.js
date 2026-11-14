@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "Geopende documenten ({count})",
     "A folder": "Een map",
     "Choose a folder…": "Kies een map…",
+    "Default folder": "Standaardmap",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "Openen, Pagina’s openen en Batchgewijs opslaan beginnen in deze map, net als Opslaan als en Exporteren voor een pagina die nog geen bestand is. Zonder map opent elk venster waar u het laatst was.",
     "No folder chosen yet.": "Nog geen map gekozen.",
     "Looking for images…": "Afbeeldingen zoeken…",
     "{count} images": "{count} afbeeldingen",

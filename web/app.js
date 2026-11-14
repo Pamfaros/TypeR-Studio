@@ -3514,6 +3514,60 @@
     // Discord activity: in the desktop app only, a browser can't reach Discord
     const Discord = window.TypeRDesktop && window.TypeRDesktop.discord;
     const discord = Boolean(Discord) && (await Discord.available().catch(() => false));
+    // The default folder picked here, kept with OK: undefined while unchanged, null for none
+    let folderChoice;
+    const folderCard = () => {
+      const box = document.createElement("div");
+      box.className = "set__card";
+      const line = document.createElement("div");
+      line.className = "set__row";
+      const text = document.createElement("span");
+      text.className = "set__text";
+      const name = document.createElement("span");
+      name.className = "set__label";
+      name.textContent = T("Default folder");
+      const hint = document.createElement("p");
+      hint.className = "modal__hint";
+      hint.textContent = T("Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.");
+      // The desktop app knows where the folder is on the disk
+      const where = document.createElement("p");
+      where.className = "modal__hint set__path";
+      text.append(name, hint, where);
+      const control = document.createElement("span");
+      control.className = "set__folder";
+      const choose = document.createElement("button");
+      choose.type = "button";
+      choose.className = "btn";
+      const clear = iconButton("close", T("Clear"), false, () => {
+        folderChoice = null;
+        show();
+      });
+      const current = () => (folderChoice === undefined ? defaultFolder : folderChoice);
+      const show = async () => {
+        const folder = current();
+        clear.hidden = !folder;
+        choose.textContent = folder ? folder.name : T("Choose a folder…");
+        where.hidden = true;
+        if (!folder || !Studio) return;
+        const path = await whereIs(folder).catch(() => null);
+        if (!path || current() !== folder) return;
+        where.textContent = path;
+        where.hidden = false;
+      };
+      choose.addEventListener("click", async () => {
+        try {
+          folderChoice = await pickIn("showDirectoryPicker", { id: "typer-default-folder" }, current());
+          show();
+        } catch (error) {
+          if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Default folder"), error: error.message || error }), true);
+        }
+      });
+      control.append(choose, clear);
+      line.append(text, control);
+      box.appendChild(line);
+      show();
+      return box;
+    };
     const answer = await dialog({
       title: T("Settings"),
       keepOpen: () => Boolean(shortcuts) && shortcuts.stopRecording(),
@@ -3553,6 +3607,7 @@
         const general = document.createElement("div");
         general.className = "settings__pane";
         general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed", ...(discord ? ["discord"] : [])), card("language", "ligature", "hyphenate", "textOnTop", "sizeStep"));
+        if (canChooseFolder) general.appendChild(folderCard());
         middle.textContent = "";
         const panes = { general, appearance: appearance.pane };
         if (generative) panes.generative = generative.pane;
@@ -3638,6 +3693,7 @@
     settings.wheel = answer.wheel;
     settings.zoomSpeed = answer.zoomSpeed;
     if (discord) settings.discord = answer.discord;
+    if (folderChoice !== undefined) setDefaultFolder(folderChoice);
     // Text with no language of its own is drawn again in the new one
     const relanguage = d.language !== answer.language;
     d.language = answer.language;
@@ -5486,7 +5542,7 @@
       });
     }
     try {
-      const handles = await window.showOpenFilePicker({ id: "typer-open-pages", multiple: true, types: PAGE_TYPES });
+      const handles = await pickIn("showOpenFilePicker", { id: "typer-open-pages", multiple: true, types: PAGE_TYPES });
       const entries = [];
       for (const handle of handles) entries.push({ file: await handle.getFile(), handle });
       return entries;
@@ -10948,10 +11004,62 @@
     }
   };
 
+  // Settings > Default Folder: where Open, Open Pages and Open Folder start, and Save As and
+  // Export for a page that isn't a file yet. A browser takes no path: the folder is a handle the
+  // user picked, kept in its storage. Without one, each picker opens where it did last (its id).
+  const FOLDER_DB = "typer-web-folders";
+  const folderStore = (mode, act) => new Promise((resolve, reject) => {
+    const request = indexedDB.open(FOLDER_DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("folders");
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction("folders", mode);
+      const asked = act(tx.objectStore("folders"));
+      tx.oncomplete = () => {
+        db.close();
+        resolve(asked && asked.result);
+      };
+      tx.onabort = tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    };
+  });
+  let defaultFolder = null;
+  const canChooseFolder = typeof window.showDirectoryPicker === "function" && !Shell.touch;
+  if (canChooseFolder) {
+    folderStore("readonly", (store) => store.get("default"))
+      .then((handle) => { defaultFolder = handle || null; })
+      .catch((error) => console.warn("TypeR web: the default folder can't be read", error));
+  }
+  const setDefaultFolder = async (handle) => {
+    defaultFolder = handle || null;
+    try {
+      await folderStore("readwrite", (store) => (handle ? store.put(handle, "default") : store.delete("default")));
+    } catch (error) {
+      console.warn("TypeR web: the default folder can't be kept", error);
+    }
+  };
+  // A file or folder picker (`kind`: showOpenFilePicker…) opened in the page's own folder
+  // (`near`, a handle), else in the default folder, else where it did last. A folder moved or
+  // deleted since doesn't stop it.
+  const pickIn = async (kind, options, near) => {
+    for (const start of [near, defaultFolder]) {
+      if (!start) continue;
+      try {
+        return await window[kind](Object.assign({ startIn: start }, options));
+      } catch (error) {
+        if (error.name === "AbortError") throw error;
+      }
+    }
+    return window[kind](options);
+  };
+
   const openDialog = async () => {
     if (canPickFiles) {
       try {
-        const handles = await window.showOpenFilePicker({ multiple: true, types: OPEN_TYPES, excludeAcceptAllOption: false });
+        const handles = await pickIn("showOpenFilePicker", { id: "typer-open-pages", multiple: true, types: OPEN_TYPES, excludeAcceptAllOption: false });
         const entries = [];
         for (const handle of handles) entries.push({ file: await handle.getFile(), handle });
         await openFiles(entries);
@@ -10990,7 +11098,7 @@
       return;
     }
     try {
-      openFolderEntries(await filesOfFolder(await window.showDirectoryPicker({ id: "typer-open-folder", mode: "readwrite" })));
+      openFolderEntries(await filesOfFolder(await pickIn("showDirectoryPicker", { id: "typer-open-folder", mode: "readwrite" })));
     } catch (error) {
       if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Open Pages…"), error: error.message || error }), true);
     }
@@ -11011,7 +11119,7 @@
       return;
     }
     try {
-      const handles = await window.showOpenFilePicker({ id: "typer-open-pages", multiple: true, types: PAGE_TYPES });
+      const handles = await pickIn("showOpenFilePicker", { id: "typer-open-pages", multiple: true, types: PAGE_TYPES });
       const entries = [];
       for (const handle of handles) entries.push({ file: await handle.getFile(), handle });
       await openChapter(entries);
@@ -11946,7 +12054,8 @@
       if (window.showSaveFilePicker) {
         // PNG, JPEG and WebP too, as in Photoshop: the format is the one chosen in the dialog
         const images = Object.keys(IMAGE_EXTENSIONS).filter((type) => type !== "image/webp" || canWriteWebp);
-        const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: "Photoshop", accept: { "image/vnd.adobe.photoshop": [photoshopExtension(doc), ".psd", ".psb"].filter((item, at, all) => all.indexOf(item) === at) } }, ...images.map((type) => ({ description: IMAGE_LABELS[type], accept: { [type]: type === "image/jpeg" ? [".jpg", ".jpeg"] : [IMAGE_EXTENSIONS[type]] } }))] });
+        // In the page's own folder, as in Photoshop
+        const handle = await pickIn("showSaveFilePicker", { id: "typer-save", suggestedName: name, types: [{ description: "Photoshop", accept: { "image/vnd.adobe.photoshop": [photoshopExtension(doc), ".psd", ".psb"].filter((item, at, all) => all.indexOf(item) === at) } }, ...images.map((type) => ({ description: IMAGE_LABELS[type], accept: { [type]: type === "image/jpeg" ? [".jpg", ".jpeg"] : [IMAGE_EXTENSIONS[type]] } }))] }, doc.handle && doc.handle.kind === "file" ? doc.handle : null);
         const image = images.find((type) => (type === "image/jpeg" ? /\.jpe?g$/i : new RegExp(`\\${IMAGE_EXTENSIONS[type]}$`, "i")).test(handle.name));
         if (image) return saveImageCopy(doc, handle, image);
         const note = savingNote(doc, block);
@@ -12118,7 +12227,7 @@
     const blob = await imageBlob(doc, type, quality);
     try {
       if (window.showSaveFilePicker) {
-        const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: IMAGE_LABELS[type], accept: { [type]: [extension] } }] });
+        const handle = await pickIn("showSaveFilePicker", { id: "typer-export", suggestedName: name, types: [{ description: IMAGE_LABELS[type], accept: { [type]: [extension] } }] }, doc.handle && doc.handle.kind === "file" ? doc.handle : null);
         await writeTo(handle, blob);
       } else await shareOrDownload([{ blob, name }]);
       toast(fill(T(window.showSaveFilePicker ? "Saved {name}." : "Downloaded {name}."), { name }));
@@ -12326,7 +12435,7 @@
         return;
       }
       try {
-        state.sourceFolder = await window.showDirectoryPicker({ id: "typer-batch-source", mode: "readwrite" });
+        state.sourceFolder = await pickIn("showDirectoryPicker", { id: "typer-batch-source", mode: "readwrite" });
         state.sourceName = state.sourceFolder.name;
         await scan();
       } catch (error) {
@@ -12353,16 +12462,8 @@
       return doc ? doc.handle : null;
     };
     const target = toFolder ? folderRow(two, async () => {
-      const options = { id: "typer-batch-save", mode: "readwrite" };
-      const near = imagesPlace();
       try {
-        try {
-          state.targetFolder = await window.showDirectoryPicker(near ? Object.assign({ startIn: near }, options) : options);
-        } catch (error) {
-          // A file moved or deleted since it was opened: the picker opens where it last did
-          if (!near || error.name === "AbortError") throw error;
-          state.targetFolder = await window.showDirectoryPicker(options);
-        }
+        state.targetFolder = await pickIn("showDirectoryPicker", { id: "typer-batch-save", mode: "readwrite" }, imagesPlace());
         render();
       } catch (error) {
         if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
@@ -12836,7 +12937,7 @@
     const near = docs.map((doc) => doc.handle).find((handle) => handle && handle.kind === "file");
     let folder;
     try {
-      folder = await window.showDirectoryPicker(Object.assign({ id: "typer-photoshop", mode: "readwrite" }, near ? { startIn: near } : {}));
+      folder = await pickIn("showDirectoryPicker", { id: "typer-photoshop", mode: "readwrite" }, near);
     } catch (error) {
       if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
       return null;

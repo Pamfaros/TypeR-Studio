@@ -120,6 +120,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Open documents ({count})": "Відкриті документи ({count})",
     "A folder": "Тека",
     "Choose a folder…": "Вибрати теку…",
+    "Default folder": "Тека за замовчуванням",
+    "Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.": "Відкрити, Відкрити сторінки та Пакетне збереження починають із цієї теки, як і Зберегти як та Експорт для сторінки, що ще не є файлом. Без теки кожне вікно відкривається там, де ви були минулого разу.",
     "No folder chosen yet.": "Теку не вибрано.",
     "Looking for images…": "Пошук зображень…",
     "{count} images": "Зображень: {count}",
