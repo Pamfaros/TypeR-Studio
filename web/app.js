@@ -3021,9 +3021,11 @@
     event.preventDefault();
     event.stopPropagation();
   }, { capture: true, passive: false });
-  const scrubbed = (text, input, control = input) => {
+  // `from`: the number a drag starts from when the field shows a word, as Leading's Auto;
+  // `step`: how the wheel changes it, when not by the field's own steps
+  const scrubbed = (text, input, control = input, { from, step } = {}) => {
     const label = labelled(text, control);
-    wheelChanges(label, input);
+    wheelChanges(label, input, step);
     const name = label.firstChild;
     name.classList.add("scrub");
     name.title = T("Drag to change the value. Hold Shift to go faster.");
@@ -3042,7 +3044,7 @@
       name.setPointerCapture(event.pointerId);
       const start = event.clientX;
       let last = start;
-      let value = Number(input.value) || 0;
+      let value = from ? from() : Number(input.value) || 0;
       let frame = 0;
       const commit = () => {
         frame = 0;
@@ -9980,6 +9982,9 @@
     input.title = T("Leading");
     input.setAttribute("aria-label", T("Leading"));
     input.value = manual ? shown(style.leading) : T("Auto");
+    // Dragged on its name, it goes from these limits, and from what Auto gives
+    input.min = "0.1";
+    input.max = "5000";
     let last = input.value;
     const apply = (value) => {
       if (value === "auto") {
@@ -10045,7 +10050,11 @@
       open(true);
     });
     box.append(input, opener);
-    return { box, input, step };
+    const from = () => {
+      const value = read();
+      return value === "auto" || value === null ? Math.round(autoValue() * 100) / 100 : value;
+    };
+    return { box, input, step, from };
   };
 
   let characterKey = "";
@@ -10092,9 +10101,8 @@
     }
     host.append(scrubbed(T("Size"), c.size, withSteps(c.size)));
     const leading = leadingField(layer, style);
-    const leadingRow = labelled(T("Leading"), leading.box);
-    wheelChanges(leadingRow, leading.input, leading.step);
-    host.append(leadingRow);
+    // Dragged on its name, as Size, from what Auto gives when it is on
+    host.append(scrubbed(T("Leading"), leading.input, leading.box, { from: leading.from, step: leading.step }));
     const aaRow = labelled("aa", c.antiAlias);
     aaRow.classList.add("wide");
     host.append(aaRow);
