@@ -816,6 +816,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Baseline shift": "Basislijnverschuiving",
     "Kerning": "Kerning",
     "Metrics": "Metrisch",
+    "Click between two letters to set their kerning. For selected letters, use Tracking.": "Klik tussen twee letters om hun kerning in te stellen. Gebruik Tracking voor geselecteerde letters.",
     "Alt + left or right arrow: kerning at the cursor, or tracking of the selection.": "Alt + pijl links of rechts: kerning bij de cursor, of spatiëring van de selectie.",
     "There is no PSD, PNG, JPEG or WebP in this folder.": "Deze map bevat geen PSD, PNG, JPEG of WebP.",
     "No recent files yet.": "Nog geen recente bestanden.",

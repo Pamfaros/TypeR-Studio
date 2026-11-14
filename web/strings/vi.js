@@ -816,6 +816,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Baseline shift": "Dịch đường cơ sở",
     "Kerning": "Kerning",
     "Metrics": "Theo phông",
+    "Click between two letters to set their kerning. For selected letters, use Tracking.": "Nhấp vào giữa hai chữ để đặt kerning cho chúng. Với các chữ đã chọn, hãy dùng Tracking.",
     "Alt + left or right arrow: kerning at the cursor, or tracking of the selection.": "Alt + mũi tên trái hoặc phải: kerning tại con trỏ, hoặc tracking của vùng chọn.",
     "There is no PSD, PNG, JPEG or WebP in this folder.": "Thư mục này không có PSD, PNG, JPEG hoặc WebP.",
     "No recent files yet.": "Chưa có tệp gần đây.",

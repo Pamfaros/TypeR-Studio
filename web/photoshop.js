@@ -134,6 +134,12 @@
     return lines;
   };
 
+  // Kerning set by hand between two letters is kept, as Photoshop keeps it, on the second one:
+  // the space before it, in thousandths of an em. That pair loses the font's own kerning.
+  const kernBefore = (style, size) => (style.kerning ? (style.kerning / 1000) * size : 0);
+  // Two runs whose letters are drawn alike: the font kerns the pair where they meet
+  const sameLetters = (a, b, resolution) => cssFont(a, 10) === cssFont(b, 10) && sizePxOf(a, resolution) === sizePxOf(b, resolution) && (a.horizontalScale || 100) === (b.horizontalScale || 100) && a.fontCaps === b.fontCaps && languageOf(a) === languageOf(b);
+
   const measureRuns = (runs, resolution) => {
     let advance = 0;
     let ascent = 0;
@@ -152,14 +158,29 @@
       const scaleX = (run.style.horizontalScale || 100) / 100;
       const scaleY = (run.style.verticalScale || 100) / 100;
       const shift = ((run.style.impliedBaselineShift !== undefined ? run.style.impliedBaselineShift : run.style.baselineShift) || 0) * (resolution / 72);
-      placed.push({ run, shown, x: advance, size, scaleX, scaleY, shift });
-      inkLeft = Math.min(inkLeft, advance - m.actualBoundingBoxLeft * scaleX);
-      inkRight = Math.max(inkRight, advance + m.actualBoundingBoxRight * scaleX);
-      advance += m.width * scaleX;
-      ascent = Math.max(ascent, m.actualBoundingBoxAscent * scaleY + shift);
-      descent = Math.max(descent, m.actualBoundingBoxDescent * scaleY - shift);
-      fontAscent = Math.max(fontAscent, (m.fontBoundingBoxAscent || m.actualBoundingBoxAscent) * scaleY);
-      fontDescent = Math.max(fontDescent, (m.fontBoundingBoxDescent || m.actualBoundingBoxDescent) * scaleY);
+      // Drawn apart, the letter kerned by hand and the one after it would lose the font's kerning
+      // of their pair: it is added back
+      const before = runs[index - 1];
+      if (before && before.style.kerning && !run.style.kerning && run.style.autoKern !== "manual" && before.text && run.text && sameLetters(before.style, run.style, resolution)) {
+        const left = shownText({ text: before.text.slice(-1), style: run.style });
+        const right = shownText({ text: run.text[0], style: run.style });
+        advance += (measureCtx.measureText(left + right).width - measureCtx.measureText(left).width - measureCtx.measureText(right).width) * scaleX;
+      }
+      // Each letter kerned by hand is drawn on its own, after its space (none at a line's start)
+      const kern = kernBefore(run.style, size);
+      (kern ? Array.from(run.text) : [run.text]).forEach((text) => {
+        if (kern && (placed.length || advance)) advance += kern;
+        const shown = shownText({ text, style: run.style });
+        const m = measureCtx.measureText(shown);
+        placed.push({ run, shown, x: advance, size, scaleX, scaleY, shift });
+        inkLeft = Math.min(inkLeft, advance - m.actualBoundingBoxLeft * scaleX);
+        inkRight = Math.max(inkRight, advance + m.actualBoundingBoxRight * scaleX);
+        advance += m.width * scaleX;
+        ascent = Math.max(ascent, m.actualBoundingBoxAscent * scaleY + shift);
+        descent = Math.max(descent, m.actualBoundingBoxDescent * scaleY - shift);
+        fontAscent = Math.max(fontAscent, (m.fontBoundingBoxAscent || m.actualBoundingBoxAscent) * scaleY);
+        fontDescent = Math.max(fontDescent, (m.fontBoundingBoxDescent || m.actualBoundingBoxDescent) * scaleY);
+      });
     });
     if (!runs.length) return { advance: 0, ascent: 0, descent: 0, inkLeft: 0, inkRight: 0, fontAscent: 0, fontDescent: 0, placed };
     return { advance, ascent, descent, inkLeft, inkRight, fontAscent, fontDescent, placed };
@@ -11105,6 +11126,8 @@
         const patched = (style) => {
           const change = typeof patch === "function" ? patch(style) : patch;
           Object.assign(style, change);
+          // No kerning set by hand: none kept, so the letter joins the style around it
+          if (change.kerning === 0) delete style.kerning;
           if (change.size) style.impliedFontSize = change.size;
           if (change.leading) style.impliedLeading = change.leading;
           if (change.baselineShift !== undefined) style.impliedBaselineShift = change.baselineShift;
@@ -11915,11 +11938,23 @@
     while (start < before.length && start < after.length && before[start] === after[start]) start++;
     let end = 0;
     while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end++;
+    // The kerning set by hand before a letter stays that letter's: what is typed after it
+    // doesn't take it, but the font's kerning of the letters around
+    let typed = styleAt(start > 0 ? start - 1 : 0);
+    if (typed.kerning) {
+      let plain = null;
+      for (let at = start - 2; at >= 0 && !plain; at--) if (!styleAt(at).kerning) plain = styleAt(at);
+      if (!plain) plain = (ranges.find((range) => !range.textStyle.kerning) || {}).textStyle;
+      typed = clone(typed);
+      delete typed.kerning;
+      if (plain && plain.autoKern) typed.autoKern = plain.autoKern;
+      else delete typed.autoKern;
+    }
     const styles = [];
     for (let at = 0; at < after.length; at++) {
       if (at < start) styles.push(styleAt(at));
       else if (at >= after.length - end) styles.push(styleAt(before.length - (after.length - at)));
-      else styles.push(styleAt(start > 0 ? start - 1 : 0));
+      else styles.push(typed);
     }
     return rangesFromStyles(styles, ranges[0].textStyle);
   };

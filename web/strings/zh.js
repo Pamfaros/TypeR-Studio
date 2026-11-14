@@ -816,6 +816,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Baseline shift": "基线偏移",
     "Kerning": "字距微调",
     "Metrics": "度量标准",
+    "Click between two letters to set their kerning. For selected letters, use Tracking.": "在两个字母之间单击以设置字距微调。对于选中的字母，请使用字距调整。",
     "Alt + left or right arrow: kerning at the cursor, or tracking of the selection.": "Alt + 左右方向键:调整光标处的字距微调,或所选文字的字距。",
     "There is no PSD, PNG, JPEG or WebP in this folder.": "此文件夹中没有 PSD、PNG、JPEG 或 WebP。",
     "No recent files yet.": "还没有最近的文件。",

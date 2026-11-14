@@ -816,6 +816,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Baseline shift": "Deslocamento da linha de base",
     "Kerning": "Kerning",
     "Metrics": "Métrica",
+    "Click between two letters to set their kerning. For selected letters, use Tracking.": "Clique entre duas letras para definir o kerning delas. Para letras selecionadas, use o tracking.",
     "Alt + left or right arrow: kerning at the cursor, or tracking of the selection.": "Alt + seta esquerda ou direita: kerning no cursor ou tracking da seleção.",
     "There is no PSD, PNG, JPEG or WebP in this folder.": "Não há PSD, PNG, JPEG nem WebP nesta pasta.",
     "No recent files yet.": "Ainda não há arquivos recentes.",

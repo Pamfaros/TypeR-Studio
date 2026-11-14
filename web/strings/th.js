@@ -816,6 +816,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Baseline shift": "ระยะเลื่อนเส้นฐาน",
     "Kerning": "ระยะช่องไฟ",
     "Metrics": "ตามฟอนต์",
+    "Click between two letters to set their kerning. For selected letters, use Tracking.": "คลิกระหว่างตัวอักษรสองตัวเพื่อตั้งระยะช่องไฟ สำหรับตัวอักษรที่เลือก ให้ใช้ Tracking",
     "Alt + left or right arrow: kerning at the cursor, or tracking of the selection.": "Alt + ลูกศรซ้ายหรือขวา: ปรับช่องไฟที่เคอร์เซอร์ หรือระยะอักษรของส่วนที่เลือก",
     "There is no PSD, PNG, JPEG or WebP in this folder.": "ไม่มีไฟล์ PSD, PNG, JPEG หรือ WebP ในโฟลเดอร์นี้",
     "No recent files yet.": "ยังไม่มีไฟล์ล่าสุด",

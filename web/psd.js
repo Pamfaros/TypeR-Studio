@@ -221,6 +221,8 @@
     const language = PS().textLanguageName(style.language);
     if (language) out.textLanguage = language;
     if (style.autoKerning === false) out.autoKern = "manual";
+    // Kerning set by hand: the space before this letter, in thousandths of an em
+    if (style.kerning) out.kerning = style.kerning;
     if (style.leading && style.autoLeading === false) out.leading = (style.leading * scale * 72) / resolution;
     return out;
   };
@@ -779,7 +781,9 @@
       fontBaseline: style.baseline === "subScript" ? 2 : style.baseline === "superScript" ? 1 : 0,
       underline: Boolean(style.underline) && style.underline !== "underlineOff",
       strikethrough: Boolean(style.strikethrough) && style.strikethrough !== "strikethroughOff",
-      autoKerning: style.autoKern !== "manual",
+      // As Photoshop writes a pair kerned by hand: on its second letter, without the font's kerning
+      autoKerning: style.autoKern !== "manual" && !style.kerning,
+      kerning: style.kerning || 0,
       ligatures: style.ligature !== false,
       dLigatures: Boolean(style.altligature),
       language: PS().textLanguageNumber(style.textLanguage),

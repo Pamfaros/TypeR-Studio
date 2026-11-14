@@ -8226,15 +8226,65 @@
     PS.announce("editing");
   };
 
-  // Kerning at the cursor is the space after the letter before it. A selection gets tracking;
-  // outside the editor, the whole text does.
+  // Kerning as Photoshop sets it: at the cursor, the space between the letters on either side,
+  // kept on the letter after the cursor, in thousandths of an em (-1000 to 10000). A selection
+  // or a whole text only takes Metrics or 0: a number there is Tracking's job.
+  const KERNING_LIMITS = [-1000, 10000];
+  // The letter after the cursor, when the cursor sits between two letters of the text typed in;
+  // -1 otherwise
+  const kernedLetter = (layer) => {
+    if (ui.editor.hidden || !editing || !layer || editing.id !== layer.id) return -1;
+    const { selectionStart, selectionEnd } = ui.editor;
+    const length = String(layer.params.layerText.textKey || "").length;
+    return selectionStart === selectionEnd && selectionStart > 0 && selectionStart < length ? selectionStart : -1;
+  };
+  const styleAtLetter = (layer, at) => {
+    const ranges = layer.params.layerText.textStyleRange;
+    return (ranges.find((range) => at >= range.from && at < range.to) || ranges[ranges.length - 1]).textStyle;
+  };
+  // "metrics", "0", or the number set between the two letters at the cursor
+  const kerningShown = (layer) => {
+    const at = kernedLetter(layer);
+    const style = at >= 0 ? styleAtLetter(layer, at) : styleShown(layer);
+    if (at >= 0 && style.kerning) return String(style.kerning);
+    return style.autoKern === "manual" ? "0" : "metrics";
+  };
+  // False when a number was asked for outside the cursor: nothing changes then
+  const setKerning = (value) => {
+    const layer = activeTexts()[0];
+    const at = kernedLetter(layer);
+    if (at >= 0) {
+      // Metrics gives the pair back to the font, as the letters before it have it
+      const left = styleAtLetter(layer, at - 1);
+      const patch = value === "metrics" ? { kerning: 0, autoKern: left.autoKern === "manual" ? "metricsKern" : left.autoKern } : { kerning: value, autoKern: "manual" };
+      ops.setTextStyle([editing.id], patch, null, "kerning", [at, at + 1]);
+    } else if (value === "metrics" || value === 0) {
+      // The last one chosen is the one new text takes, as the font and the size
+      app.textDefaults.autoKern = value === "metrics" ? "metricsKern" : "manual";
+      keepSettings();
+      patchTypography({ kerning: 0, autoKern: app.textDefaults.autoKern });
+    } else {
+      toast(T("Click between two letters to set their kerning. For selected letters, use Tracking."));
+      return false;
+    }
+    characterKey = "";
+    renderCharacter();
+    return true;
+  };
+  // Alt + ← or →: the kerning at the cursor, the tracking of a selection; outside the editor,
+  // the whole text's tracking
   const kern = (direction, large) => {
     const delta = direction * (large ? 100 : 20);
     const change = (style) => ({ tracking: (style.tracking || 0) + delta });
     if (!ui.editor.hidden && editing) {
       const { selectionStart, selectionEnd } = ui.editor;
-      const range = selectionStart < selectionEnd ? [selectionStart, selectionEnd] : selectionStart > 0 ? [selectionStart - 1, selectionStart] : null;
-      if (range) ops.setTextStyle([editing.id], change, null, "kerning", range);
+      const layer = typedLayer();
+      const at = kernedLetter(layer);
+      if (selectionStart < selectionEnd) ops.setTextStyle([editing.id], change, null, "kerning", [selectionStart, selectionEnd]);
+      else if (at >= 0) {
+        const value = Math.max(KERNING_LIMITS[0], Math.min(KERNING_LIMITS[1], (styleAtLetter(layer, at).kerning || 0) + delta));
+        ops.setTextStyle([editing.id], { kerning: value, autoKern: "manual" }, null, "kerning", [at, at + 1]);
+      }
     } else applyTextPatch(change, null, "kerning");
     characterKey = "";
     renderCharacter();
@@ -10019,12 +10069,14 @@
     opener.setAttribute("aria-expanded", "false");
     if (refocus && opener.isConnected) opener.focus();
   };
-  const openLeadingMenu = (opener, current, pick, byKeys) => {
+  // `entries`: [value, text] for each item, null for a line between them (Leading's by default;
+  // Kerning's list is opened the same way)
+  const openLeadingMenu = (opener, current, pick, byKeys, entries) => {
     closeLeadingMenu();
     const list = document.createElement("div");
     list.className = "menu__list menu__list--context blend-menu";
     list.setAttribute("role", "listbox");
-    list.setAttribute("aria-label", T("Leading"));
+    list.setAttribute("aria-label", opener.title || T("Leading"));
     if (lang === "ar") list.dir = "rtl";
     const items = [];
     const add = (value, text) => {
@@ -10042,11 +10094,14 @@
       items.push(item);
       list.appendChild(item);
     };
-    add("auto", T("Auto"));
-    const sep = document.createElement("div");
-    sep.className = "menu__sep";
-    list.appendChild(sep);
-    LEADING_PRESETS.forEach((value) => add(String(value), String(value)));
+    (entries || [["auto", T("Auto")], null, ...LEADING_PRESETS.map((value) => [String(value), String(value)])]).forEach((entry) => {
+      if (entry) add(entry[0], entry[1]);
+      else {
+        const sep = document.createElement("div");
+        sep.className = "menu__sep";
+        list.appendChild(sep);
+      }
+    });
     // A click in the list doesn't take the focus from the text being typed
     list.addEventListener("pointerdown", (event) => event.preventDefault());
     document.body.appendChild(list);
@@ -10174,13 +10229,82 @@
     return { box, input, step, from };
   };
 
+  // Kerning as Photoshop sets it (see setKerning): Metrics, 0 or a number, typed or from the
+  // list; the numbers only between two letters, at the cursor
+  const KERNING_PRESETS = [-100, -75, -50, -25, -10, -5, 5, 10, 25, 50, 75, 100, 200];
+  const kerningField = (layer) => {
+    const named = (value) => (value === "metrics" ? T("Metrics") : String(value));
+    const box = document.createElement("span");
+    box.className = "combo";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.title = T("Alt + left or right arrow: kerning at the cursor, or tracking of the selection.");
+    input.setAttribute("aria-label", T("Kerning"));
+    input.value = named(kerningShown(layer));
+    let last = input.value;
+    const read = () => {
+      const text = input.value.trim();
+      if (!text || /^metrics$/i.test(text) || text.toLowerCase() === T("Metrics").toLowerCase()) return "metrics";
+      const value = parseFloat(text.replace(",", "."));
+      return Number.isFinite(value) ? Math.round(Math.max(KERNING_LIMITS[0], Math.min(KERNING_LIMITS[1], value))) : null;
+    };
+    const apply = (value) => {
+      if (setKerning(value)) last = named(value);
+      input.value = last;
+    };
+    input.addEventListener("change", () => {
+      const value = read();
+      if (value === null) input.value = last;
+      else if (input.value !== last) apply(value);
+    });
+    // Up or down by one, ten with Shift, from the arrows or the wheel: between two letters only
+    const step = (steps, shift) => {
+      const value = read();
+      if (value === null || !steps || kernedLetter(layer) < 0) return;
+      apply(Math.max(KERNING_LIMITS[0], Math.min(KERNING_LIMITS[1], (value === "metrics" ? 0 : value) + steps * (shift ? 10 : 1))));
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") input.blur();
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      event.preventDefault();
+      step(event.key === "ArrowUp" ? 1 : -1, event.shiftKey);
+    });
+    const opener = document.createElement("button");
+    opener.type = "button";
+    opener.className = "combo__open";
+    opener.title = T("Kerning");
+    opener.setAttribute("aria-label", T("Kerning"));
+    opener.setAttribute("aria-haspopup", "listbox");
+    opener.setAttribute("aria-expanded", "false");
+    const open = (byKeys) => {
+      const value = read();
+      const entries = [["metrics", T("Metrics")], ["0", "0"]];
+      if (kernedLetter(layer) >= 0) entries.push(...KERNING_PRESETS.map((preset) => [String(preset), String(preset)]));
+      openLeadingMenu(opener, value === null ? null : String(value), (chosen) => apply(chosen === "metrics" ? "metrics" : Number(chosen)), byKeys, entries);
+    };
+    // Pressed, the button leaves the focus where it is: in the text being typed, too
+    opener.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      if (leadingMenu && leadingMenu.opener === opener) closeLeadingMenu();
+      else open(false);
+    });
+    opener.addEventListener("keydown", (event) => {
+      if (leadingMenu || !(event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ")) return;
+      event.preventDefault();
+      open(true);
+    });
+    box.append(input, opener);
+    return { box, input, step };
+  };
+
   let characterKey = "";
   const renderCharacter = () => {
     const host = ui.character;
     if (scrubbing) return;
     if (host.contains(document.activeElement) && document.activeElement.tagName === "INPUT" && document.activeElement.type !== "checkbox" && document.activeElement.type !== "color") return;
     const layer = activeTexts()[0];
-    const key = layer ? JSON.stringify([layer.id, styleShown(layer), layer.params.layerText.paragraphStyleRange[0], layer.params.layerText.antiAlias, layer.params.layerText.textShape, Boolean(layer.warp), layer.stroke, layer.effects || null, inSfx(layer), Fonts.generation]) : "none";
+    const key = layer ? JSON.stringify([layer.id, styleShown(layer), kerningShown(layer), layer.params.layerText.paragraphStyleRange[0], layer.params.layerText.antiAlias, layer.params.layerText.textShape, Boolean(layer.warp), layer.stroke, layer.effects || null, inSfx(layer), Fonts.generation]) : "none";
     if (key === characterKey) return;
     characterKey = key;
     closeLeadingMenu();
@@ -10361,22 +10485,9 @@
     const baseline = numberInput(style.impliedBaselineShift !== undefined ? style.impliedBaselineShift : style.baselineShift || 0, -1000, 1000, (value) => applyTextPatch({ baselineShift: value }, null, "baseline"));
     baseline.title = T("Baseline shift");
     host.append(scrubbed(T("Baseline"), baseline, withSteps(baseline)));
-    const kerning = document.createElement("select");
-    [["metricsKern", T("Metrics")], ["manual", "0"]].forEach(([value, name]) => {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = name;
-      kerning.appendChild(option);
-    });
-    kerning.value = style.autoKern === "manual" ? "manual" : "metricsKern";
-    kerning.title = T("Alt + left or right arrow: kerning at the cursor, or tracking of the selection.");
-    // The last one chosen is the one new text takes, as the font and the size
-    kerning.addEventListener("change", () => {
-      app.textDefaults.autoKern = kerning.value;
-      keepSettings();
-      patchTypography({ autoKern: kerning.value });
-    });
-    const kerningRow = labelled(T("Kerning"), kerning);
+    const kerning = kerningField(layer);
+    const kerningRow = labelled(T("Kerning"), kerning.box);
+    wheelChanges(kerningRow, kerning.input, kerning.step);
     kerningRow.classList.add("wide");
     host.append(kerningRow);
   };

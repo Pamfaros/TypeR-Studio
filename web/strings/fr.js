@@ -831,6 +831,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Baseline shift": "Décalage de la ligne de base",
     "Kerning": "Crénage",
     "Metrics": "Métrique",
+    "Click between two letters to set their kerning. For selected letters, use Tracking.": "Cliquez entre deux lettres pour régler leur crénage. Pour des lettres sélectionnées, utilisez l’approche.",
     "Alt + left or right arrow: kerning at the cursor, or tracking of the selection.": "Alt + flèche gauche ou droite : crénage au curseur, ou approche de la sélection.",
     "There is no PSD, PNG, JPEG or WebP in this folder.": "Ce dossier ne contient aucun PSD, PNG, JPEG ou WebP.",
     "No recent files yet.": "Aucun fichier récent pour l’instant.",
