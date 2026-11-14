@@ -351,11 +351,22 @@
           const strokes = kept.map((fx) => {
             const paint = get(fx, "PntT");
             const color = !paint || same(paint.value, "SClr");
-            if (!color && shows(fx)) note("Gradient and pattern strokes");
+            const gradient = !color && same(paint.value, "GrFl") ? gradientIn(get(fx, "Grad")) : null;
+            if (!color && !gradient && shows(fx)) note("Pattern strokes");
             const position = get(fx, "Styl");
             const where = position && Object.keys(POSITIONS).find((id) => same(id, position.value));
             // Scale Effects on a stroke too: psd.js leaves the scale to the other effects
-            return Object.assign(common(fx), { enabled: shows(fx), fillType: color ? "color" : "gradient", position: POSITIONS[where] || "outside", size: units(n(fx, "Sz  ", 3) * scale), color: colorIn(get(fx, "Clr ")) || { r: 0, g: 0, b: 0 } });
+            const out = Object.assign(common(fx), { enabled: shows(fx), fillType: color ? "color" : gradient ? "gradient" : "pattern", position: POSITIONS[where] || "outside", size: units(n(fx, "Sz  ", 3) * scale) });
+            const own = colorIn(get(fx, "Clr "));
+            if (own || color) out.color = own || { r: 0, g: 0, b: 0 };
+            // Fill Type Gradient: its gradient and settings, as ag-psd keeps a stroke's
+            if (gradient) {
+              if (gradient.type === "noise" && shows(fx)) note("Noise gradients (drawn black to white)");
+              const type = gradientTypeIn(get(fx, "Type"));
+              if (!type && shows(fx)) note("Gradient styles TypeR doesn't have (drawn Linear)");
+              out.gradient = Object.assign(gradient, { style: type || "linear", angle: n(fx, "Angl", 90), scale: n(fx, "Scl ", 100) / 100, reverse: flag(fx, "Rvrs", false), align: flag(fx, "Algn", true) });
+            }
+            return out;
           });
           effects.stroke = strokes;
         }
@@ -428,19 +439,29 @@
       ]))]);
     }
     if (stroke && stroke.size > 0) {
-      const one = (size, color, position, opacity, enabled) => ATN.obj("FrFX", [
+      // `g`: Fill Type Gradient, with Gradient Overlay's settings
+      const one = (size, color, position, opacity, enabled, g = null) => ATN.obj("FrFX", [
         ["enab", ATN.bool(enabled)],
         ["present", ATN.bool(true)],
         ["showInDialog", ATN.bool(true)],
         ["Styl", ATN.enumv("FStl", { outer: "OutF", inner: "InsF", center: "CtrF" }[position] || "OutF")],
-        ["PntT", ATN.enumv("FrFl", "SClr")],
+        ["PntT", ATN.enumv("FrFl", g ? "GrFl" : "SClr")],
         ["Md  ", ATN.enumv("BlnM", "Nrml")],
         ["Opct", ATN.pct(opacity === undefined ? 100 : opacity)],
         ["Sz  ", ATN.px(size)],
+        // The colour stays with a gradient, as Photoshop keeps it, for Fill Type Color
         ["Clr ", colorOut(color || { r: 0, g: 0, b: 0 })],
-        ["overprint", ATN.bool(false)],
-      ]);
-      const main = one(stroke.size, stroke.color, stroke.position, stroke.opacity, stroke.enabled !== false);
+      ].concat(g ? [
+        ["Grad", gradientOut(g.stops)],
+        ["Angl", ATN.angle(g.angle === undefined ? 90 : g.angle)],
+        ["Type", ATN.enumv("GrdT", Object.keys(GRADIENT_TYPES).find((id) => GRADIENT_TYPES[id] === g.style) || "Lnr ")],
+        ["Rvrs", ATN.bool(Boolean(g.reverse))],
+        ["Dthr", ATN.bool(false)],
+        ["Algn", ATN.bool(true)],
+        ["Scl ", ATN.pct(g.scale === undefined ? 100 : g.scale)],
+        ["Ofst", ATN.obj("Pnt ", [["Hrzn", ATN.pct(0)], ["Vrtc", ATN.pct(0)]])],
+      ] : [], [["overprint", ATN.bool(false)]]));
+      const main = one(stroke.size, stroke.color, stroke.position, stroke.opacity, stroke.enabled !== false, stroke.fill === "gradient" && stroke.gradient ? stroke.gradient : null);
       if (stroke.outer && stroke.outer.size > 0) {
         // The stroke around the stroke: wider, outside, under it (Photoshop draws the first on top)
         const edge = stroke.position === "inner" ? 0 : stroke.position === "center" ? stroke.size / 2 : stroke.size;

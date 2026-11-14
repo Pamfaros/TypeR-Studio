@@ -913,26 +913,6 @@
       g.miterLimit = 2;
       return g;
     };
-    // A stroke below 100%: all its letters' outlines drawn apart, then laid on at that much
-    const ringAt = (color, reach, alpha) => {
-      if (alpha >= 1 || !(ctx.canvas && ctx.canvas.width && ctx.canvas.height)) {
-        outline(ctx, color, reach);
-        return;
-      }
-      const g = apart();
-      outline(g, color, reach);
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalAlpha = alpha;
-      ctx.drawImage(g.canvas, 0, 0);
-      ctx.restore();
-    };
-    // The stroke's part outside the letters is drawn under them, its part inside over them
-    const outside = strokeOutside(stroke);
-    const inside = stroke ? stroke.size - outside : 0;
-    // The stroke around the stroke first, as wide as both, then the stroke over it
-    if (stroke && stroke.outer && stroke.outer.size > 0) ringAt(stroke.outer.color, strokeReach(stroke) + bolder, strokeAlpha(stroke.outer));
-    if (outside > 0) ringAt(stroke.color, outside + bolder, strokeAlpha(stroke));
     const letters = (g, hollow) => lines.forEach((line) => {
       line.m.placed.forEach((item) => {
         place(g, line, item, () => {
@@ -947,6 +927,44 @@
         });
       });
     });
+    // A stroke with Fill Type Gradient: its gradient spans the letters' bounds (drawn apart once
+    // to measure them), in the canvas's pixels
+    let shapeApart = null;
+    const lettersApart = () => {
+      if (!shapeApart) {
+        shapeApart = apart();
+        letters(shapeApart, true);
+      }
+      return shapeApart.canvas;
+    };
+    const canvasScale = () => {
+      const m = ctx.getTransform();
+      return Math.hypot(m.a, m.b) || 1;
+    };
+    const BLACK = { r: 0, g: 0, b: 0 };
+    // A stroke below 100%, or painted with a gradient: all its letters' outlines drawn apart,
+    // then laid on at that much
+    const ringAt = (color, reach, alpha) => {
+      const painted = Boolean(color && color.gradient) && Boolean(ctx.canvas && ctx.canvas.width && ctx.canvas.height);
+      if (!painted && (alpha >= 1 || !(ctx.canvas && ctx.canvas.width && ctx.canvas.height))) {
+        outline(ctx, color && color.gradient ? BLACK : color, reach);
+        return;
+      }
+      const g = apart();
+      outline(g, painted ? BLACK : color, reach);
+      if (painted) paintIn(g, color, lettersApart(), 0, canvasScale());
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(g.canvas, 0, 0);
+      ctx.restore();
+    };
+    // The stroke's part outside the letters is drawn under them, its part inside over them
+    const outside = strokeOutside(stroke);
+    const inside = stroke ? stroke.size - outside : 0;
+    // The stroke around the stroke first, as wide as both, then the stroke over it
+    if (stroke && stroke.outer && stroke.outer.size > 0) ringAt(stroke.outer.color, strokeReach(stroke) + bolder, strokeAlpha(stroke.outer));
+    if (outside > 0) ringAt(strokePaint(stroke), outside + bolder, strokeAlpha(stroke));
     // Photoshop's Fill: the letters at that much, their stroke whole. At 0% (a hollow text)
     // the letters let the page through the stroke.
     const fill = fillOf(layer);
@@ -965,12 +983,13 @@
     // letters cut the outline all at once, and it is laid on.
     if (inside > 0 && ctx.canvas && ctx.canvas.width && ctx.canvas.height) {
       const ring = apart();
-      outline(ring, stroke.color, Math.max(0.05, inside - bolder));
-      const shape = apart();
-      letters(shape, true);
+      const painted = strokeIsGradient(stroke);
+      outline(ring, painted ? BLACK : stroke.color, Math.max(0.05, inside - bolder));
+      const shape = lettersApart();
       ring.setTransform(1, 0, 0, 1, 0, 0);
       ring.globalCompositeOperation = "destination-in";
-      ring.drawImage(shape.canvas, 0, 0);
+      ring.drawImage(shape, 0, 0);
+      if (painted) paintIn(ring, strokePaint(stroke), shape, 0, canvasScale());
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = strokeAlpha(stroke);
       ctx.drawImage(ring.canvas, 0, 0);
@@ -2559,7 +2578,7 @@
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (stroke && stroke.outer && stroke.outer.size > 0) ringOf(letters, 0, strokeReach(stroke) + EMBOLDEN, stroke.outer.color, canvas, strokeAlpha(stroke.outer));
     const outside = strokeOutside(stroke);
-    if (outside > 0) ringOf(letters, 0, outside + EMBOLDEN, stroke.color, canvas, strokeAlpha(stroke));
+    if (outside > 0) ringOf(letters, 0, outside + EMBOLDEN, strokePaint(stroke), canvas, strokeAlpha(stroke));
     if (fill < 1 && stroke) {
       ctx.globalCompositeOperation = "destination-out";
       ctx.drawImage(letters, 0, 0);
@@ -2571,7 +2590,7 @@
       ctx.globalAlpha = 1;
     }
     const inside = stroke ? stroke.size - outside : 0;
-    if (inside > 0) innerRingOf(letters, 0, inside, stroke.color, canvas, strokeAlpha(stroke));
+    if (inside > 0) innerRingOf(letters, 0, inside, strokePaint(stroke), canvas, strokeAlpha(stroke));
     return { canvas, x: left, y: top };
   };
   // A letter drawn from its own outline (see `outline`), in its colour, then its stroke around
@@ -3098,11 +3117,11 @@
       }
     }
   };
-  // Gradient Overlay over the letters (w × h, at ox, oy in the map), spanning their own bounds
-  const fxGradient = (px, w, h, shape, W, ox, oy, effect, box) => {
+  // A layer style's gradient (Gradient Overlay's, a stroke's with Fill Type Gradient) across
+  // `box`: its table of colours, and where along it each pixel (x, y) is, 0 to 1
+  const fxRamp = (effect, box) => {
     const stops = Array.isArray(effect.stops) && effect.stops.length ? effect.stops : FX_DEFAULTS.gradientOverlay.stops;
     const table = gradientTable(stops, "classic");
-    const opacity = fxNumber(effect.opacity, 0, 100, 100) / 100;
     const scale = fxNumber(effect.scale, 10, 150, 100) / 100;
     const turn = (fxNumber(effect.angle, -36000, 36000, 90) * Math.PI) / 180;
     const c = Math.cos(turn);
@@ -3117,28 +3136,55 @@
     const half = Math.max(0.5, (Math.hypot(c * bw, s * bh) * scale) / 2);
     const style = effect.style || "linear";
     const reverse = Boolean(effect.reverse);
+    const at = (x, y) => {
+      const dx = x + 0.5 - cx;
+      const dy = y + 0.5 - cy;
+      const along = dx * c - dy * s;
+      let t;
+      if (style === "radial") t = Math.hypot(dx, dy) / half;
+      else if (style === "diamond") t = (Math.abs(along) + Math.abs(dx * s + dy * c)) / half;
+      else if (style === "reflected") t = Math.abs(along / (chord / 2));
+      else if (style === "angle") {
+        t = (turn - Math.atan2(-dy, dx)) / (Math.PI * 2);
+        t -= Math.floor(t);
+      } else t = along / chord + 0.5;
+      if (!(t > 0)) t = 0;
+      else if (t > 1) t = 1;
+      return reverse ? 1 - t : t;
+    };
+    return { table, at };
+  };
+  // The gradient as a picture w × h, across `box`: what a stroke with Fill Type Gradient is
+  // painted with
+  const fxRampPicture = (w, h, effect, box) => {
+    const { table, at } = fxRamp(effect, box);
+    const canvas = newCanvas(w, h);
+    const g = canvas.getContext("2d");
+    const image = g.createImageData(w, h);
+    const px = image.data;
+    for (let y = 0, o = 0; y < h; y++) {
+      for (let x = 0; x < w; x++, o += 4) {
+        const i = Math.round(at(x, y) * GRADIENT_STEPS) * 4;
+        px[o] = table[i];
+        px[o + 1] = table[i + 1];
+        px[o + 2] = table[i + 2];
+        px[o + 3] = Math.round(table[i + 3] * 255);
+      }
+    }
+    g.putImageData(image, 0, 0);
+    return canvas;
+  };
+  // Gradient Overlay over the letters (w × h, at ox, oy in the map), spanning their own bounds
+  const fxGradient = (px, w, h, shape, W, ox, oy, effect, box) => {
+    const { table, at } = fxRamp(effect, box);
+    const opacity = fxNumber(effect.opacity, 0, 100, 100) / 100;
     for (let y = 0; y < h; y++) {
       let m = (y + oy) * W + ox;
       let o = y * w * 4;
-      const dy = y + 0.5 - cy;
       for (let x = 0; x < w; x++, m++, o += 4) {
         if (!(shape[m] > 0)) continue;
-        const v = opacity;
-        const dx = x + 0.5 - cx;
-        const along = dx * c - dy * s;
-        let t;
-        if (style === "radial") t = Math.hypot(dx, dy) / half;
-        else if (style === "diamond") t = (Math.abs(along) + Math.abs(dx * s + dy * c)) / half;
-        else if (style === "reflected") t = Math.abs(along / (chord / 2));
-        else if (style === "angle") {
-          t = (turn - Math.atan2(-dy, dx)) / (Math.PI * 2);
-          t -= Math.floor(t);
-        } else t = along / chord + 0.5;
-        if (!(t > 0)) t = 0;
-        else if (t > 1) t = 1;
-        if (reverse) t = 1 - t;
-        const i = Math.round(t * GRADIENT_STEPS) * 4;
-        const a = v * table[i + 3];
+        const i = Math.round(at(x, y) * GRADIENT_STEPS) * 4;
+        const a = opacity * table[i + 3];
         if (a > 0.0005) fxOver(px, o, table[i], table[i + 1], table[i + 2], a > 1 ? 1 : a);
       }
     }
@@ -3473,7 +3519,7 @@
       const ctx = canvas.getContext("2d");
       const outside = strokeOutside(stroke);
       if (stroke.outer && stroke.outer.size > 0) ringOf(bitmap, pad, strokeReach(stroke), stroke.outer.color, canvas, strokeAlpha(stroke.outer));
-      if (outside > 0) ringOf(bitmap, pad, outside, stroke.color, canvas, strokeAlpha(stroke));
+      if (outside > 0) ringOf(bitmap, pad, outside, strokePaint(stroke), canvas, strokeAlpha(stroke));
       if (fill < 1) {
         ctx.globalCompositeOperation = "destination-out";
         ctx.drawImage(bitmap, pad, pad);
@@ -3484,7 +3530,7 @@
         ctx.drawImage(bitmap, pad, pad);
         ctx.globalAlpha = 1;
       }
-      if (stroke.size > outside) innerRingOf(bitmap, pad, stroke.size - outside, stroke.color, canvas, strokeAlpha(stroke));
+      if (stroke.size > outside) innerRingOf(bitmap, pad, stroke.size - outside, strokePaint(stroke), canvas, strokeAlpha(stroke));
       kept = { key, canvas, pad };
       strokedRasters.set(shape.canvas, kept);
     }
@@ -4392,6 +4438,53 @@
       }
     }
   };
+  // The box of what shows in a picture (alpha above 0), or null when nothing does
+  const alphaBounds = (canvas) => {
+    if (!canvas || !canvas.width || !canvas.height) return null;
+    let data;
+    try {
+      data = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height).data;
+    } catch (error) {
+      return null;
+    }
+    const w = canvas.width;
+    let left = w;
+    let top = canvas.height;
+    let right = -1;
+    let bottom = -1;
+    for (let y = 0, i = 3; y < canvas.height; y++) {
+      for (let x = 0; x < w; x++, i += 4) {
+        if (!data[i]) continue;
+        if (x < left) left = x;
+        if (x > right) right = x;
+        if (y < top) top = y;
+        bottom = y;
+      }
+    }
+    return right < 0 ? null : { left, top, right: right + 1, bottom: bottom + 1 };
+  };
+  // What a stroke is painted with: its colour, or with Fill Type Gradient its gradient, which
+  // spans the stroke's own bounds as Photoshop's Align with Layer does: the letters' bounds
+  // grown by the stroke's part outside them (measured in Photoshop 2026)
+  const strokePaint = (stroke) => (stroke && stroke.fill === "gradient" && stroke.gradient ? { gradient: stroke.gradient, grow: strokeOutside(stroke) } : stroke.color);
+  const strokeIsGradient = (stroke) => Boolean(stroke && stroke.fill === "gradient" && stroke.gradient);
+  // What is drawn in `c` painted with `paint` (a colour, or a stroke's gradient across `shape`,
+  // laid at `pad`, grown by the stroke's part outside it); `scale`: the canvas's pixels per
+  // pixel of the page
+  const paintIn = (c, paint, shape, pad = 0, scale = 1) => {
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.globalCompositeOperation = "source-in";
+    if (paint && paint.gradient) {
+      const b = alphaBounds(shape);
+      const grow = (paint.grow || 0) * scale;
+      if (b) c.drawImage(fxRampPicture(c.canvas.width, c.canvas.height, Object.assign({}, paint.gradient, { opacity: 100 }), { left: b.left + pad - grow, top: b.top + pad - grow, right: b.right + pad + grow, bottom: b.bottom + pad + grow }), 0, 0);
+    } else {
+      c.fillStyle = colorCss(paint);
+      c.fillRect(0, 0, c.canvas.width, c.canvas.height);
+    }
+    c.restore();
+  };
   // A ring laid on `into` whole, at `alpha`: a stroke's Opacity
   const layRing = (into, ring, alpha = 1) => {
     const g = into.getContext("2d");
@@ -4409,9 +4502,7 @@
     const ring = newCanvas(into.width, into.height);
     const c = ring.getContext("2d");
     spread(c, source, pad, size);
-    c.globalCompositeOperation = "source-in";
-    c.fillStyle = colorCss(color);
-    c.fillRect(0, 0, ring.width, ring.height);
+    paintIn(c, color, source, pad);
     layRing(into, ring, alpha);
   };
   // A stroke inside a shape, `size` pixels in from its edge, in `color`, over it: what is
@@ -4427,9 +4518,7 @@
     spread(c, around, 0, size);
     c.globalCompositeOperation = "destination-in";
     c.drawImage(source, pad, pad);
-    c.globalCompositeOperation = "source-in";
-    c.fillStyle = colorCss(color);
-    c.fillRect(0, 0, ring.width, ring.height);
+    paintIn(c, color, source, pad);
     layRing(into, ring, alpha);
   };
   // A base with its clipped layers on it, as one picture of the base's size. A clipped layer
@@ -4619,7 +4708,7 @@
       const o = out.getContext("2d");
       if (stroke) {
         if (stroke.outer && stroke.outer.size > 0) ringOf(shape || fill, 0, strokeReach(stroke), stroke.outer.color, out, strokeAlpha(stroke.outer));
-        if (strokeOutside(stroke) > 0) ringOf(shape || fill, 0, strokeOutside(stroke), stroke.color, out, strokeAlpha(stroke));
+        if (strokeOutside(stroke) > 0) ringOf(shape || fill, 0, strokeOutside(stroke), strokePaint(stroke), out, strokeAlpha(stroke));
         // Only outside all of it: what passes over the page doesn't cover the inside
         if (shape) {
           o.globalCompositeOperation = "destination-out";
@@ -4639,7 +4728,7 @@
         o.globalAlpha = 1;
       }
       // Its part inside, over what the folder holds
-      if (stroke && stroke.size > strokeOutside(stroke)) innerRingOf(fill, 0, stroke.size - strokeOutside(stroke), stroke.color, out, strokeAlpha(stroke));
+      if (stroke && stroke.size > strokeOutside(stroke)) innerRingOf(fill, 0, stroke.size - strokeOutside(stroke), strokePaint(stroke), out, strokeAlpha(stroke));
     }
     // Its layer style from the file, as Photoshop draws a folder's: on all it holds at once,
     // a Gradient Overlay across the whole SFX, its letters hollow or not
@@ -12914,6 +13003,8 @@
     familyOf: (layers, id) => familyOf(layers, id),
     fillOf,
     strokeOutside,
+    // A stroke's colour or, with Fill Type Gradient, its gradient: for ringOf and innerRingOf
+    strokePaint,
     strokeReach,
     strokeAlpha,
     ringOf,

@@ -10414,7 +10414,8 @@
       color.type = "color";
       color.value = toHex(stroke.color);
       color.setAttribute("aria-label", T("Stroke colour"));
-      color.addEventListener("input", () => changeStrokes((own) => Object.assign({}, own, { color: fromHex(color.value) }), "stroke"));
+      // A colour picked here makes a gradient stroke (Layer Style) one colour again
+      color.addEventListener("input", () => changeStrokes((own) => Object.assign({}, own, { color: fromHex(color.value), fill: undefined }), "stroke"));
       strokeRow.appendChild(color);
       // A stroke around the stroke, black around a light one, white around a dark one
       if (!stroke.outer) {
@@ -14938,6 +14939,9 @@
   // title. The useful settings first, the others under Advanced (kept open or closed meanwhile).
   let fxAdvanced = false;
   const freshStroke = () => ({ enabled: true, size: 3, opacity: 100, position: "outer", color: { r: 255, g: 255, b: 255 } });
+  // A stroke's gradient when its Fill Type first becomes Gradient: black to white, as Gradient
+  // Overlay's
+  const freshStrokeGradient = () => ({ stops: [{ at: 0, r: 0, g: 0, b: 0, a: 1 }, { at: 1, r: 255, g: 255, b: 255, a: 1 }], style: "linear", angle: 90, scale: 100, reverse: false });
   // The pictures of the rail: a letter A and what the effect does to it
   const FX_A = '<path d="M6.5 19 12 5.5 17.5 19M8.7 14h6.6"/>';
   const FX_GLYPHS = {
@@ -15403,7 +15407,7 @@
 
     // Gradient Overlay's gradient: presets, the bar with its colours (click under it to add one,
     // drag one along, or down off it to remove it), and the chosen colour's settings
-    const gradientEditor = (parent, fx, apply) => {
+    const gradientEditor = (parent, fx, apply, label = fxLabel("gradientOverlay")) => {
       const state = { stops: fx.stops.map((item) => Object.assign({ a: 1 }, item)).sort((a, b) => a.at - b.at), chosen: 0, removing: null };
       const box = make("div", "fxgrad", parent);
       // A gradient runs left to right, in every language
@@ -15451,7 +15455,7 @@
         const colour = make("input", "", chosenRow);
         colour.type = "color";
         colour.value = toHex(item);
-        colour.setAttribute("aria-label", `${fxLabel("gradientOverlay")}: ${T("Colour")}`);
+        colour.setAttribute("aria-label", `${label}: ${T("Colour")}`);
         const backAgain = pickerGuard(colour);
         pickable(colour);
         // A colour of the gradient chosen is the one a click on the page sets
@@ -15627,6 +15631,59 @@
       fields = make("div", "fxdlg__fields", pane);
       const more = make("div", "fxdlg__fields fxdlg__advanced");
       const name = current;
+      // A row of choices, one on at a time (a stroke's Position, its Fill Type)
+      const segRow = (parent, label, options, value, pick) => {
+        const seg = make("span", "fxdlg__seg");
+        seg.setAttribute("role", "radiogroup");
+        seg.setAttribute("aria-label", label);
+        options.forEach(([key, text]) => {
+          const button = make("button", "fxdlg__segitem" + (key === value ? " is-on" : ""), seg, text);
+          button.type = "button";
+          button.setAttribute("role", "radio");
+          button.setAttribute("aria-checked", String(key === value));
+          button.addEventListener("click", () => {
+            seg.querySelectorAll(".fxdlg__segitem").forEach((other) => {
+              other.classList.toggle("is-on", other === button);
+              other.setAttribute("aria-checked", String(other === button));
+            });
+            pick(key);
+          });
+        });
+        const control = make("span", "fxdlg__control fxdlg__control--wide");
+        control.appendChild(seg);
+        return row(parent, label, control);
+      };
+      // A gradient's settings, Gradient Overlay's and a stroke's: its colours, Style, Angle,
+      // Reverse, and Scale under Advanced
+      const gradientRows = (fx, set, label) => {
+        const editor = gradientEditor(fields, fx, (stops) => set({ stops }), label);
+        const styleRow = make("div", "fxgrad__styles");
+        FX_STYLES.forEach(([type, text]) => {
+          const button = make("button", "fxgrad__style" + (fx.style === type ? " is-on" : ""), styleRow);
+          button.type = "button";
+          button.dataset.style = type;
+          button.title = T(text);
+          button.setAttribute("aria-label", T(text));
+          button.setAttribute("aria-pressed", String(fx.style === type));
+          const shown = make("canvas", "", button);
+          shown.width = 30;
+          shown.height = 18;
+          button.addEventListener("click", () => {
+            styleRow.querySelectorAll(".fxgrad__style").forEach((other) => {
+              other.classList.toggle("is-on", other === button);
+              other.setAttribute("aria-pressed", String(other === button));
+            });
+            set({ style: type });
+          });
+        });
+        const control = make("span", "fxdlg__control fxdlg__control--wide");
+        control.appendChild(styleRow);
+        row(fields, T("Style"), control);
+        editor.styles(styleRow);
+        angleRow(fields, fx.angle === undefined ? 90 : fx.angle, (v) => set({ angle: v }));
+        switchRow(fields, T("Reverse"), Boolean(fx.reverse), (on) => set({ reverse: on }));
+        slider(more, T("Scale"), fx.scale === undefined ? 100 : fx.scale, FX_RANGES.scale.slice(1), (v) => set({ scale: v }));
+      };
       if (name === "blending") {
         const layer = lead();
         blendRow(fields, layer.blend || "normal", (v) => setBlending("blend", v), (v) => ops.previewBlend(ids, v));
@@ -15637,27 +15694,19 @@
         const stroke = shownOf("stroke");
         slider(fields, T("Size"), stroke.size, [1, 100, 30, "px"], (v) => setFx("stroke", { size: v }));
         // Where it lies, as in Photoshop: outside the letters, inside them, or on their edge
-        const where = make("span", "fxdlg__seg");
-        where.setAttribute("role", "radiogroup");
-        where.setAttribute("aria-label", T("Position"));
         const position = stroke.position === "inner" || stroke.position === "center" ? stroke.position : "outer";
-        [["outer", TL("Outside (stroke position)", "Outside")], ["inner", TL("Inside (stroke position)", "Inside")], ["center", TL("Centre (stroke position)", "Centre")]].forEach(([value, label]) => {
-          const button = make("button", "fxdlg__segitem" + (value === position ? " is-on" : ""), where, label);
-          button.type = "button";
-          button.setAttribute("role", "radio");
-          button.setAttribute("aria-checked", String(value === position));
-          button.addEventListener("click", () => {
-            where.querySelectorAll(".fxdlg__segitem").forEach((other) => {
-              other.classList.toggle("is-on", other === button);
-              other.setAttribute("aria-checked", String(other === button));
-            });
-            setFx("stroke", { position: value });
-          });
+        segRow(fields, T("Position"), [["outer", TL("Outside (stroke position)", "Outside")], ["inner", TL("Inside (stroke position)", "Inside")], ["center", TL("Centre (stroke position)", "Centre")]], position, (value) => setFx("stroke", { position: value }));
+        // Fill Type, as Photoshop's: one colour, or a gradient with Gradient Overlay's settings
+        // across the stroke's own bounds. The gradient stays for when it comes back.
+        const graded = stroke.fill === "gradient";
+        segRow(fields, T("Fill Type"), [["color", T("Colour")], ["gradient", TL("Gradient (stroke fill type)", "Gradient")]], graded ? "gradient" : "color", (value) => {
+          setFx("stroke", (own) => (value === "gradient" ? { fill: "gradient", gradient: own.gradient || freshStrokeGradient() } : { fill: undefined }));
+          buildPane();
         });
-        const whereControl = make("span", "fxdlg__control fxdlg__control--wide");
-        whereControl.appendChild(where);
-        row(fields, T("Position"), whereControl);
-        colourRow(fields, T("Colour"), stroke.color, T("Stroke colour"), (c) => setFx("stroke", { color: c }));
+        if (graded) {
+          const g = stroke.gradient || freshStrokeGradient();
+          gradientRows(g, (patch) => setFx("stroke", (own) => ({ fill: "gradient", gradient: Object.assign({}, own.gradient || g, patch) })), T("Stroke"));
+        } else colourRow(fields, T("Colour"), stroke.color, T("Stroke colour"), (c) => setFx("stroke", { color: c }));
         // A stroke around the stroke, black around a light one, white around a dark one
         const around = make("div", "fxdlg__sub", fields);
         make("span", "fxdlg__subname", around, T("Around the stroke"));
@@ -15677,42 +15726,17 @@
           make("span", "", add, T("Add"));
           add.title = T("Add a stroke around the stroke");
           add.addEventListener("click", () => {
-            const c = shownOf("stroke").color;
+            const own = shownOf("stroke");
+            const c = own.fill === "gradient" && own.gradient ? own.gradient.stops[0] : own.color;
             const light = c.r * 0.299 + c.g * 0.587 + c.b * 0.114 > 127;
-            setFx("stroke", (own) => (own.outer ? {} : { outer: { size: 3, color: light ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 } } }));
+            setFx("stroke", (mine) => (mine.outer ? {} : { outer: { size: 3, color: light ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 } } }));
             buildPane();
           });
         }
       } else if (name === "gradientOverlay") {
         const fx = shownOf(name);
-        const editor = gradientEditor(fields, fx, (stops) => setFx(name, { stops }));
-        const styleRow = make("div", "fxgrad__styles");
-        FX_STYLES.forEach(([type, label]) => {
-          const button = make("button", "fxgrad__style" + (fx.style === type ? " is-on" : ""), styleRow);
-          button.type = "button";
-          button.dataset.style = type;
-          button.title = T(label);
-          button.setAttribute("aria-label", T(label));
-          button.setAttribute("aria-pressed", String(fx.style === type));
-          const shown = make("canvas", "", button);
-          shown.width = 30;
-          shown.height = 18;
-          button.addEventListener("click", () => {
-            styleRow.querySelectorAll(".fxgrad__style").forEach((other) => {
-              other.classList.toggle("is-on", other === button);
-              other.setAttribute("aria-pressed", String(other === button));
-            });
-            setFx(name, { style: type });
-          });
-        });
-        const control = make("span", "fxdlg__control fxdlg__control--wide");
-        control.appendChild(styleRow);
-        row(fields, T("Style"), control);
-        editor.styles(styleRow);
-        angleRow(fields, fx.angle, (v) => setFx(name, { angle: v }));
-        switchRow(fields, T("Reverse"), Boolean(fx.reverse), (on) => setFx(name, { reverse: on }));
+        gradientRows(fx, (patch) => setFx(name, patch), fxLabel(name));
         slider(fields, T("Opacity"), fx.opacity, [0, 100, 100, "%"], (v) => setFx(name, { opacity: v }));
-        slider(more, T("Scale"), fx.scale, FX_RANGES.scale.slice(1), (v) => setFx(name, { scale: v }));
         blendRow(more, fx.blend || "normal", (v) => setFx(name, { blend: v }), effectBlendPreview(name));
       } else {
         const fx = shownOf(name);

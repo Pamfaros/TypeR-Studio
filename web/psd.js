@@ -275,14 +275,17 @@
   // The file's own entries TypeR takes in as its stroke (`stroke`) and the stroke around it
   // (`around`), or null. The others (a third, a hidden one, a gradient's or a pattern's) it
   // doesn't draw, and leaves in the file as they are.
+  // A stroke with Fill Type Gradient is taken in (a noise gradient drawn black to white, as
+  // Gradient Overlay's); the stroke around it is always one colour.
+  const strokeFillable = (stroke) => !stroke.fillType || stroke.fillType === "color" || (stroke.fillType === "gradient" && Boolean(stroke.gradient));
   const strokesTakenIn = (effects) => {
     const usable = ((effects && effects.stroke) || []).slice(0, 2)
-      .filter((stroke) => stroke && stroke.enabled !== false && (!stroke.fillType || stroke.fillType === "color") && stroke.size && stroke.size.value > 0);
+      .filter((stroke) => stroke && stroke.enabled !== false && strokeFillable(stroke) && stroke.size && stroke.size.value > 0);
     if (!usable.length) return null;
     // Both outside: the narrower one is the stroke. Otherwise, the one inside or centred.
     const [stroke, around] = usable.length < 2 ? usable : usable.slice().sort((a, b) => (strokePositionOf(a) === "outer") - (strokePositionOf(b) === "outer") || a.size.value - b.size.value);
     const edge = PS().strokeOutside({ size: stroke.size.value, position: strokePositionOf(stroke) });
-    return { stroke, around: around && strokePositionOf(around) === "outer" && around.size.value > edge ? around : null, edge };
+    return { stroke, around: around && around.fillType !== "gradient" && strokePositionOf(around) === "outer" && around.size.value > edge ? around : null, edge };
   };
   const strokePositionOf = (stroke) => POSITION_IN[stroke.position] || "outer";
   const percentOf = (opacity) => (opacity === undefined ? 100 : round(opacity * 100, 2));
@@ -292,6 +295,14 @@
     const { stroke, around, edge } = taken;
     const rgb = rgbFromPsd;
     const out = { enabled: true, size: stroke.size.value, opacity: percentOf(stroke.opacity), position: strokePositionOf(stroke), color: rgb(stroke.color) };
+    // Fill Type Gradient: its gradient, as Gradient Overlay's (the colour stays for Color)
+    if (stroke.fillType === "gradient") {
+      const g = stroke.gradient;
+      const stops = stopsFromPsd(g);
+      if (!stroke.color) out.color = { r: stops[0].r, g: stops[0].g, b: stops[0].b };
+      out.fill = "gradient";
+      out.gradient = { stops, style: g.style || "linear", angle: round(typeof g.angle === "number" ? g.angle : 90, 2), scale: percentOf(g.scale), reverse: Boolean(g.reverse) };
+    }
     if (around) {
       out.outer = { size: around.size.value - edge, color: rgb(around.color) };
       // Its own Opacity, kept only when it isn't 100%
@@ -310,7 +321,7 @@
     const ctx = canvas.getContext("2d");
     // Each at its Opacity, laid whole
     if (stroke.outer && stroke.outer.size > 0) engine.ringOf(bitmap, pad, engine.strokeReach(stroke), stroke.outer.color, canvas, engine.strokeAlpha(stroke.outer));
-    if (outside > 0) engine.ringOf(bitmap, pad, outside, stroke.color, canvas, engine.strokeAlpha(stroke));
+    if (outside > 0) engine.ringOf(bitmap, pad, outside, engine.strokePaint(stroke), canvas, engine.strokeAlpha(stroke));
     if (amount < 1) {
       ctx.globalCompositeOperation = "destination-out";
       ctx.drawImage(bitmap, pad, pad);
@@ -321,7 +332,7 @@
       ctx.drawImage(bitmap, pad, pad);
       ctx.globalAlpha = 1;
     }
-    if (stroke.size > outside) engine.innerRingOf(bitmap, pad, stroke.size - outside, stroke.color, canvas, engine.strokeAlpha(stroke));
+    if (stroke.size > outside) engine.innerRingOf(bitmap, pad, stroke.size - outside, engine.strokePaint(stroke), canvas, engine.strokeAlpha(stroke));
     return { canvas, pad };
   };
 
@@ -834,20 +845,40 @@
 
   // One stroke for the file, over the file's own entry if it had one: what TypeR doesn't know
   // of it (its blend mode…) stays. Switched off in TypeR, it is kept hidden, as Photoshop does.
-  const strokeToPsd = (stroke, size = stroke.size, color = stroke.color, position = POSITION_OUT[stroke.position] || "outside", opacity = stroke.opacity, entry = null) => Object.assign({}, entry, {
-    enabled: stroke.enabled !== false,
-    size: { units: "Pixels", value: size },
-    position,
-    fillType: "color",
-    color: { r: color.r, g: color.g, b: color.b },
-    opacity: (opacity === undefined ? 100 : opacity) / 100,
-    blendMode: (entry && entry.blendMode) || "normal",
-  });
+  // `gradient`: Fill Type Gradient, TypeR's { stops, style, angle, scale, reverse }; what TypeR
+  // doesn't set (Align with Layer, its offset, dither) stays the file's, or Photoshop's defaults
+  const strokeToPsd = (stroke, size = stroke.size, color = stroke.color, position = POSITION_OUT[stroke.position] || "outside", opacity = stroke.opacity, entry = null, gradient = null) => {
+    const out = Object.assign({}, entry, {
+      enabled: stroke.enabled !== false,
+      size: { units: "Pixels", value: size },
+      position,
+      fillType: gradient ? "gradient" : "color",
+      opacity: (opacity === undefined ? 100 : opacity) / 100,
+      blendMode: (entry && entry.blendMode) || "normal",
+    });
+    delete out.pattern;
+    // The colour stays with a gradient, as Photoshop keeps it, for Fill Type Color
+    out.color = { r: color.r, g: color.g, b: color.b };
+    if (!gradient) {
+      delete out.gradient;
+      return out;
+    }
+    const was = entry && entry.gradient && entry.gradient.type === "solid" ? entry.gradient : null;
+    const kept = {};
+    ["dither", "interpolationMethod", "align", "offset"].forEach((key) => { if (was && was[key] !== undefined) kept[key] = was[key]; });
+    out.gradient = Object.assign({ align: true, dither: false, offset: { x: 0, y: 0 } }, kept, gradientOut(gradient.stops, was), {
+      style: gradient.style || "linear",
+      angle: gradient.angle === undefined ? 90 : gradient.angle,
+      scale: (gradient.scale === undefined ? 100 : gradient.scale) / 100,
+      reverse: Boolean(gradient.reverse),
+    });
+    return out;
+  };
 
   // Photoshop draws the first stroke of a list on top: the stroke around the stroke is a
   // wider one under it, at its own Opacity. `taken`: the file's entries they came from.
   const strokesToPsd = (stroke, taken) => {
-    const list = [strokeToPsd(stroke, stroke.size, stroke.color, undefined, stroke.opacity, taken && taken.stroke)];
+    const list = [strokeToPsd(stroke, stroke.size, stroke.color, undefined, stroke.opacity, taken && taken.stroke, stroke.fill === "gradient" && stroke.gradient ? stroke.gradient : null)];
     if (stroke.outer && stroke.outer.size > 0) list.push(strokeToPsd(stroke, PS().strokeReach(stroke), stroke.outer.color, "outside", stroke.outer.opacity === undefined ? 100 : stroke.outer.opacity, taken && taken.around));
     return list;
   };

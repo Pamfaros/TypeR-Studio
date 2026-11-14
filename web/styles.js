@@ -52,6 +52,19 @@
   const byte = (value) => Math.round(finite(value, 0, 255, 0));
   const colorOf = (c, fallback) => (c && typeof c === "object" ? { r: byte(c.r), g: byte(c.g), b: byte(c.b) } : clone(fallback));
   const blendOf = (name, fallback = "normal") => (typeof name === "string" && PS.BLENDS[name] && name !== "pass through" ? name : fallback);
+  // A gradient's settings: Gradient Overlay's, a stroke's with Fill Type Gradient
+  const cleanGradient = (given) => {
+    const out = { stops: PS.fxDefault("gradientOverlay").stops };
+    const stops = (Array.isArray(given.stops) ? given.stops : []).filter((stop) => stop && typeof stop === "object")
+      .map((stop) => ({ at: finite(stop.at, 0, 1, 0), r: byte(stop.r), g: byte(stop.g), b: byte(stop.b), a: finite(stop.a, 0, 1, 1) }))
+      .sort((a, b) => a.at - b.at);
+    if (stops.length >= 2) out.stops = stops;
+    out.style = ["linear", "radial", "angle", "reflected", "diamond"].includes(given.style) ? given.style : "linear";
+    out.angle = finite(given.angle, -360, 360, 90);
+    out.scale = finite(given.scale, 10, 150, 100);
+    out.reverse = Boolean(given.reverse);
+    return out;
+  };
   const cleanEffect = (name, given) => {
     if (!given || typeof given !== "object") return null;
     const out = PS.fxDefault(name);
@@ -63,16 +76,7 @@
     ["distance", "size"].forEach((key) => { if (key in out) out[key] = finite(given[key], 0, 5000, out[key]); });
     ["spread", "choke"].forEach((key) => { if (key in out) out[key] = finite(given[key], 0, 100, out[key]); });
     if (name === "dropShadow" && given.knockout === false) out.knockout = false;
-    if (name === "gradientOverlay") {
-      const stops = (Array.isArray(given.stops) ? given.stops : []).filter((stop) => stop && typeof stop === "object")
-        .map((stop) => ({ at: finite(stop.at, 0, 1, 0), r: byte(stop.r), g: byte(stop.g), b: byte(stop.b), a: finite(stop.a, 0, 1, 1) }))
-        .sort((a, b) => a.at - b.at);
-      if (stops.length >= 2) out.stops = stops;
-      out.style = ["linear", "radial", "angle", "reflected", "diamond"].includes(given.style) ? given.style : "linear";
-      out.angle = finite(given.angle, -360, 360, 90);
-      out.scale = finite(given.scale, 10, 150, 100);
-      out.reverse = Boolean(given.reverse);
-    }
+    if (name === "gradientOverlay") Object.assign(out, cleanGradient(given));
     return out;
   };
   const cleanStroke = (given) => {
@@ -84,6 +88,7 @@
       position: ["outer", "inner", "center"].includes(given.position) ? given.position : "outer",
       color: colorOf(given.color, { r: 0, g: 0, b: 0 }),
     };
+    if (given.fill === "gradient" && given.gradient && typeof given.gradient === "object") Object.assign(out, { fill: "gradient", gradient: cleanGradient(given.gradient) });
     if (given.outer && typeof given.outer === "object" && finite(given.outer.size, 0, 5000, 0) > 0) {
       out.outer = { size: finite(given.outer.size, 0, 5000, 0), color: colorOf(given.outer.color, { r: 0, g: 0, b: 0 }) };
       if (finite(given.outer.opacity, 0, 100, 100) < 100) out.outer.opacity = finite(given.outer.opacity, 0, 100, 100);
@@ -345,7 +350,7 @@
       const typerEffects = PSD.effectsFromPsd(effects, undefined);
       const stroke = PSD.strokeFromEffects(effects);
       // Two shown strokes TypeR can't make its stroke and the one around it: one is left out
-      const shownStrokes = (effects.stroke || []).filter((s) => s.enabled !== false && s.fillType === "color" && s.size.value > 0).length;
+      const shownStrokes = (effects.stroke || []).filter((s) => s.enabled !== false && s.fillType !== "pattern" && s.size.value > 0).length;
       if (shownStrokes > (stroke ? (stroke.outer ? 2 : 1) : 0)) leftOut["More than one effect of a kind"] = (leftOut["More than one effect of a kind"] || 0) + 1;
       const style = cleanStyle({ name: one.name || fill(T("Style {n}"), { n: at + 1 }), effects: typerEffects, stroke, blending });
       // Photoshop's "Default Style (None)" and the styles TypeR draws nothing of are left out
@@ -375,7 +380,7 @@
     "Bevel & Emboss": T("Bevel & Emboss"),
     Satin: T("Satin"),
     "Pattern Overlay": T("Pattern Overlay"),
-    "Gradient and pattern strokes": T("gradient and pattern strokes"),
+    "Pattern strokes": T("pattern strokes"),
     "More than one effect of a kind": T("more than one effect of a kind"),
     "Blend modes TypeR doesn't have (drawn in Normal)": T("blend modes TypeR doesn't have (drawn in Normal)"),
     "Noise gradients (drawn black to white)": T("noise gradients (drawn black to white)"),
