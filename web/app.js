@@ -6673,6 +6673,64 @@
     hud(`${Math.round(x1 - x0)} × ${Math.round(y1 - y0)} px`, event);
   };
 
+  // The Move tool's drag onto another page's tab, as in Photoshop: the page comes forward after
+  // a moment, and a copy of the layers lands where the button is let go, the point grabbed under
+  // the pointer (with Shift, where they were). Let go on the tab itself, they keep their place.
+  // On their own page they stay as they were.
+  const docOfTab = (event) => {
+    const under = document.elementFromPoint(event.clientX, event.clientY);
+    const tab = under && under.closest ? under.closest(".tab") : null;
+    return tab ? app.docs.find((doc) => String(doc.id) === tab.dataset.id) || null : null;
+  };
+  const showTabTarget = (doc) => ui.tabs.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("is-drop", Boolean(doc) && tab.dataset.id === String(doc.id)));
+  // Says whether the drag is now about another page: the move on this one has then stopped
+  const carryToTab = (current, event) => {
+    if (Shell.touch || current.endsEdit) return false;
+    const over = docOfTab(event);
+    const target = over && over !== app.doc ? over : null;
+    showTabTarget(target);
+    if (!target) {
+      if (current.spring) clearTimeout(current.spring.timer);
+      current.spring = null;
+    } else if (!current.spring || current.spring.doc !== target) {
+      if (current.spring) clearTimeout(current.spring.timer);
+      current.spring = { doc: target, timer: setTimeout(() => {
+        if (gesture !== current || !app.docs.includes(target)) return;
+        current.spring = null;
+        leaveForTab(current);
+        switchDoc(target);
+        showTabTarget(null);
+      }, 550) };
+    }
+    return Boolean(current.carried);
+  };
+  const leaveForTab = (current) => {
+    if (current.carried) return;
+    const source = app.doc;
+    current.carried = { source, ids: source.state.activeIds.slice() };
+    ops.endLiveMove(false);
+    hud(null);
+  };
+  // Says whether the drag was about another page
+  const dropFromTab = (current, event, point, cancelled) => {
+    if (current.spring) clearTimeout(current.spring.timer);
+    current.spring = null;
+    showTabTarget(null);
+    const over = cancelled || Shell.touch || current.endsEdit ? null : docOfTab(event);
+    if (!current.carried) {
+      if (!over || over === app.doc) return false;
+      leaveForTab(current);
+      switchDoc(over);
+    }
+    const { source, ids } = current.carried;
+    if (cancelled || app.doc === source || !app.docs.includes(source)) return true;
+    const onPage = !over && within(event, ui.stage.getBoundingClientRect());
+    if (!over && !onPage) return true;
+    const place = onPage && !event.shiftKey ? { dx: point[0] - current.start[0], dy: point[1] - current.start[1] } : null;
+    ops.pasteLayersFrom(source, ids, undefined, undefined, place);
+    return true;
+  };
+
   const hitHandle = (event) => {
     const rect = ui.stage.getBoundingClientRect();
     const x = event.clientX - rect.left;
@@ -7287,6 +7345,7 @@
       if (ops.moveMask(current.id, dx - current.moved[0], dy - current.moved[1], current.token, current.part)) current.moved = [dx, dy];
       hud(`Δ ${dx}, ${dy} px`, event);
     } else if (current.kind === "move") {
+      if (carryToTab(current, event)) return;
       let dx = point[0] - current.start[0];
       let dy = point[1] - current.start[1];
       // With Alt, what moves is a copy, made once the pointer really moves
@@ -7529,6 +7588,7 @@
       // The size in the options bar follows the handles
       renderOptions();
     } else if (kind === "move") {
+      if (dropFromTab(current, event, point, cancelled)) return;
       ops.endLiveMove(!cancelled);
       if (!cancelled && !current.moved && current.tapEdit) beginEdit(current.tapEdit, false, event);
       // Moved while typed in: the caret goes along. Only clicked: the edit ends, as anywhere outside.
@@ -9804,13 +9864,14 @@
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
   });
+  // Where they are dropped, as in Photoshop; with Shift, where they were on their page
   ui.stage.addEventListener("drop", (event) => {
     if (!dragIds || !dragSource || dragSource === app.doc) return;
     event.preventDefault();
     const ids = dragIds;
     const source = dragSource;
     endLayerDrag();
-    ops.pasteLayersFrom(source, ids);
+    ops.pasteLayersFrom(source, ids, undefined, undefined, event.shiftKey ? null : { at: toDoc(event) });
   });
   // A page brought forward during a drag takes the dragged row away, and with it its dragend:
   // the first move with no button down says the drag is over

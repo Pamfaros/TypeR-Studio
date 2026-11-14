@@ -9454,8 +9454,9 @@
       doc.blendPreview = next;
       emit("render");
     },
-    // Layers dragged from another page's panel: copied here, where they were dropped, or on top
-    pasteLayersFrom(source, ids, targetId, position) {
+    // Layers dragged from another page's panel: copied here, where they were dropped, or on top.
+    // `place`: { dx, dy } to move them by, or { at: [x, y] }, the point they are centred on.
+    pasteLayersFrom(source, ids, targetId, position, place) {
       const doc = app.doc;
       if (!doc || !source || source === doc) return 0;
       const chosen = new Set();
@@ -9463,7 +9464,7 @@
       const held = source.state.layers.filter((layer) => chosen.has(layer.id));
       if (!held.length) return 0;
       const fresh = new Map(held.map((layer) => [layer.id, newId()]));
-      const copies = held.map((layer) => {
+      let copies = held.map((layer) => {
         const copy = Object.assign({}, layer, { id: fresh.get(layer.id), group: fresh.get(layer.group) || null, isBackground: false, clean: false, link: undefined, raw: layer.raw ? Object.assign({}, layer.raw) : undefined });
         if (layer.kind === "text") {
           copy.params = clone(layer.params);
@@ -9473,6 +9474,18 @@
         }
         return copy;
       });
+      if (place) {
+        let dx = place.dx || 0;
+        let dy = place.dy || 0;
+        const boxes = place.at ? copies.filter((layer) => (layer.kind === "raster" && !layer.adjustment) || layer.kind === "text").map((layer) => (layer.kind === "text" ? boxOf(layer, doc) : trimmedBox(layer, doc))).filter(Boolean) : [];
+        if (boxes.length) {
+          dx = place.at[0] - (Math.min(...boxes.map((box) => box.left)) + Math.max(...boxes.map((box) => box.right))) / 2;
+          dy = place.at[1] - (Math.min(...boxes.map((box) => box.top)) + Math.max(...boxes.map((box) => box.bottom))) / 2;
+        }
+        dx = Math.round(dx);
+        dy = Math.round(dy);
+        if (dx || dy) copies = copies.map((layer) => shifted(layer, dx, dy, doc));
+      }
       const heads = copies.filter((layer) => !layer.group).map((layer) => layer.id);
       let layers = doc.state.layers.concat(copies);
       const target = targetId !== undefined && doc.state.layers.find((layer) => layer.id === targetId);
