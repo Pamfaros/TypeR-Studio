@@ -139,6 +139,9 @@
   const kernBefore = (style, size) => (style.kerning ? (style.kerning / 1000) * size : 0);
   // Two runs whose letters are drawn alike: the font kerns the pair where they meet
   const sameLetters = (a, b, resolution) => cssFont(a, 10) === cssFont(b, 10) && sizePxOf(a, resolution) === sizePxOf(b, resolution) && (a.horizontalScale || 100) === (b.horizontalScale || 100) && a.fontCaps === b.fontCaps && languageOf(a) === languageOf(b);
+  // Photoshop's default tab stops: every 36 of its text units from the start of the line, pixels
+  // of the page whatever its resolution (measured at 72 and 300 ppi)
+  const TAB_STOP = 36;
 
   const measureRuns = (runs, resolution) => {
     let advance = 0;
@@ -166,10 +169,15 @@
         const right = shownText({ text: run.text[0], style: run.style });
         advance += (measureCtx.measureText(left + right).width - measureCtx.measureText(left).width - measureCtx.measureText(right).width) * scaleX;
       }
-      // Each letter kerned by hand is drawn on its own, after its space (none at a line's start)
+      // Each letter kerned by hand is drawn on its own, after its space (none at a line's start).
+      // A tab draws nothing: what follows it starts at the next stop.
       const kern = kernBefore(run.style, size);
-      (kern ? Array.from(run.text) : [run.text]).forEach((text) => {
+      (kern ? Array.from(run.text) : run.text.includes("\t") ? run.text.split(/(\t)/).filter(Boolean) : [run.text]).forEach((text) => {
         if (kern && (placed.length || advance)) advance += kern;
+        if (text === "\t") {
+          advance = (Math.floor(advance / TAB_STOP + 1e-6) + 1) * TAB_STOP;
+          return;
+        }
         const shown = shownText({ text, style: run.style });
         const m = measureCtx.measureText(shown);
         placed.push({ run, shown, x: advance, size, scaleX, scaleY, shift });
@@ -471,10 +479,19 @@
       if (frame) x = align === "left" ? 0 : align === "right" ? frame.width - set : (frame.width - set) / 2;
       else x = align === "left" ? 0 : align === "right" ? -set : -set / 2;
       x -= hangLeft;
-      out.push({ runs, m, x, baseline, lead });
+      // In a box, what comes before a line's last tab stays on the left, as in Photoshop: only
+      // what follows it is centred or set right, and the tab takes up the room
+      let line = { runs, m, x, baseline, lead };
+      const lastTab = frame && align !== "left" ? lineText.lastIndexOf("\t", lineText.length - spaces - 1) : -1;
+      if (lastTab >= 0) {
+        const from = measureRuns(sliceRuns(runs, 0, lastTab + 1), resolution).advance - 1e-6;
+        const placed = m.placed.map((item) => (item.x >= from ? Object.assign({}, item, { x: item.x + x }) : item));
+        line = { runs, m: Object.assign({}, m, { placed, inkRight: m.inkRight + x }), x: 0, baseline, lead, tabShift: { from: lastTab + 1, dx: x } };
+      }
+      out.push(line);
       if (runs.length) {
-        left = Math.min(left, x + m.inkLeft);
-        right = Math.max(right, x + m.inkRight);
+        left = Math.min(left, line.x + line.m.inkLeft);
+        right = Math.max(right, line.x + line.m.inkRight);
         top = Math.min(top, baseline - m.ascent);
         bottom = Math.max(bottom, baseline + m.descent);
       }
@@ -555,7 +572,9 @@
           // A line that doesn't fit in its box isn't drawn: the caret has nowhere to go there
           if (!line) continue;
           const xs = [line.x];
-          for (let k = 1; k <= end - start; k++) xs.push(line.x + measureRuns(sliceRuns(runs, 0, k), doc.resolution).advance);
+          // What follows a line's last tab in a box may be moved along (see relativeLayout)
+          const moved = (k) => (line.tabShift && k >= line.tabShift.from ? line.tabShift.dx : 0);
+          for (let k = 1; k <= end - start; k++) xs.push(line.x + measureRuns(sliceRuns(runs, 0, k), doc.resolution).advance + moved(k));
           const ascent = line.m.fontAscent || size * 0.8;
           const descent = line.m.fontDescent || size * 0.2;
           rel.push({ start, end, xs, baseline: line.baseline, top: line.baseline - ascent, bottom: line.baseline + descent, size });

@@ -8365,6 +8365,16 @@
     }
     if (isCommand(event)) handleKey(event);
     if (event.defaultPrevented) return;
+    // Tab types a tab, as in Photoshop: it neither leaves the text nor hides the panels
+    if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
+      event.preventDefault();
+      if (event.shiftKey) return;
+      if (!document.execCommand("insertText", false, "\t")) {
+        ui.editor.setRangeText("\t", ui.editor.selectionStart, ui.editor.selectionEnd, "end");
+        ui.editor.dispatchEvent(new Event("input"));
+      }
+      return;
+    }
     // The caret moves before the next frame: it is drawn again there
     if (typingOnPage()) schedule(false);
     if (typingOnPage() && moveByLines(event)) {
