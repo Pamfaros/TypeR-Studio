@@ -210,5 +210,20 @@
       .map((index) => index + lead);
   };
 
-  window.TypeRHyphenation = { LANGUAGES, resolve, load, isLoaded, breakPoints };
+  // The cuts the patterns alone give a run of letters, 2 letters at least on each side. It is
+  // how paragraph text is cut, to break where Photoshop does: its own French hyphenation keeps
+  // to them, where the syllable rules above cut more ("con-nais", "par-lent", "magi-que").
+  const patternCuts = (word, language) => {
+    if (!language) return [];
+    const key = `${language}=${word}`;
+    let points = known.get(key);
+    if (!points) {
+      points = patternPoints(language, word).filter((index) => index >= 2 && word.length - index >= 2);
+      if (known.size >= KNOWN_MAX) known.clear();
+      known.set(key, points);
+    }
+    return points;
+  };
+
+  window.TypeRHyphenation = { LANGUAGES, resolve, load, isLoaded, breakPoints, patternCuts };
 })();

@@ -239,20 +239,46 @@
     loadHyphenation(language);
     return null;
   };
-  // Photoshop's defaults: words of 6 letters or more, 2 letters at least on each side
+  // Photoshop's defaults, as it writes them and as they are saved: 2 letters at least on each
+  // side, and no cut when the line would stop less than 36 short of the box without one. Its
+  // word size of 6 cuts the words of paragraph text from 7 letters on (see wrapRuns).
   const hyphenRulesOf = (paragraph) => (paragraph && paragraph.hyphenate === true ? {
     wordSize: paragraph.hyphenateWordSize || 6,
     pre: paragraph.hyphenatePreLength || 2,
     post: paragraph.hyphenatePostLength || 2,
     capitalized: paragraph.hyphenateCapitalized !== false,
+    zone: paragraph.hyphenationZone === undefined ? 36 : paragraph.hyphenationZone,
   } : null);
 
-  // One line of a paragraph into lines that fit: at spaces and after hyphens, at a
-  // syllable with a hyphen when the paragraph hyphenates, and inside a word only when
-  // the word alone is wider than the box
-  const wrapRuns = (runs, width, resolution, hyphenRules) => {
+  // What Photoshop leaves out of a word's length when it asks whether the word is long enough
+  // to be cut: the punctuation before and after it, but not an opening bracket before it
+  const UNCOUNTED_BEFORE = /^[^\p{L}\p{M}\p{N}([{_/#&+=%¿¡]+/u;
+  const UNCOUNTED_AFTER = /[^\p{L}\p{M}\p{N}_/#&+=%¿¡]+$/u;
+
+  // One line of a paragraph into lines that fit, where Photoshop breaks them (measured in
+  // Photoshop 2026, on texts saved from here): the PSD says the text and its box, not its
+  // lines, and Photoshop sets them again when the file is updated or the text edited there.
+  // - A line breaks at its spaces only: a word with hyphens ("Orbia-san") stays whole, and a
+  //   "?" after a space can start a line.
+  // - A line fits by the width it is set at: without the spaces that end it, and with Roman
+  //   Hanging Punctuation (`hanging`) without the punctuation that hangs out of the box.
+  // - With Hyphenate on, a word that doesn't fit is cut with a hyphen at the last syllable that
+  //   does: only a word longer than the word size, never next to its own hyphens or
+  //   apostrophes, and not when the line without it already stops within the zone.
+  // - A word wider than the box alone is cut at a syllable, or else between two letters.
+  const wrapRuns = (runs, width, resolution, hyphenRules, hanging) => {
     const text = runs.map((run) => run.text).join("");
-    const tooWide = (from, to) => measureRuns(sliceRuns(runs, from, to), resolution).advance > width;
+    const isGap = (ch) => ch === " " || ch === "\t";
+    const setWidth = (lineRuns) => {
+      const m = measureRuns(lineRuns, resolution);
+      if (!hanging) return m.advance;
+      const [hangLeft, hangRight] = hangsOf(m);
+      return m.advance - hangLeft - hangRight;
+    };
+    const fits = (from, to) => setWidth(sliceRuns(runs, from, to)) <= width;
+    // Between two letters of a word, nothing hangs, and the letter that ends the line keeps
+    // the kerning it has with the next one
+    const fitsInside = (from, to) => measureRuns(sliceRuns(runs, from, to + 1), resolution).advance - measureRuns(sliceRuns(runs, to, to + 1), resolution).advance <= width;
     const withHyphen = (from, to) => {
       const out = sliceRuns(runs, from, to);
       const last = out[out.length - 1];
@@ -264,27 +290,33 @@
     const lines = [];
     const pushLine = (from, to) => {
       let end = to;
-      while (end > from && text[end - 1] === " ") end--;
+      while (end > from && isGap(text[end - 1])) end--;
       lines.push(sliceRuns(runs, from, end));
     };
-    // Where the word from `start` to `end` can be cut with a hyphen so that the line from
-    // `lineStart` fits, the latest such place; -1 when none
-    const hyphenCut = (lineStart, start, end) => {
+    const lettersIn = (from, to) => (text.slice(from, to).match(/[\p{L}\p{N}]/gu) || []).length;
+    // Where the word around `at`, which ends at `end`, can be cut with a hyphen so that the
+    // line from `lineStart` fits, the latest such place; -1 when none
+    const hyphenCut = (lineStart, at, end) => {
       if (!hyphenRules) return -1;
+      let start = at;
+      while (start > 0 && !isGap(text[start - 1])) start--;
       const word = text.slice(start, end);
-      const lead = /^[^\p{L}]*/u.exec(word)[0].length;
-      const core = /^[\p{L}'’]+/u.exec(word.slice(lead));
-      if (!core || core[0].length < hyphenRules.wordSize) return -1;
-      if (!hyphenRules.capitalized && /^\p{Lu}/u.test(core[0])) return -1;
-      const style = sliceRuns(runs, start + lead, start + lead + 1)[0];
-      const language = hyphenLanguage(style && style.style);
-      if (!language) return -1;
-      const points = window.TypeRHyphenation.breakPoints(core[0], language)
-        .filter((point) => point >= hyphenRules.pre && core[0].length - point >= hyphenRules.post)
-        .sort((a, b) => b - a);
-      for (const point of points) {
-        const cut = start + lead + point;
-        if (measureRuns(withHyphen(lineStart, cut), resolution).advance <= width) return cut;
+      const counted = word.replace(UNCOUNTED_BEFORE, "").replace(UNCOUNTED_AFTER, "");
+      if (Array.from(counted).length <= hyphenRules.wordSize) return -1;
+      if (!hyphenRules.capitalized && /^\p{Lu}/u.test(counted)) return -1;
+      // Each run of letters has its own syllables: none is cut next to a hyphen or an
+      // apostrophe of the word ("aujourd'hui" cuts at "au-", not at "aujour-")
+      const cuts = [];
+      for (const part of word.matchAll(/[\p{L}\p{M}]+/gu)) {
+        const from = start + part.index;
+        const style = sliceRuns(runs, from, from + 1)[0];
+        const language = hyphenLanguage(style && style.style);
+        if (language) window.TypeRHyphenation.patternCuts(part[0], language).forEach((point) => cuts.push(from + point));
+      }
+      cuts.sort((a, b) => b - a);
+      for (const cut of cuts) {
+        if (cut <= lineStart || lettersIn(start, cut) < hyphenRules.pre || lettersIn(cut, end) < hyphenRules.post) continue;
+        if (setWidth(withHyphen(lineStart, cut)) <= width) return cut;
       }
       return -1;
     };
@@ -292,47 +324,43 @@
     let i = 0;
     while (i < text.length) {
       let end = i;
-      for (;;) {
-        while (end < text.length && text[end] !== " " && !(text[end] === "-" && text[end + 1] && text[end + 1] !== " ")) end++;
-        if (text[end] === "-") {
-          end++;
-          break;
+      while (end < text.length && !isGap(text[end])) end++;
+      if (end > lineStart && !fits(lineStart, end)) {
+        if (i > lineStart) {
+          // The line has words already: this one is cut when the line would stop too short
+          // without it, and goes whole to the next line otherwise
+          let head = i;
+          while (head > lineStart && isGap(text[head - 1])) head--;
+          const cut = hyphenRules && width - setWidth(sliceRuns(runs, lineStart, head)) >= hyphenRules.zone ? hyphenCut(lineStart, i, end) : -1;
+          if (cut > 0) lines.push(withHyphen(lineStart, cut));
+          else pushLine(lineStart, i);
+          lineStart = cut > 0 ? cut : i;
+          i = lineStart;
+          continue;
         }
-        // French punctuation has a space before it, but never starts a line
-        const next = /^ +[?!:;»…%)\]]/.exec(text.slice(end));
-        if (!next) break;
-        end += next[0].length;
-      }
-      if (end > lineStart && tooWide(lineStart, end)) {
-        const cut = hyphenCut(lineStart, i, end);
-        if (cut > 0) {
-          lines.push(withHyphen(lineStart, cut));
+        // The word starts the line and is wider than the box
+        if (end - lineStart > 1) {
+          let cut = hyphenCut(lineStart, i, end);
+          if (cut > 0) lines.push(withHyphen(lineStart, cut));
+          else {
+            cut = lineStart + 1;
+            while (cut + 1 < end && fitsInside(lineStart, cut + 1)) cut++;
+            pushLine(lineStart, cut);
+          }
           lineStart = cut;
           i = cut;
           continue;
         }
-        if (i > lineStart) {
-          pushLine(lineStart, i);
-          lineStart = i;
-          // The word starts the next line: a hyphen may fit it there before any cut
-          if (hyphenRules) continue;
-        }
-        while (end - lineStart > 1 && tooWide(lineStart, end)) {
-          let cut = lineStart + 1;
-          while (cut + 1 < end && !tooWide(lineStart, cut + 1)) cut++;
-          pushLine(lineStart, cut);
-          lineStart = cut;
-        }
       }
       i = end;
-      while (text[i] === " ") i++;
+      while (isGap(text[i])) i++;
     }
     pushLine(lineStart, text.length);
     return lines;
   };
 
   // Photoshop's Roman Hanging Punctuation puts these outside the margins, wholly or by half
-  const HANG_FULL = new Set([".", ",", "-", "\u2010", "'", "\"", "\u2018", "\u2019", "\u201C", "\u201D"]);
+  const HANG_FULL = new Set([".", ",", "-", "\u2010", "'", "\"", "\u2018", "\u2019", "\u201C", "\u201D", "\u00AB", "\u00BB"]);
   const HANG_HALF = new Set(["*", "~", "\u2026", "\u2013", "\u2014", ":", ";"]);
   const hangShare = (ch) => (HANG_FULL.has(ch) ? 1 : HANG_HALF.has(ch) ? 0.5 : 0);
   // How far a line's first and last characters hang out
@@ -421,7 +449,7 @@
     if (frame) {
       const wrapped = [];
       lines.forEach((runs) => {
-        if (runs.length) wrapped.push(...wrapRuns(runs, frame.width, resolution, hyphenRulesOf(paragraph)));
+        if (runs.length) wrapped.push(...wrapRuns(runs, frame.width, resolution, hyphenRulesOf(paragraph), Boolean(paragraph.hangingRoman)));
         else wrapped.push(runs);
       });
       lines = wrapped;
