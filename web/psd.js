@@ -266,6 +266,13 @@
     };
   };
 
+  // Photoshop's Warp Text, as the file names it and as TypeR does (see TypeRTextWarp): Bend is
+  // its `value`, the horizontal and vertical distortions its two `perspective`s
+  const envelopeFromPsd = (warp) => (warp && warp.style && warp.style !== "none"
+    ? window.TypeRTextWarp.clean({ style: warp.style, bend: warp.value, horizontal: warp.perspective, vertical: warp.perspectiveOther, rotate: warp.rotate })
+    : null);
+  const envelopeToPsd = (envelope) => ({ style: envelope.style, value: envelope.bend, perspective: envelope.horizontal, perspectiveOther: envelope.vertical, rotate: envelope.rotate });
+
   // A stroke's Position: Photoshop's names, TypeR's
   const POSITION_IN = { outside: "outer", inside: "inner", center: "center" };
   const POSITION_OUT = { outer: "outside", inner: "inside", center: "center" };
@@ -667,6 +674,9 @@
           // Its shadow, glows and overlays, drawn around and on Photoshop's own letters
           const effects = effectsFromPsd(node.effects, globalAngle);
           if (effects) layer.effects = effects;
+          // Warp Text: kept when the text is edited here
+          const envelope = envelopeFromPsd(node.text.warp);
+          if (envelope) layer.envelope = envelope;
           // Fill at 0%: only the stroke shows
           if (node.fillOpacity === 0) layer.knockout = true;
           if (node.canvas) {
@@ -851,6 +861,8 @@
       const height = layout.overflow ? box.height : Math.max(box.autoHeight ? 0 : box.height - shift, layout.contentHeight * 1.08);
       out.boxBounds = [0, 0, box.width, height];
     }
+    // Warp Text: Photoshop opens it with the same style and values
+    if (window.TypeRTextWarp.on(layer.envelope)) out.warp = envelopeToPsd(layer.envelope);
     if (ranges.length > 1) {
       let covered = 0;
       out.styleRuns = ranges.map((range) => {

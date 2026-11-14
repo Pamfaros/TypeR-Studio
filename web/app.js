@@ -120,6 +120,7 @@
     fullScreenExit: SVG('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
     alignMiddle: SVG('<rect x="4" y="4" width="16" height="16"/><path d="M8 10h8M8 14h8"/>'),
     warp: SVG('<path d="M7.500 5h9L21 19H3Z"/><path d="M12 5v14M5.200 12h13.600"/>'),
+    warpText: SVG('<path d="M7 4h10M12 4v9"/><path d="M3 20c3.500-5 14.500-5 18 0"/>'),
     pilcrow: SVG('<path d="M13 4v16"/> <path d="M17 4v16"/> <path d="M19 4H9.500a4.500 4.500 0 0 0 0 9H13"/>'),
     pencil: SVG('<path d="m4 20 1-4L16 5a2.100 2.100 0 0 1 3 3L8 19ZM14.500 6.500l3 3"/>'),
     lines: SVG('<path d="M4 6h16M4 12h11a3 3 0 0 1 0 6H9M12 15l-3 3 3 3"/>'),
@@ -1021,7 +1022,7 @@
     return next;
   };
   const enterSurface = (layer) => {
-    if (!layer || layer.rotated) return;
+    if (!layer || layer.rotated || layer.envelope) return;
     if (layer.raster && Fonts.isMissing(layer.params.layerText.textStyleRange[0].textStyle.fontPostScriptName)) toast(T("This text's font is missing: it will be drawn with another font."), true);
     if (!layer.warp) ops.startTextWarp(layer.id);
     warping = layer.id;
@@ -1090,6 +1091,196 @@
       if (current) ops.removeTextWarp(current.id);
       leaveSurface();
     }), action("Done", leaveSurface));
+  };
+
+  /* -------------------------------- Warp Text -------------------------------- */
+
+  // Photoshop's Warp Text (Layer > Warp Text…, and the Type tool's options bar): the chosen
+  // texts bent into one of Photoshop's shapes, shown on the page as the settings move. They
+  // stay texts, and Photoshop opens them with the same warp.
+  const warpTargets = () => styleTargets().filter((layer) => !layer.warp && !PS.meshOk(layer.mesh) && !PS.outlineOk(layer.outline));
+  const warpRefusal = () => {
+    if (warpTargets().length) return null;
+    const texts = activeTexts();
+    if (!texts.length) return T("Select a text layer first.");
+    if (texts.some((layer) => layer.warp)) return T("A text in perspective can't be warped: take its perspective off first.");
+    return T("An SFX's letters take their look from the SFX: change it in the SFX panel.");
+  };
+  const showWarpText = async () => {
+    const doc = app.doc;
+    if (!doc || ui.modal.open) return null;
+    settleForResize();
+    commitTransform();
+    closeContextMenu();
+    const why = warpRefusal();
+    if (why) {
+      toast(why);
+      return null;
+    }
+    const TW = window.TypeRTextWarp;
+    const texts = warpTargets();
+    const ids = texts.map((layer) => layer.id);
+    const lead = texts.find((layer) => layer.id === doc.state.activeIds[doc.state.activeIds.length - 1]) || texts[texts.length - 1];
+    const start = TW.clean(lead.envelope);
+    let style = start ? start.style : "none";
+    let rotate = start ? start.rotate : "horizontal";
+    // What Photoshop starts a style with
+    const values = { bend: start ? start.bend : 50, horizontal: start ? start.horizontal : 0, vertical: start ? start.vertical : 0 };
+    // The step before the dialog, by itself (see openLayerStyle): Cancel goes back to it
+    const base = doc.history[doc.historyIndex];
+    const backToStart = () => {
+      const at = doc.history.indexOf(base);
+      if (at >= 0) ops.rollbackHistory(at);
+    };
+    const token = `gesture:warp-text:${Date.now()}`;
+    const chosen = () => (style === "none" ? null : { style, bend: values.bend, horizontal: values.horizontal, vertical: values.vertical, rotate });
+    if (texts.some((layer) => layer.raster && Fonts.isMissing(layer.params.layerText.textStyleRange[0].textStyle.fontPostScriptName))) toast(T("This text's font is missing: it will be drawn with another font."), true);
+
+    const make = (tag, className, parent, text) => {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (text !== undefined) el.textContent = text;
+      if (parent) parent.appendChild(el);
+      return el;
+    };
+    const body = make("div", "mask-props warp-props");
+    const styleRow = make("label", "warp-props__style", body);
+    make("span", "", styleRow, T("Style"));
+    const select = make("select", "", styleRow);
+    select.setAttribute("aria-label", T("Style"));
+    const option = (value, text) => {
+      const one = make("option", "", select, text);
+      one.value = value;
+    };
+    option("none", T("None"));
+    TW.GROUPS.forEach((group) => {
+      select.appendChild(document.createElement("hr"));
+      // Photoshop's names, which mean something else in an SFX: under their own keys
+      group.forEach((name) => option(name, TL(`Warp Text: ${TW.NAMES[name]}`, TW.NAMES[name])));
+    });
+    select.value = style;
+    const turns = make("div", "blur-props__modes", body);
+    turns.setAttribute("role", "radiogroup");
+    const turnInputs = [["horizontal", T("Horizontal")], ["vertical", T("Vertical")]].map(([value, text]) => {
+      const label = make("label", "blur-props__mode", turns);
+      const input = make("input", "", label);
+      input.type = "radio";
+      input.name = "warp-rotate";
+      input.value = value;
+      input.checked = value === rotate;
+      make("span", "", label, text);
+      input.addEventListener("change", () => {
+        if (!input.checked) return;
+        rotate = value;
+        queue();
+      });
+      return input;
+    });
+    const controls = [["bend", TL("Warp Text: Bend", "Bend")], ["horizontal", T("Horizontal Distortion")], ["vertical", T("Vertical Distortion")]].map(([key, text]) => {
+      const line = make("label", "mask-props__row", body);
+      make("span", "", line, text);
+      const range = make("input", "", line);
+      range.type = "range";
+      range.min = "-100";
+      range.max = "100";
+      range.step = "1";
+      range.setAttribute("aria-label", text);
+      const number = make("input", "", line);
+      number.type = "number";
+      number.min = "-100";
+      number.max = "100";
+      number.step = "1";
+      number.setAttribute("aria-label", text);
+      make("span", "mask-props__unit", line, "%");
+      const set = (value, from) => {
+        values[key] = Math.max(-100, Math.min(100, Math.round(Number(value) || 0)));
+        if (from !== range) range.value = String(values[key]);
+        if (from !== number) number.value = String(values[key]);
+        showSliderFill(range);
+        if (from) queue();
+      };
+      range.addEventListener("input", () => set(range.value, range));
+      number.addEventListener("input", () => { if (number.value !== "" && number.value !== "-" && !Number.isNaN(Number(number.value))) set(number.value, number); });
+      number.addEventListener("change", () => set(number.value, true));
+      set(values[key]);
+      return { range, number, set };
+    });
+    // Photoshop reads the font's own file to place the warp: without it the shape can be a little off
+    const fontNote = make("p", "modal__hint", body, T("To get exactly Photoshop's shape, TypeR has to read this font's file: use File > Use Installed Fonts…, or load the font file."));
+    const showState = () => {
+      const off = style === "none";
+      turnInputs.forEach((input) => { input.disabled = off; });
+      controls.forEach(({ range, number }) => {
+        range.disabled = off;
+        number.disabled = off;
+      });
+      fontNote.hidden = off || DESKTOP || !ids.some((id) => {
+        const layer = doc.state.layers.find((item) => item.id === id);
+        return Boolean(layer) && layer.params.layerText.textStyleRange.some((range) => {
+          const font = Fonts.resolve(range.textStyle);
+          return font.source === "local" && !Fonts.measuresOf(font);
+        });
+      });
+    };
+    let frame = 0;
+    const run = () => {
+      frame = 0;
+      if (app.doc !== doc) return;
+      ops.setEnvelope(ids, chosen(), token);
+      showState();
+    };
+    function queue() {
+      if (!frame) frame = requestAnimationFrame(run);
+    }
+    select.addEventListener("change", () => {
+      const was = style;
+      style = select.value;
+      // A style picked afresh starts as Photoshop's: Bend at +50%, no distortion
+      if (was === "none" && style !== "none" && !start) {
+        controls[0].set(50);
+        controls[1].set(0);
+        controls[2].set(0);
+      }
+      queue();
+    });
+    showState();
+
+    const pending = dialog({ title: T("Warp Text"), body, ready: () => ui.modal.classList.add("modal--levels") });
+    // The page has to be seen: the window moves by its title, as Levels'
+    const modal = ui.modal;
+    const head = modal.querySelector(".modal__head");
+    head.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const [x0, y0] = (modal.style.translate || "0px 0px").split(" ").map((value) => parseFloat(value) || 0);
+      const { clientX, clientY } = event;
+      head.setPointerCapture(event.pointerId);
+      const move = (e) => { modal.style.translate = `${x0 + e.clientX - clientX}px ${y0 + e.clientY - clientY}px`; };
+      const stop = () => {
+        head.removeEventListener("pointermove", move);
+        head.removeEventListener("pointerup", stop);
+        head.removeEventListener("pointercancel", stop);
+      };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", stop);
+      head.addEventListener("pointercancel", stop);
+    });
+    select.focus();
+    const answer = await pending;
+    modal.style.translate = "";
+    if (frame) cancelAnimationFrame(frame);
+    if (app.doc !== doc) return null;
+    const wanted = chosen();
+    // Cancelled, or left as it was: nothing happened
+    if (!answer || TW.keyOf(wanted) === TW.keyOf(start)) {
+      backToStart();
+      renderOptions();
+      return null;
+    }
+    ops.setEnvelope(ids, wanted, token);
+    ops.sealHistory();
+    renderOptions();
+    renderMenusState();
+    return wanted;
   };
 
   const drawOverlay = () => {
@@ -3854,8 +4045,11 @@
     aligns.appendChild(middle);
     const surface = iconButton("warp", T("Perspective"), Boolean(layer && layer.warp), () => enterSurface(activeTexts()[0]));
     surface.classList.add("obar__gap");
-    surface.disabled = activeTexts().length !== 1 || Boolean(layer.rotated);
+    surface.disabled = activeTexts().length !== 1 || Boolean(layer.rotated) || Boolean(layer.envelope);
     aligns.appendChild(surface);
+    const warped = iconButton("warpText", warpTextItem.keys ? `${T("Warp Text")} (${keyLabel(warpTextItem.keys)})` : T("Warp Text"), Boolean(layer && layer.envelope), () => showWarpText());
+    warped.disabled = !warpTargets().length;
+    aligns.appendChild(warped);
     const antiAlias = document.createElement("select");
     antiAlias.title = T("Anti-aliasing method");
     antiAlias.setAttribute("aria-label", T("Anti-aliasing method"));
@@ -7730,7 +7924,8 @@
     for (let i = doc.state.layers.length - 1; i >= 0; i--) {
       const layer = doc.state.layers[i];
       if (layer.kind !== "text" || layer.visible === false) continue;
-      const box = PS.frameOf(layer, doc);
+      // A warped text shows away from its frame: it answers where it shows
+      const box = layer.envelope && !layer.warp ? PS.boxOf(layer, doc) : PS.frameOf(layer, doc);
       if (point[0] >= box.left - slack && point[0] <= box.right + slack && point[1] >= box.top - slack && point[1] <= box.bottom + slack) return layer;
     }
     return null;
@@ -7823,7 +8018,7 @@
     const style = layer.params.layerText.textStyleRange[0].textStyle;
     const docked = Shell.touch;
     const turn = turnOfTyped(layer, doc);
-    const inBox = Boolean(layer.warp || (layer.rotated && !turn));
+    const inBox = Boolean(layer.warp || layer.envelope || (layer.rotated && !turn));
     ui.editor.style.transform = "";
     ui.editor.style.transformOrigin = "";
     ui.editor.classList.toggle("is-warped", inBox || docked);
@@ -8007,7 +8202,7 @@
       const layer = doc.preview && doc.preview.id === stored.id ? doc.preview : stored;
       // A text on a surface, or turned without being typed on the page, has no straight lines
       const turn = turnOfTyped(layer, doc);
-      if (layer.warp || (layer.rotated && !turn)) return;
+      if (layer.warp || layer.envelope || (layer.rotated && !turn)) return;
       const lines = PS.caretLines(layer, doc);
       if (!lines.length) return;
       const text = String(layer.params.layerText.textKey || "");
@@ -16496,6 +16691,8 @@
       else toast(styleRefusal() || T("This layer has no style to clear."));
     } },
   ];
+  // Photoshop has no key for it: Shift+W, as Shift+P is Perspective's
+  const warpTextItem = { label: "Warp Text…", keys: "Shift+W", enabled: () => warpTargets().length > 0, action: () => showWarpText() };
   const searchItem = { label: "Search…", keys: "Cmd+F", anywhere: true, keepsTransform: true, enabled: () => !panelModal(), action: () => openSearch() };
   const MENUS = [
     ["File", [
@@ -16582,7 +16779,8 @@
       { label: "Convert to Paragraph Text", enabled: () => activeTexts().some((layer) => !isParagraph(layer)), action: () => activeTexts().forEach((layer) => { if (!isParagraph(layer)) ops.convertText(layer.id); }) },
       { label: "Convert to Point Text", enabled: () => activeTexts().some(isParagraph), action: () => activeTexts().forEach((layer) => { if (isParagraph(layer)) ops.convertText(layer.id); }) },
       { label: "Hyphenate", keys: "Alt+Shift+Cmd+H", anywhere: true, check: hyphenateShown, enabled: hasDoc, action: () => setHyphenate(!hyphenateShown()) },
-      { label: "Perspective", keys: "Shift+P", enabled: () => activeTexts().length === 1 && !activeTexts()[0].rotated, action: () => enterSurface(activeTexts()[0]) },
+      warpTextItem,
+      { label: "Perspective", keys: "Shift+P", enabled: () => activeTexts().length === 1 && !activeTexts()[0].rotated && !activeTexts()[0].envelope, action: () => enterSurface(activeTexts()[0]) },
       { label: "Rasterize Type", enabled: () => activeTexts().length > 0, action: () => activeTexts().forEach((layer) => ops.rasterizeText(layer.id)) },
       null,
       { label: "New SFX", enabled: hasDoc, action: () => { setTool("sfx"); window.TypeRSFX.newSfx({}); } },

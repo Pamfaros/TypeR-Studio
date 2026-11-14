@@ -818,6 +818,114 @@
     return inside || near <= slack;
   };
 
+  /* --------------------------------- a text warped -------------------------------- */
+
+  // Photoshop's Warp Text: `envelope` is the warp ({ style, bend, horizontal, vertical, rotate },
+  // see TypeRTextWarp), its letters drawn where the warp's surface puts them. It stays a text,
+  // and Photoshop opens it with the same warp. Not to be mistaken for `warp`, a text in
+  // perspective, which Photoshop has no text for.
+  const envelopeOn = (layer) => Boolean(layer && layer.kind === "text" && !layer.warp && !layer.raster && window.TypeRTextWarp.on(layer.envelope) && !meshOn(layer));
+  // How far a font's letters go in the bounds Photoshop gives a text, in parts of the size:
+  // above the baseline, half the size and half the height of its capitals; below it, as low as
+  // the lowest of all its letters (measured on Photoshop 2026 with 16 fonts). Read from the
+  // font's file; a font whose file can't be read is measured on what it draws, which misses
+  // a letter that goes lower than these.
+  const LOW_LETTERS = "gjpqyQJ()[]{}|/_,;@$çÇ";
+  const boundsShares = new Map();
+  const boundsSharesOf = (textStyle) => {
+    const font = Fonts.resolve(textStyle);
+    const key = Fonts.generation + "|" + cssFont(textStyle, INK_SIZE);
+    let shares = boundsShares.get(key);
+    if (!shares) {
+      const measures = Fonts.measuresOf(font);
+      let cap = measures && measures.cap;
+      if (!cap) cap = ownGlyph(textStyle, "H") ? inkTopOf(textStyle, "H") : 0.7;
+      let fall = measures ? measures.bottom : 0;
+      if (!measures) {
+        const low = Array.from(LOW_LETTERS).filter((ch) => ownGlyph(textStyle, ch)).join("") || "g";
+        setRunFont(measureCtx, textStyle, INK_SIZE);
+        fall = measureCtx.measureText(low).actualBoundingBoxDescent / INK_SIZE;
+      }
+      shares = { rise: 0.5 + cap / 2, fall };
+      if (boundsShares.size > 500) boundsShares.clear();
+      boundsShares.set(key, shares);
+    }
+    return shares;
+  };
+  // Photoshop kerns the last letter of a line with the return that ends it, as it would with a
+  // space (a line ending in Arial's L ends 0.037 of the size sooner). In parts
+  // of the size: from the font's `kern` table when its file is read, else as the browser kerns.
+  const endKerns = new Map();
+  const endKernOf = (textStyle, ch) => {
+    if (!ch || ch === " " || textStyle.autoKern === "manual") return 0;
+    const measures = Fonts.measuresOf(Fonts.resolve(textStyle));
+    if (measures && measures.spaceKerns) return measures.spaceKerns.get(ch) || 0;
+    const key = Fonts.generation + "|" + cssFont(textStyle, INK_SIZE) + "|" + ch;
+    if (!endKerns.has(key)) {
+      if (endKerns.size > 2000) endKerns.clear();
+      const style = Object.assign({}, textStyle, { tracking: 0 });
+      setRunFont(measureCtx, style, INK_SIZE);
+      const width = (text) => measureCtx.measureText(text).width;
+      endKerns.set(key, (width(ch + " ") - width(ch) - width(" ")) / INK_SIZE);
+    }
+    return endKerns.get(key);
+  };
+  // The bounds Photoshop bends, around the text's anchor and before its turn: each line from
+  // its start to its end (to its ink, where a letter sticks out), as high and as low as its
+  // fonts go. A paragraph's box counts too, as it is saved (see textToPsd in psd.js).
+  const warpBoundsOf = (layer, doc) => {
+    const lt = layer.params.layerText;
+    const relative = relativeLayout(lt, doc.resolution);
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    relative.lines.forEach((line) => {
+      if (!line.m.placed.length) return;
+      const last = line.m.placed[line.m.placed.length - 1];
+      const end = line.m.advance + endKernOf(last.run.style, Array.from(last.shown).pop()) * last.size * last.scaleX;
+      left = Math.min(left, line.x, line.x + line.m.inkLeft);
+      right = Math.max(right, line.x + end, line.x + line.m.inkRight);
+      line.m.placed.forEach((item) => {
+        const { rise, fall } = boundsSharesOf(item.run.style);
+        top = Math.min(top, line.baseline - item.shift - rise * item.size * item.scaleY);
+        bottom = Math.max(bottom, line.baseline - item.shift + fall * item.size * item.scaleY);
+      });
+    });
+    if (!isFinite(left)) left = top = right = bottom = 0;
+    const shape = boxShape(lt);
+    if (shape) {
+      const height = relative.overflow ? shape.box.height : Math.max(shape.box.autoHeight ? 0 : shape.box.height - relative.shift, relative.contentHeight * 1.08);
+      left = Math.min(left, 0);
+      right = Math.max(right, shape.box.width);
+      top = Math.min(top, relative.shift);
+      bottom = Math.max(bottom, relative.shift + height);
+    }
+    return rectFrom(left, top, right, bottom);
+  };
+  // From the text's own frame (around its anchor) to where it lands, anchor aside: warped, then
+  // turned as the text is
+  const envelopeMapOf = (layer, doc) => {
+    const warped = window.TypeRTextWarp.mapOf(layer.envelope, warpBoundsOf(layer, doc));
+    const spin = (layer.rotated && layer.spin) || [1, 0, 0, 1];
+    return (x, y) => {
+      const [X, Y] = warped(x, y);
+      return [spin[0] * X + spin[2] * Y, spin[1] * X + spin[3] * Y];
+    };
+  };
+  // What shows of it on the page: where the box of its ink lands
+  const envelopeBounds = (layer, doc) => {
+    const b = relativeLayout(layer.params.layerText, doc.resolution).box;
+    const map = envelopeMapOf(layer, doc);
+    const [ax, ay] = anchorOf(layer.params.layerText, doc);
+    const points = [];
+    for (let j = 0; j <= 12; j++) for (let i = 0; i <= 24; i++) {
+      const [x, y] = map(b.left + (b.width * i) / 24, b.top + (b.height * j) / 12);
+      points.push([ax + x, ay + y]);
+    }
+    return boundsOfPoints(points);
+  };
+
   // A text turned in Photoshop stays turned when it's edited, around its anchor
   const spinOf = (layer) => (layer.rotated && layer.spin && !layer.warp ? layer.spin : null);
   // A spin whose sides aren't square any more: a skewed text (Free Transform, or Photoshop's)
@@ -850,6 +958,7 @@
         return boundsOfPoints(surfaceEdge(layer.warp, (b.left - source.left) / source.width, (b.top - source.top) / source.height, (b.right - source.left) / source.width, (b.bottom - source.top) / source.height));
       }
       if (meshOn(layer)) return meshBounds(layer, doc);
+      if (envelopeOn(layer)) return envelopeBounds(layer, doc);
       const layout = layoutLayer(layer, doc);
       if (!spinOf(layer)) return layout.box;
       const { minX, minY, maxX, maxY } = spunBounds(layout.relative.box, spinOf(layer));
@@ -2665,9 +2774,10 @@
   // A reshaped letter: its letters alone drawn large and laid on the grid, then its stroke
   // drawn around what shows, so the stroke keeps its width wherever the letter is pulled.
   // Around the text's anchor, as the plain text's picture.
-  const meshedBitmap = (layer, doc, relative, stroke, antiAlias) => {
+  // `through`: another map than the letter's own shape (a warped text's, see envelopeMapOf)
+  const meshedBitmap = (layer, doc, relative, stroke, antiAlias, through) => {
     const b = relative.box;
-    const map = meshMapOf(layer, b);
+    const map = through || meshMapOf(layer, b);
     let largest = 0;
     relative.lines.forEach((line) => line.m.placed.forEach((item) => { largest = Math.max(largest, item.size); }));
     const pad = Math.ceil(4 + largest * 0.1);
@@ -2906,6 +3016,16 @@
       if (!forLayout.has(meshKey) && forLayout.size > 6) forLayout.clear();
       if (!forLayout.has(meshKey)) keepText(forLayout, meshKey, outlined ? outlinedBitmap(layer, doc, relative, stroke, antiAlias) : meshedBitmap(layer, doc, relative, stroke, antiAlias));
       const entry = forLayout.get(meshKey);
+      return { canvas: entry.canvas, x: Math.round(layout.anchor[0]) + entry.x, y: Math.round(layout.anchor[1]) + entry.y };
+    }
+    if (envelopeOn(layer)) {
+      // Warped as Photoshop's Warp Text: the letters laid on its surface, their stroke around
+      // what shows, as a layer style's goes around the warped letters
+      const envelopeKey = strokeKey + "|envelope|" + window.TypeRTextWarp.keyOf(layer.envelope) + "|" + (layer.rotated && layer.spin ? layer.spin.join(",") : "") + "|" + fillOf(layer);
+      // A slider of the dialog draws one at every step: only the latest ones are worth keeping
+      if (!forLayout.has(envelopeKey) && forLayout.size > 6) forLayout.clear();
+      if (!forLayout.has(envelopeKey)) keepText(forLayout, envelopeKey, meshedBitmap(layer, doc, relative, stroke, antiAlias, envelopeMapOf(layer, doc)));
+      const entry = forLayout.get(envelopeKey);
       return { canvas: entry.canvas, x: Math.round(layout.anchor[0]) + entry.x, y: Math.round(layout.anchor[1]) + entry.y };
     }
     const spin = spinOf(layer);
@@ -9330,7 +9450,11 @@
             const near = window.TypeROutline.nearest(outline, x, y);
             inside = window.TypeROutline.contains(outline, x, y) || Boolean(near && near.distance <= 6);
           } else if (meshOn(layer)) inside = insidePolygon(meshOutline(layer, doc), x, y, 6);
-          else if (layer.rotated && !layer.warp && skewedSpin(layer.spin)) inside = insidePolygon(turnedFrame(layer, doc).corners, x, y, 6);
+          else if (layer.envelope && !layer.warp) {
+            // A warped text shows away from its frame: picked where it shows
+            const box = boxOf(layer, doc);
+            inside = x >= box.left - 6 && x <= box.right + 6 && y >= box.top - 6 && y <= box.bottom + 6;
+          } else if (layer.rotated && !layer.warp && skewedSpin(layer.spin)) inside = insidePolygon(turnedFrame(layer, doc).corners, x, y, 6);
           else if (layer.rotated && !layer.warp) {
             const f = turnedFrame(layer, doc);
             const [a, b, , d] = f.corners;
@@ -11748,6 +11872,28 @@
       commitState(doc, "Perspective", { layers: replaceLayer(doc, base, { warp }) }, coalesce);
       firePanelEvent(EVENT_HISTORY);
     },
+    // Photoshop's Warp Text on these texts: `envelope` as TypeRTextWarp takes it, null for None.
+    // A text showing Photoshop's pixels is drawn here from then on.
+    setEnvelope(ids, envelope, coalesce) {
+      const doc = app.doc;
+      if (!doc) return;
+      const set = new Set(ids);
+      const next = window.TypeRTextWarp.clean(envelope);
+      const key = window.TypeRTextWarp.keyOf(next);
+      let changed = false;
+      const layers = doc.state.layers.map((layer) => {
+        if (!set.has(layer.id) || layer.kind !== "text" || layer.warp || meshOn(layer)) return layer;
+        if (window.TypeRTextWarp.keyOf(layer.envelope) === key) return layer;
+        changed = true;
+        const out = Object.assign({}, layer, { raster: null });
+        if (next) out.envelope = next;
+        else delete out.envelope;
+        return out;
+      });
+      if (!changed) return;
+      commitState(doc, "Warp Text", { layers }, coalesce);
+      firePanelEvent(EVENT_HISTORY);
+    },
     // Back to a plain text, where the surface was
     removeTextWarp(id) {
       const doc = app.doc;
@@ -13121,6 +13267,8 @@
     outlineOk,
     outlineOnPage,
     shapeFrameOf,
+    envelopeOn,
+    warpBoundsOf,
     traceText,
     isDirty,
     newRaster,

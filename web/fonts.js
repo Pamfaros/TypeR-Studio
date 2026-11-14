@@ -256,6 +256,173 @@
     return listed;
   };
 
+  /* --------------------------- a font's own measures --------------------------- */
+
+  // Photoshop bends a warped text over its bounds, which it measures with two numbers of the
+  // font's file: the height of its capitals (OS/2 sCapHeight) and how low its lowest letter
+  // goes (the font's bounding box: CFF FontBBox, else head yMin). In parts of the size: `cap`
+  // (null when the file doesn't say: Photoshop then measures a capital) and `bottom`.
+  // Photoshop also kerns a line's last letter with the return that ends it, as with a space:
+  // `spaceKerns` is the `kern` table's pairs with a space, by letter (null without that table:
+  // the browser's own kerning says).
+  const readMeasures = (buffer) => {
+    const data = new DataView(buffer);
+    const tables = {};
+    const count = data.getUint16(4);
+    for (let i = 0; i < count; i++) {
+      const at = 12 + i * 16;
+      tables[String.fromCharCode(data.getUint8(at), data.getUint8(at + 1), data.getUint8(at + 2), data.getUint8(at + 3))] = data.getUint32(at + 8);
+    }
+    if (tables.head === undefined) return null;
+    const em = data.getUint16(tables.head + 18);
+    if (!em) return null;
+    let lowest = data.getInt16(tables.head + 38);
+    const box = tables["CFF "] === undefined ? null : cffBox(data, tables["CFF "]);
+    if (box) lowest = box[1];
+    const os2 = tables["OS/2"];
+    const cap = os2 !== undefined && data.getUint16(os2) >= 2 ? data.getInt16(os2 + 88) : 0;
+    let spaceKerns = null;
+    try {
+      spaceKerns = tables.kern === undefined || tables.cmap === undefined ? null : kernsWithSpace(data, tables.cmap, tables.kern, em);
+    } catch (error) {
+      spaceKerns = null;
+    }
+    return { cap: cap > 0 ? cap / em : null, bottom: -lowest / em, spaceKerns };
+  };
+  // The pairs of a `kern` table (format 0) whose second letter is the space: letter -> kerning,
+  // in parts of the size. Letters are found through the Unicode `cmap` (format 4).
+  const kernsWithSpace = (data, cmap, kern, em) => {
+    let sub = -1;
+    for (let i = 0; i < data.getUint16(cmap + 2); i++) {
+      const platform = data.getUint16(cmap + 4 + i * 8);
+      const at = cmap + data.getUint32(cmap + 8 + i * 8);
+      if ((platform === 3 || platform === 0) && data.getUint16(at) === 4) sub = at;
+    }
+    if (sub < 0) return null;
+    const segments = data.getUint16(sub + 6) / 2;
+    const ends = sub + 14;
+    const starts = ends + segments * 2 + 2;
+    const deltas = starts + segments * 2;
+    const ranges = deltas + segments * 2;
+    // Each glyph's first letter
+    const letters = new Map();
+    for (let i = 0; i < segments; i++) {
+      const start = data.getUint16(starts + i * 2);
+      const end = Math.min(data.getUint16(ends + i * 2), 0xfffe);
+      const delta = data.getInt16(deltas + i * 2);
+      const range = data.getUint16(ranges + i * 2);
+      for (let code = start; code <= end; code++) {
+        let glyph = (code + delta) & 0xffff;
+        if (range) {
+          glyph = data.getUint16(ranges + i * 2 + range + (code - start) * 2);
+          if (glyph) glyph = (glyph + delta) & 0xffff;
+        }
+        if (glyph && !letters.has(glyph)) letters.set(glyph, code);
+      }
+    }
+    let space = 0;
+    letters.forEach((code, glyph) => {
+      if (code === 32) space = glyph;
+    });
+    const out = new Map();
+    if (!space) return out;
+    let at = kern + 4;
+    for (let t = 0; t < data.getUint16(kern + 2); t++) {
+      const length = data.getUint16(at + 2);
+      const coverage = data.getUint16(at + 4);
+      // Horizontal kerning, in pairs
+      if (coverage >> 8 === 0 && (coverage & 1) && !(coverage & 4)) {
+        const pairs = data.getUint16(at + 6);
+        for (let n = 0; n < pairs; n++) {
+          const pair = at + 14 + n * 6;
+          if (data.getUint16(pair + 2) !== space) continue;
+          const code = letters.get(data.getUint16(pair));
+          if (code !== undefined) out.set(String.fromCharCode(code), data.getInt16(pair + 4) / em);
+        }
+      }
+      if (!length) break;
+      at += length;
+    }
+    return out;
+  };
+  // FontBBox in a CFF table's Top DICT: [left, bottom, right, top]
+  const cffBox = (data, start) => {
+    const index = (at) => {
+      const count = data.getUint16(at);
+      if (!count) return { end: at + 2, items: [] };
+      const size = data.getUint8(at + 2);
+      const offsets = [];
+      for (let i = 0; i <= count; i++) {
+        let value = 0;
+        for (let k = 0; k < size; k++) value = value * 256 + data.getUint8(at + 3 + i * size + k);
+        offsets.push(value);
+      }
+      const base = at + 3 + (count + 1) * size - 1;
+      return { end: base + offsets[count], items: offsets.slice(0, -1).map((offset, i) => [base + offset, base + offsets[i + 1]]) };
+    };
+    const top = index(index(start + data.getUint8(start + 2)).end).items[0];
+    if (!top) return null;
+    const stack = [];
+    let p = top[0];
+    while (p < top[1]) {
+      const b = data.getUint8(p++);
+      if (b <= 21) {
+        if (b === 12) p++;
+        else if (b === 5) return stack.length >= 4 ? stack.slice(-4) : null;
+        stack.length = 0;
+      } else if (b === 28) {
+        stack.push(data.getInt16(p));
+        p += 2;
+      } else if (b === 29) {
+        stack.push(data.getInt32(p));
+        p += 4;
+      } else if (b === 30) {
+        let text = "";
+        for (let done = false; !done && p < top[1];) {
+          const pair = data.getUint8(p++);
+          [pair >> 4, pair & 15].forEach((n) => {
+            if (done) return;
+            if (n === 15) done = true;
+            else text += n < 10 ? n : n === 10 ? "." : n === 11 ? "E" : n === 12 ? "E-" : n === 14 ? "-" : "";
+          });
+        }
+        stack.push(parseFloat(text));
+      } else if (b >= 32 && b <= 246) stack.push(b - 139);
+      else if (b >= 247 && b <= 250) stack.push((b - 247) * 256 + data.getUint8(p++) + 108);
+      else if (b >= 251 && b <= 254) stack.push(-(b - 251) * 256 - data.getUint8(p++) - 108);
+    }
+    return null;
+  };
+  // The fonts that ship with the page are compressed: their measures, read from the files
+  const measures = new Map([["WildjessNormal", { cap: null, bottom: 0.237 }], ["WildjessItalic", { cap: 0.771, bottom: 0.241 }], ["WildjessBoldItalic", { cap: null, bottom: 0.255 }], ["Bangers-Regular", { cap: 0.721, bottom: 0.356 }]]);
+  const installedData = new Map(); // PostScript name -> what the computer lists of an installed font
+  // A font's measures, or null while they aren't known: a font file's are read as it loads, an
+  // installed font's from its file once the computer's fonts are listed (the page is drawn
+  // again when they arrive). Reached by name alone, an installed font keeps its file to itself.
+  const measuresOf = (font) => {
+    const ps = font && font.postScriptName;
+    if (!ps) return null;
+    if (measures.has(ps)) return measures.get(ps);
+    const entry = font.source === "local" ? installedData.get(ps) : null;
+    if (!entry || typeof entry.blob !== "function") return null;
+    measures.set(ps, null);
+    entry.blob().then((blob) => blob.arrayBuffer()).then((buffer) => {
+      // A collection holds several fonts: this one is found by its name
+      const piece = splitCollection(buffer).find((part) => {
+        try {
+          return readNames(part).ps === ps;
+        } catch (error) {
+          return false;
+        }
+      });
+      const found = readMeasures(piece || buffer);
+      if (!found) return;
+      measures.set(ps, found);
+      changed();
+    }).catch(() => null);
+    return null;
+  };
+
   /* ---------------------- fonts installed on the computer ---------------------- */
 
   const canListInstalled = () => typeof window.queryLocalFonts === "function";
@@ -266,6 +433,7 @@
     entries.forEach((entry) => {
       const ps = entry.postscriptName;
       if (!ps) return;
+      installedData.set(ps, entry);
       const known = fonts.get(ps);
       if (known) {
         // Loaded by its name before the list was read: it takes the family and style the
@@ -386,6 +554,11 @@
     const face = new FontFace(css, buffer);
     await face.load();
     document.fonts.add(face);
+    try {
+      measures.set(ps, readMeasures(buffer));
+    } catch (error) {
+      measures.set(ps, null);
+    }
     const font = { name: names.full || base, postScriptName: ps, family: names.family || base, style: names.style || "Regular", source: "file", css, weight: 400, italic: false, ready: true, size: buffer.byteLength, url: URL.createObjectURL(new Blob([buffer])) };
     put(ps, font);
     missing.delete(ps);
@@ -524,6 +697,7 @@
     get: (ps) => fonts.get(ps),
     list,
     resolve,
+    measuresOf,
     withoutLigatures,
     ensure,
     ready,

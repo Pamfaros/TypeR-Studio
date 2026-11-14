@@ -608,6 +608,10 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 /* Motion Blur's angle: a line through the dial, both ways */
 .modal__body .motion-props__dial { justify-self: start; margin: 0; }
 .motion-props .motion-props__hand { width: 24px; margin-left: -12px; transform-origin: 50% 50%; }
+/* Warp Text: Photoshop's Style list, Horizontal or Vertical, Bend and the two distortions */
+.modal__body .warp-props__style { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); align-items: center; gap: 8px; }
+.modal__body .warp-props .mask-props__row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 58px 12px; }
+.modal__body .warp-props input:disabled, .modal__body .warp-props input:disabled + span { opacity: 0.5; }
 /* Select > Color Range */
 .modal.modal--crange { width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
 .crange { display: grid; gap: 10px; }
