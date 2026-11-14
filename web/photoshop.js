@@ -254,6 +254,9 @@
   // to be cut: the punctuation before and after it, but not an opening bracket before it
   const UNCOUNTED_BEFORE = /^[^\p{L}\p{M}\p{N}([{_/#&+=%¿¡]+/u;
   const UNCOUNTED_AFTER = /[^\p{L}\p{M}\p{N}_/#&+=%¿¡]+$/u;
+  // Photoshop's French dictionary has no cut in these before their apostrophe: "jusqu'ici"
+  // and "presqu'île" stay whole where the patterns give "jus-qu'ici", but "lors-qu'il" is cut
+  const UNCUT_ELISIONS = /^(?:jus|pres|quel|puis|quoi)qu$/iu;
 
   // One line of a paragraph into lines that fit, where Photoshop breaks them (measured in
   // Photoshop 2026, on texts saved from here): the PSD says the text and its box, not its
@@ -311,6 +314,7 @@
         const from = start + part.index;
         const style = sliceRuns(runs, from, from + 1)[0];
         const language = hyphenLanguage(style && style.style);
+        if (language === "fr" && UNCUT_ELISIONS.test(part[0]) && /^['’]/.test(text.slice(from + part[0].length))) continue;
         if (language) window.TypeRHyphenation.patternCuts(part[0], language).forEach((point) => cuts.push(from + point));
       }
       cuts.sort((a, b) => b - a);
