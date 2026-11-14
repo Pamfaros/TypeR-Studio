@@ -1303,6 +1303,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Import Styles…": "นำเข้าสไตล์…",
     "Export Styles…": "ส่งออกสไตล์…",
     "Layer Styles": "สไตล์เลเยอร์",
+    "Click the page to pick this colour from it.": "คลิกบนหน้าเพื่อเลือกสีนี้จากหน้า",
     "Apply Style": "ใช้สไตล์",
     "Check for Updates…": "ตรวจหาอัปเดต…",
     "Checking for updates…": "กำลังตรวจหาอัปเดต…",

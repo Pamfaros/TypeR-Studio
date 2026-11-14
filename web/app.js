@@ -15306,6 +15306,7 @@
           make("span", "", add, T("Add"));
           add.title = T("Add a stroke around the stroke");
           add.addEventListener("click", () => {
+      pickable(input);
             const c = shownOf("stroke").color;
             const light = c.r * 0.299 + c.g * 0.587 + c.b * 0.114 > 127;
             setFx("stroke", (own) => (own.outer ? {} : { outer: { size: 3, color: light ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 } } }));
@@ -15376,6 +15377,34 @@
       }
       showOff();
     };
+    // As in Photoshop, a click on the page while the window is open takes the colour there for
+    // the colour field in use: the effect's, the stroke's, or the gradient's chosen colour. The
+    // field clicked or focused last is the one; with two in sight, it is ringed.
+    let pickTarget = null;
+    const aimAt = (input) => {
+      pickTarget = input;
+      const all = Array.from(pane.querySelectorAll('input[type="color"]'));
+      all.forEach((other) => other.classList.toggle("is-target", other === input));
+      pane.classList.toggle("has-targets", all.length > 1);
+      dlg.classList.toggle("is-picking", Boolean(input));
+    };
+    const pickable = (input) => {
+      input.title = T("Click the page to pick this colour from it.");
+      input.addEventListener("focus", () => aimAt(input));
+      input.addEventListener("pointerdown", () => aimAt(input));
+      return input;
+    };
+    const pickAt = (event) => {
+      if (!pickTarget || !pickTarget.isConnected || app.doc !== doc) return;
+      const [x, y] = toDoc(event);
+      const rgb = ops.colorAt(x, y);
+      if (!rgb) return;
+      const value = toHex({ r: rgb[0], g: rgb[1], b: rgb[2] });
+      if (value === pickTarget.value) return;
+      pickTarget.value = value;
+      pickTarget.dispatchEvent(new Event("input", { bubbles: true }));
+      pickTarget.dispatchEvent(new Event("change", { bubbles: true }));
+    };
     // An effect that is off shows its settings faded: changing one turns it on
     const showOff = () => {
       const off = current !== "blending" && !isOn(current);
@@ -15429,6 +15458,9 @@
         text = { left: stage.left + x0, top: stage.top + y0, right: stage.left + x1, bottom: stage.top + y1 };
       }
       if (docked()) {
+        pickable(colour);
+        // A colour of the gradient chosen is the one a click on the page sets
+        if (colour.isConnected) aimAt(colour);
         ["margin", "left", "top", "right", "bottom"].forEach((key) => { dlg.style[key] = ""; });
         const sheetTop = boxOf().top;
         const up = text ? Math.min(text.bottom - (sheetTop - 16), text.top - stage.top - 16) : 0;
@@ -15572,6 +15604,7 @@
       if (text !== undefined) el.textContent = text;
       if (parent) parent.appendChild(el);
       return el;
+      pickTarget = null;
     };
     const body = make("div", "crange");
     const top = make("label", "crange__select", body);
@@ -15717,6 +15750,7 @@
       pick(((event.clientX - rect.left) / rect.width) * doc.width, ((event.clientY - rect.top) / rect.height) * doc.height, howFor(event));
     });
 
+      if (!pickTarget || !pickTarget.isConnected) aimAt(pane.querySelector('input[type="color"]'));
     select.addEventListener("change", () => {
       settings.mode = select.value;
       refresh();
@@ -15812,6 +15846,34 @@
     ]],
     ["Edit", [
       { label: "Undo", keys: "Cmd+Z", enabled: () => hasDoc() && app.doc.historyIndex > 0, action: () => ops.undo() },
+    // The page shows around the window: a click there picks its colour, a drag goes on picking
+    const onPage = (event) => {
+      const box = dlg.getBoundingClientRect();
+      if (event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) return false;
+      const stage = ui.stage.getBoundingClientRect();
+      return event.clientX >= stage.left && event.clientX <= stage.right && event.clientY >= stage.top && event.clientY <= stage.bottom;
+    };
+    dlg.addEventListener("pointerdown", (event) => {
+      if (event.target !== dlg || event.button !== 0 || !onPage(event)) return;
+      event.preventDefault();
+      if (!pickTarget) return;
+      if (blendMenu && blendMenu.own) closeBlendMenu();
+      dlg.setPointerCapture(event.pointerId);
+      const move = (e) => soon("pick", () => pickAt(e));
+      const stop = () => {
+        dlg.removeEventListener("pointermove", move);
+        dlg.removeEventListener("pointerup", stop);
+        dlg.removeEventListener("pointercancel", stop);
+        flush();
+      };
+      dlg.addEventListener("pointermove", move);
+      dlg.addEventListener("pointerup", stop);
+      dlg.addEventListener("pointercancel", stop);
+      pickAt(event);
+    });
+    dlg.addEventListener("pointermove", (event) => {
+      if (event.target === dlg) dlg.classList.toggle("is-over-page", onPage(event));
+    });
       { label: "Redo", keys: "Shift+Cmd+Z", enabled: () => hasDoc() && app.doc.historyIndex < app.doc.history.length - 1, action: () => ops.redo() },
       null,
       { label: "Cut", keys: "Cmd+X", enabled: canCut, browserWhenOff: true, action: cutSelection },

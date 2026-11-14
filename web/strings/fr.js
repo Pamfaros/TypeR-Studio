@@ -1415,6 +1415,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Layer Styles": "Styles de calque",
     "Apply Style": "Appliquer le style",
     "Check for Updates…": "Rechercher des mises à jour…",
+    "Click the page to pick this colour from it.": "Cliquez sur la page pour y prélever cette couleur.",
     "Checking for updates…": "Recherche de mises à jour…",
     "Downloading the update…": "Téléchargement de la mise à jour…",
     "TypeR Studio is up to date.": "TypeR Studio est à jour.",
