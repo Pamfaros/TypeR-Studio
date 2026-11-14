@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "Kaydetme",
     "Download the Photoshop Plugin": "Photoshop Eklentisini İndir",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "Canlı taşımak için sürükleyin. Ok tuşları: 1 px, Shift: 10 px. Yan noktalar: metin kutusu. Köşeler: metin boyutu. Çift tıklama: düzenle.",
+    "Apply to All": "Tümüne uygula",
     "Drag to pan. Space works with every tool.": "Kaydırmak için sürükleyin. Boşluk tuşu tüm araçlarla çalışır.",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Sürükleyin. Sürüklerken Shift: daire. Sürüklerken Alt: merkezden. Önceden Shift: ekle, önceden Alt: çıkar. Sürüklerken Boşluk: taşı.",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Sürükleyin. Sürüklerken Shift: kare. Sürüklerken Alt: merkezden. Önceden Shift: ekle, önceden Alt: çıkar. Sürüklerken Boşluk: taşı.",

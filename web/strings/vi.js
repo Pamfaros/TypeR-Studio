@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "Không lưu",
     "Download the Photoshop Plugin": "Tải plugin Photoshop",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "Kéo để di chuyển, hiển thị trực tiếp. Phím mũi tên: 1 px, Shift: 10 px. Điểm ở cạnh: khung văn bản. Điểm ở góc: cỡ chữ. Nhấp đúp: chỉnh sửa.",
+    "Apply to All": "Áp dụng cho tất cả",
     "Drag to pan. Space works with every tool.": "Kéo để di chuyển khung nhìn. Phím Space dùng được với mọi công cụ.",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Kéo chuột. Shift khi đang kéo: hình tròn. Alt khi đang kéo: từ tâm. Shift trước khi kéo: thêm, Alt trước khi kéo: trừ. Space khi kéo: di chuyển vùng chọn.",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Kéo chuột. Shift khi đang kéo: hình vuông. Alt khi đang kéo: từ tâm. Shift trước khi kéo: thêm, Alt trước khi kéo: trừ. Space khi kéo: di chuyển vùng chọn.",

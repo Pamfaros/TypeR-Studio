@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "Non salvare",
     "Download the Photoshop Plugin": "Scarica il plugin di Photoshop",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "Trascina per spostare, in tempo reale. Frecce: 1 px, Maiusc: 10 px. Punti laterali: il riquadro di testo. Angoli: la dimensione del testo. Doppio clic: modifica.",
+    "Apply to All": "Applica a tutti",
     "Drag to pan. Space works with every tool.": "Trascina per spostare la vista. La barra spaziatrice funziona con ogni strumento.",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Trascina. Maiusc durante il trascinamento: un cerchio. Alt durante il trascinamento: dal centro. Maiusc prima: aggiungi, Alt prima: sottrai. Spazio durante il trascinamento: spostala.",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Trascina. Maiusc durante il trascinamento: un quadrato. Alt durante il trascinamento: dal centro. Maiusc prima: aggiungi, Alt prima: sottrai. Spazio durante il trascinamento: spostala.",

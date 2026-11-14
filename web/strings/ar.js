@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "عدم الحفظ",
     "Download the Photoshop Plugin": "تنزيل مكوّن Photoshop الإضافي",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "اسحب للتحريك مباشرةً. الأسهم: 1 px، Shift: 10 px. النقاط الجانبية: مربع النص. الزوايا: حجم النص. نقر مزدوج: تحرير.",
+    "Apply to All": "تطبيق على الكل",
     "Drag to pan. Space works with every tool.": "اسحب لتحريك العرض. مفتاح المسافة يعمل مع كل الأدوات.",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "اسحب. Shift أثناء السحب: دائرة. Alt أثناء السحب: من المركز. Shift قبل البدء: إضافة، Alt قبل البدء: طرح. Space أثناء السحب: تحريكه.",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "اسحب. Shift أثناء السحب: مربع. Alt أثناء السحب: من المركز. Shift قبل البدء: إضافة، Alt قبل البدء: طرح. Space أثناء السحب: تحريكه.",

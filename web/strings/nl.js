@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "Niet opslaan",
     "Download the Photoshop Plugin": "Photoshop-plug-in downloaden",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "Sleep om te verplaatsen, live. Pijltjes: 1 px, Shift: 10 px. Zijpunten: het tekstvak. Hoeken: de tekstgrootte. Dubbelklik: bewerken.",
+    "Apply to All": "Op alles toepassen",
     "Drag to pan. Space works with every tool.": "Sleep om te verschuiven. De spatiebalk werkt met elk gereedschap.",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Sleep. Shift tijdens het slepen: een cirkel. Alt tijdens het slepen: vanuit het midden. Shift ervoor: toevoegen, Alt ervoor: aftrekken. Spatie tijdens het slepen: verplaatsen.",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Sleep. Shift tijdens het slepen: een vierkant. Alt tijdens het slepen: vanuit het midden. Shift ervoor: toevoegen, Alt ervoor: aftrekken. Spatie tijdens het slepen: verplaatsen.",

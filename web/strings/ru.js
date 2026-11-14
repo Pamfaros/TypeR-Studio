@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "Не сохранять",
     "Download the Photoshop Plugin": "Скачать плагин для Photoshop",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "Перетащите, чтобы переместить, в реальном времени. Стрелки: 1 px, Shift: 10 px. Боковые точки: текстовый блок. Углы: размер текста. Двойной щелчок: редактировать.",
+    "Apply to All": "Применить ко всем",
     "Drag to pan. Space works with every tool.": "Перетащите, чтобы сдвинуть вид. Пробел работает с любым инструментом.",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Перетащите. Shift при перетаскивании: круг. Alt при перетаскивании: от центра. Shift до начала: добавить, Alt до начала: вычесть. Пробел при перетаскивании: переместить.",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Перетащите. Shift при перетаскивании: квадрат. Alt при перетаскивании: от центра. Shift до начала: добавить, Alt до начала: вычесть. Пробел при перетаскивании: переместить.",

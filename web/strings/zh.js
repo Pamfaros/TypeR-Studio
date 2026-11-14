@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "不存储",
     "Download the Photoshop Plugin": "下载 Photoshop 插件",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "拖动可实时移动。方向键：1 px，Shift：10 px。边上的控制点：调整文本框。角上的控制点：调整文字大小。双击：编辑。",
+    "Apply to All": "应用于全部",
     "Drag to pan. Space works with every tool.": "拖动可平移视图。空格键在任何工具下都可使用。",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "拖动。拖动时按住 Shift：正圆。拖动时按住 Alt：从中心绘制。拖动前按住 Shift：添加，拖动前按住 Alt：减去。拖动时按住空格键：移动选框。",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "拖动。拖动时按住 Shift：正方形。拖动时按住 Alt：从中心绘制。拖动前按住 Shift：添加，拖动前按住 Alt：减去。拖动时按住空格键：移动选框。",

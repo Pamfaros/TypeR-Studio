@@ -11048,9 +11048,13 @@
   };
 
   const closeDocs = async (docs) => {
-    for (const doc of docs.slice()) {
+    // Photoshop's Apply to All: the answer given for one page goes for the others still to close
+    const batch = { left: 0, answer: null };
+    const list = docs.slice();
+    for (const [at, doc] of list.entries()) {
       if (!app.docs.includes(doc)) continue;
-      await closeDoc(doc);
+      batch.left = list.slice(at).filter((one) => app.docs.includes(one) && PS.isDirty(one)).length;
+      await closeDoc(doc, batch);
       // Cancelled: the rest stays open
       if (app.docs.includes(doc)) return;
     }
@@ -12981,7 +12985,8 @@
     if (again) await openInPhotoshop();
   };
 
-  const closeDoc = async (doc = app.doc) => {
+  // `batch`: Close All's, where Apply to All answers for the pages that follow
+  const closeDoc = async (doc = app.doc, batch = null) => {
     if (!doc) return;
     if (!ui.editor.hidden) endEdit();
     if (!settleTransform()) return;
@@ -12993,14 +12998,25 @@
       if (!app.docs.includes(doc)) return;
     }
     if (PS.isDirty(doc)) {
-      PS.setActiveDoc(doc);
-      const answer = await dialog({
-        title: doc.name,
-        body: T("Save your changes before closing?"),
-        ok: T("Save"),
-        also: T("Don't save"),
-      });
-      if (!answer) return;
+      let answer = batch && batch.answer;
+      if (!answer) {
+        PS.setActiveDoc(doc);
+        let all = null;
+        answer = await dialog({
+          title: doc.name,
+          body: T("Save your changes before closing?"),
+          ok: T("Save"),
+          also: T("Don't save"),
+          // Only with other unsaved pages waiting for the same question
+          ready: batch && batch.left > 1 ? (inputs, middle) => {
+            all = checkbox(T("Apply to All"), false, () => {});
+            all.className = "modal__all";
+            middle.appendChild(all);
+          } : null,
+        });
+        if (!answer) return;
+        if (all && all.querySelector("input").checked) batch.answer = answer;
+      }
       // Closed right after: the page waits for its save
       if (!answer.also && !(await save(doc, { block: true }))) return;
     }

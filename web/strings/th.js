@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "ไม่บันทึก",
     "Download the Photoshop Plugin": "ดาวน์โหลดปลั๊กอิน Photoshop",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "ลากเพื่อย้ายแบบเรียลไทม์ ปุ่มลูกศร: 1 px, Shift: 10 px จุดด้านข้าง: กล่องข้อความ จุดที่มุม: ขนาดข้อความ ดับเบิลคลิก: แก้ไข",
+    "Apply to All": "ใช้กับทั้งหมด",
     "Drag to pan. Space works with every tool.": "ลากเพื่อเลื่อนมุมมอง ปุ่ม Space ใช้ได้กับทุกเครื่องมือ",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "ลาก ขณะลากกด Shift: วงกลม, ขณะลากกด Alt: จากจุดศูนย์กลาง, กด Shift ก่อนลาก: เพิ่ม, กด Alt ก่อนลาก: ลบออก, ขณะลากกด Space: ย้ายตำแหน่ง",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "ลาก ขณะลากกด Shift: สี่เหลี่ยมจัตุรัส, ขณะลากกด Alt: จากจุดศูนย์กลาง, กด Shift ก่อนลาก: เพิ่ม, กด Alt ก่อนลาก: ลบออก, ขณะลากกด Space: ย้ายตำแหน่ง",

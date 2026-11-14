@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "保存しない",
     "Download the Photoshop Plugin": "Photoshop プラグインをダウンロード",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "ドラッグでリアルタイムに移動。矢印キー: 1 px、Shift: 10 px。辺のポイント: テキストボックス。角: 文字サイズ。ダブルクリック: 編集。",
+    "Apply to All": "すべてに適用",
     "Drag to pan. Space works with every tool.": "ドラッグでパン。スペースキーはどのツールでも使えます。",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "ドラッグ。ドラッグ中に Shift: 正円。ドラッグ中に Alt: 中心から。先に Shift: 追加、先に Alt: 削除。ドラッグ中に Space: 移動。",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "ドラッグ。ドラッグ中に Shift: 正方形。ドラッグ中に Alt: 中心から。先に Shift: 追加、先に Alt: 削除。ドラッグ中に Space: 移動。",

@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "Не зберігати",
     "Download the Photoshop Plugin": "Завантажити плагін Photoshop",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "Перетягніть, щоб переміщувати в реальному часі. Стрілки: 1 px, Shift: 10 px. Бічні точки: текстове поле. Кути: розмір тексту. Подвійне клацання: змінити.",
+    "Apply to All": "Застосувати до всіх",
     "Drag to pan. Space works with every tool.": "Перетягніть, щоб прокрутити. Пробіл працює з усіма інструментами.",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Перетягніть. Shift під час перетягування: коло. Alt під час перетягування: від центру. Shift перед цим: додати, Alt перед цим: відняти. Пробіл під час перетягування: перемістити.",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Перетягніть. Shift під час перетягування: квадрат. Alt під час перетягування: від центру. Shift перед цим: додати, Alt перед цим: відняти. Пробіл під час перетягування: перемістити.",

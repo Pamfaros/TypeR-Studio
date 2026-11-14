@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "Jangan simpan",
     "Download the Photoshop Plugin": "Unduh plugin Photoshop",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "Seret untuk memindahkan secara langsung. Tombol panah: 1 px, Shift: 10 px. Titik di sisi: kotak teks. Sudut: ukuran teks. Klik ganda: edit.",
+    "Apply to All": "Terapkan ke semua",
     "Drag to pan. Space works with every tool.": "Seret untuk menggeser tampilan. Tombol Spasi berfungsi di semua alat.",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Seret. Shift saat menyeret: lingkaran. Alt saat menyeret: dari tengah. Shift sebelum menyeret: tambah, Alt sebelum menyeret: kurangi. Spasi saat menyeret: memindahkannya.",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "Seret. Shift saat menyeret: persegi. Alt saat menyeret: dari tengah. Shift sebelum menyeret: tambah, Alt sebelum menyeret: kurangi. Spasi saat menyeret: memindahkannya.",

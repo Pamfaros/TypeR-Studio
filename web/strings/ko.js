@@ -239,6 +239,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Don't save": "저장 안 함",
     "Download the Photoshop Plugin": "Photoshop 플러그인 다운로드",
     "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.": "드래그하면 실시간으로 이동합니다. 화살표: 1 px, Shift: 10 px. 변의 점: 텍스트 상자. 모서리: 텍스트 크기. 더블 클릭: 편집.",
+    "Apply to All": "모두에 적용",
     "Drag to pan. Space works with every tool.": "드래그하여 화면을 이동합니다. 스페이스 바는 모든 도구에서 사용할 수 있습니다.",
     "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "드래그합니다. 드래그 중 Shift: 원. 드래그 중 Alt: 중심에서. 먼저 Shift: 추가, 먼저 Alt: 빼기. 드래그 중 Space: 이동.",
     "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.": "드래그합니다. 드래그 중 Shift: 정사각형. 드래그 중 Alt: 중심에서. 먼저 Shift: 추가, 먼저 Alt: 빼기. 드래그 중 Space: 이동.",
