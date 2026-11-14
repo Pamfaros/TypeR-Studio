@@ -12,6 +12,13 @@
 //     u32 16 + descriptor "Styl" { documentMode, Lefx?, blendOptions? }, zero padding to 4
 //     bytes (counted in the length). Photoshop's own files have more after the styles.
 //
+// THE GROUPS (Photoshop 2020 and later). After the styles, an image resource block: "8BIM",
+// "phry", u32 length, u32 16 + descriptor "null" { hierarchy: list of objects in the styles'
+// order: Grup { Nm } opens a group (inside the one open, if any), preset stands for the next
+// style, groupEnd closes the group }. A group's name may be a localization key, as a style's.
+// Photoshop 2026's Default Styles.asl and Legacy Styles and More.asl (groups within groups)
+// were read to write this.
+//
 // A style's name may be a localization key: "$$$/Presets/Styles/Candy=Candy" shows "Candy".
 //
 // THE EFFECTS. Lefx holds Scl (Scale Effects, in %), masterFXSwitch, and one object per effect:
@@ -24,8 +31,11 @@
 //
 // THE API (window.TypeRASL; require("./asl.js") in Node, with atn.js beside it)
 //
-//   parse(bytes) → { styles: [{ name, id, rawName, style }] } (style: the Styl descriptor)
-//   write([{ name, id, style }]) → Uint8Array, with no patterns
+//   parse(bytes) → { styles: [{ name, id, rawName, style }], hierarchy } (style: the Styl
+//     descriptor; hierarchy: null, or the groups as a list of { group: name }, { style: index },
+//     { end: true })
+//   write([{ name, id, style }], hierarchy?) → Uint8Array, with no patterns; hierarchy as parse
+//     gives it, each style once, in the order of the list
 //   fromStyle(style) → { effects, blending, leftOut }: effects in ag-psd's shape (give them to
 //     TypeRPSD.effectsFromPsd and .strokeFromEffects), blending { blend, opacity, fill } (in %)
 //     or null, leftOut { label: count } for what TypeR doesn't draw
@@ -94,10 +104,61 @@
       // The padding is in the length; a file whose length leaves it out still lines up
       at = Math.min(bytes.length, end + ((4 - (length % 4)) % 4));
     }
-    return { styles };
+    return { styles, hierarchy: hierarchyIn(bytes, view, at, styles.length) };
   };
 
-  const write = (styles) => {
+  // The groups after the styles, as a list of { group: name }, { style: index }, { end: true }
+  // (each group closed), or null when the file has none or they can't be read
+  const hierarchyIn = (bytes, view, at, count) => {
+    if (at + 16 > bytes.length || String.fromCharCode(...bytes.subarray(at, at + 8)) !== "8BIMphry") return null;
+    const length = view.getUint32(at + 8);
+    if (at + 12 + length > bytes.length || view.getUint32(at + 12) !== DESCRIPTOR_VERSION) return null;
+    let list;
+    try {
+      list = get(ATN.parseDescriptorAt(bytes.subarray(0, at + 12 + length), at + 16).descriptor, "hierarchy");
+    } catch (error) {
+      return null;
+    }
+    if (!list || list.type !== "VlLs") return null;
+    const out = [];
+    let open = 0;
+    let next = 0;
+    list.values.forEach((item) => {
+      if (!item || !item.classId) return;
+      if (same(item.classId, "Grup")) {
+        const name = get(item, "Nm  ");
+        out.push({ group: displayName(name && name.type === "TEXT" ? name.value : "") });
+        open++;
+      } else if (same(item.classId, "groupEnd")) {
+        if (!open) return;
+        out.push({ end: true });
+        open--;
+      } else if (same(item.classId, "preset") && next < count) out.push({ style: next++ });
+    });
+    while (open-- > 0) out.push({ end: true });
+    // A style the list leaves out stays out of any group
+    while (next < count) out.push({ style: next++ });
+    return out.some((item) => item.group !== undefined) ? out : null;
+  };
+  // The groups' block for write(): `hierarchy` as hierarchyIn gives it
+  const hierarchyOut = (hierarchy) => {
+    const items = [];
+    hierarchy.forEach((item) => {
+      if (item.group !== undefined) items.push(ATN.obj("Grup", [["Nm  ", ATN.text(String(item.group))]]));
+      else if (item.end) items.push(ATN.obj("groupEnd", []));
+      else items.push(ATN.obj("preset", []));
+    });
+    const descriptor = ATN.writeDescriptor(ATN.desc("null", [["hierarchy", ATN.list(items)]]));
+    const block = new Uint8Array(16 + descriptor.length);
+    const view = new DataView(block.buffer);
+    for (let i = 0; i < 8; i++) block[i] = "8BIMphry".charCodeAt(i);
+    view.setUint32(8, 4 + descriptor.length);
+    view.setUint32(12, DESCRIPTOR_VERSION);
+    block.set(descriptor, 16);
+    return block;
+  };
+
+  const write = (styles, hierarchy = null) => {
     const parts = [];
     let total = 0;
     const push = (chunk) => {
@@ -130,6 +191,7 @@
       push(u32(padded));
       push(body);
     });
+    if (hierarchy && hierarchy.some((item) => item.group !== undefined)) push(hierarchyOut(hierarchy));
     const out = new Uint8Array(total);
     let at = 0;
     parts.forEach((chunk) => {
