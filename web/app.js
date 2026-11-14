@@ -13539,6 +13539,22 @@
     copiedFrom = { doc: app.doc, left: left || 0, top: top || 0, width: canvas.width, height: canvas.height };
   };
 
+  // Where Paste centres a picture, as Photoshop: on the selection, or in the middle of the part
+  // of the page in view
+  const pastePoint = (doc) => {
+    const selection = doc.state.selection;
+    if (selection) {
+      const b = selection.bounds;
+      return [(b.left + b.right) / 2, (b.top + b.bottom) / 2];
+    }
+    const v = view();
+    const left = Math.max(0, -v.x / v.zoom);
+    const top = Math.max(0, -v.y / v.zoom);
+    const right = Math.min(doc.width, (stageW - v.x) / v.zoom);
+    const bottom = Math.min(doc.height, (stageH - v.y) / v.zoom);
+    if (right <= left || bottom <= top) return [doc.width / 2, doc.height / 2];
+    return [(left + right) / 2, (top + bottom) / 2];
+  };
   // Text layers copied with Copy, no selection being drawn: their words, which the clipboard
   // holds as long as nothing else was copied since, and Paste brings the layers back
   let copiedTexts = null;
@@ -13719,8 +13735,9 @@
         const bitmap = PS.newCanvas(picture.naturalWidth, picture.naturalHeight);
         bitmap.getContext("2d").drawImage(picture, 0, 0);
         const back = copiedFrom && copiedFrom.doc === doc && copiedFrom.width === bitmap.width && copiedFrom.height === bitmap.height;
-        const left = back ? copiedFrom.left : Math.round((doc.width - bitmap.width) / 2);
-        const top = back ? copiedFrom.top : Math.round((doc.height - bitmap.height) / 2);
+        const [x, y] = pastePoint(doc);
+        const left = back ? copiedFrom.left : Math.round(x - bitmap.width / 2);
+        const top = back ? copiedFrom.top : Math.round(y - bitmap.height / 2);
         if (!ui.editor.hidden) endEdit();
         cancelTransform();
         ops.newLayer(T("Pasted layer"), undefined, { bitmap, left, top }, true);
@@ -17792,9 +17809,11 @@
     if (differs) toast(T("This image isn't the height of the page: it was placed at the top."));
     return true;
   };
-  const addAsLayer = (bitmap, name) => {
+  // Dropped on the page, an image is centred where it was let go, as in Photoshop
+  const addAsLayer = (at) => (bitmap, name) => {
     const doc = app.doc;
-    ops.newLayer(name, undefined, { bitmap, left: Math.round((doc.width - bitmap.width) / 2), top: Math.round((doc.height - bitmap.height) / 2) });
+    const [x, y] = at || [doc.width / 2, doc.height / 2];
+    ops.newLayer(name, undefined, { bitmap, left: Math.round(x - bitmap.width / 2), top: Math.round(y - bitmap.height / 2) });
   };
   window.addEventListener("dragover", (event) => {
     if (dragIds) return;
@@ -17811,10 +17830,11 @@
     event.preventDefault();
     const spot = showDropZones(event);
     hideDropZones();
+    const at = spot === "layer" ? toDoc(event) : null;
     let entries = await entriesFromDrop(event);
     const folder = entries.folder;
     if (spot === "left" || spot === "right" || spot === "layer") {
-      await addPictures(entries.filter(({ file }) => IS_PICTURE.test(file.type)), spot === "layer" ? addAsLayer : addAsPage(spot));
+      await addPictures(entries.filter(({ file }) => IS_PICTURE.test(file.type)), spot === "layer" ? addAsLayer(at) : addAsPage(spot));
       entries = entries.filter(({ file }) => !IS_PICTURE.test(file.type));
     }
     const fonts = entries.filter((entry) => /\.(ttf|otf|ttc|otc|woff2?)$/i.test(entry.file.name));
