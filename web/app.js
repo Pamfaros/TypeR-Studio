@@ -4856,6 +4856,9 @@
   // finds letters becomes the selection, a little grown so their edges and outlines go too. Its
   // answer is kept while the page's pixels don't change: asking again costs nothing.
   const textFind = { running: false, landing: false, doc: null, data: null, confidence: null, mask: null };
+  // Where the detection found a page's letters, before they were grown: what tells apart two
+  // texts the selection joins, so a click leaves out only the one under it
+  const textCores = new WeakMap();
   // How far around the letters the selection goes, and how close two parts of the selection
   // must be to make one area: both follow the page's size, its longer side. A strip longer than
   // a manga page (1.45 times as long as it is wide; a webtoon) counts as a page of its width:
@@ -4934,6 +4937,7 @@
       return;
     }
     ops.quietSelection(ops.fullMaskSelection(grown, "text"), "Detect Text");
+    textCores.set(doc, mask);
     const plain = areas.filter((area) => area.plain).length;
     toast(fill(T("{count} text areas: {plain} on a plain background, {art} over the art."), { count: areas.length, plain, art: areas.length - plain }), true);
     gen.open = false;
@@ -5759,6 +5763,7 @@
         // Skipped meanwhile, or closed
         if (page.state !== "finding") continue;
         page.mask = TextMask.dilate(found.mask, pixels.width, pixels.height, textGrow(page.doc));
+        page.cores = found.mask;
         page.state = "found";
         if (!batch.review) await removeFoundText(batch, page);
       } catch (error) {
@@ -5800,6 +5805,7 @@
     if (textBatch !== batch) return;
     const mask = page.mask;
     page.mask = null;
+    page.cores = null;
     if (!app.docs.includes(doc)) {
       page.state = "skipped";
       return;
@@ -5908,7 +5914,7 @@
       }
     } else if (page && page.state === "review") return;
     else if (page && page.state !== "done" && page.state !== "failed") page.state = "skipped";
-    if (page) page.mask = null;
+    if (page) page.mask = page.cores = null;
     batch.at += 1;
     while (batch.at < batch.pages.length && !app.docs.includes(batch.pages[batch.at].doc)) {
       batch.pages[batch.at].state = "skipped";
@@ -5945,7 +5951,8 @@
       if (page.state !== "found" || app.doc !== page.doc || pageBusy()) return;
       const doc = page.doc;
       const mask = page.mask;
-      page.mask = null;
+      const cores = page.cores;
+      page.mask = page.cores = null;
       if (mask.length !== doc.width * doc.height) {
         page.state = "failed";
         page.message = T("The page changed size meanwhile.");
@@ -5954,8 +5961,10 @@
       }
       page.state = "review";
       fitUnderReviewBar(doc);
-      if (mask.some((value) => value)) ops.quietSelection(ops.fullMaskSelection(mask, "text"), "Detect Text");
-      else toast(T("No text found on this page."));
+      if (mask.some((value) => value)) {
+        ops.quietSelection(ops.fullMaskSelection(mask, "text"), "Detect Text");
+        if (cores) textCores.set(doc, cores);
+      } else toast(T("No text found on this page."));
       renderGenTray();
       schedule(false);
     }, 0);
@@ -6061,16 +6070,35 @@
   reviewMarks.hidden = true;
   ui.stage.appendChild(reviewMarks);
   let marks = { selection: null, areas: [], hover: null, review: false };
-  const markBox = document.createElement("div");
+  // Painted over the text's own pixels, edged: a box around it would take in the texts beside it
+  const markBox = document.createElement("canvas");
   markBox.className = "review-marks__box";
   reviewMarks.appendChild(markBox);
+  let markDrawn = null;
   const placeMarkBox = () => {
     const area = marks.hover;
     markBox.hidden = !area;
     if (!area) return;
+    if (markDrawn !== area) {
+      markDrawn = area;
+      const { width, height, data } = area;
+      markBox.width = width;
+      markBox.height = height;
+      const ctx = markBox.getContext("2d");
+      const image = ctx.createImageData(width, height);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = y * width + x;
+          if (!data[i]) continue;
+          const edge = !x || !y || x === width - 1 || y === height - 1 || !data[i - 1] || !data[i + 1] || !data[i - width] || !data[i + width];
+          image.data.set([217, 83, 79, edge ? 235 : 80], i * 4);
+        }
+      }
+      ctx.putImageData(image, 0, 0);
+    }
     const [x0, y0] = toScreen(area.left, area.top);
     const [x1, y1] = toScreen(area.left + area.width, area.top + area.height);
-    Object.assign(markBox.style, { left: `${Math.round(x0) - 3}px`, top: `${Math.round(y0) - 3}px`, width: `${Math.round(x1 - x0) + 6}px`, height: `${Math.round(y1 - y0) + 6}px` });
+    Object.assign(markBox.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${y1 - y0}px` });
   };
   const leaveOut = (doc, selection, area) => {
     if (app.doc !== doc || doc.state.selection !== selection || pageBusy()) return;
@@ -6112,7 +6140,9 @@
     }
     if (marks.selection !== selection || marks.review !== Boolean(page)) {
       const full = ops.selectionFullMask(selection);
-      const areas = Mask.split(full, doc.width, doc.height, textLink(doc));
+      // Each text on its own, told apart by where the detection found its letters
+      const cores = doc === app.doc ? textCores.get(doc) : null;
+      const areas = Mask.textAreas(full, cores ? ops.reshapePage().data : null, doc.width, doc.height, textLink(doc), cores);
       marks = { selection, areas, hover: null, review: Boolean(page) };
     }
     reviewMarks.hidden = false;

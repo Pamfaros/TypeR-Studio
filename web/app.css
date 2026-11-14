@@ -440,7 +440,7 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .reviewbar .btn--small:disabled { opacity: 0.5; }
 .review-marks { position: absolute; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
 .review-marks[hidden] { display: none; }
-.review-marks__box { position: absolute; background: rgba(217, 83, 79, 0.16); border: 1.5px solid #d9534f; border-radius: 2px; pointer-events: none; }
+.review-marks__box { position: absolute; pointer-events: none; image-rendering: pixelated; }
 .review-marks__box[hidden] { display: none; }
 .modal--tbatch { width: min(480px, calc(100vw - 32px)); }
 .tbatch { display: grid; gap: 8px; margin-bottom: 4px; }

@@ -265,6 +265,187 @@
     return areas;
   };
 
+  // A pixel this light (0 to 255) is the paper or a balloon's inside, not a line
+  const LIGHT = 200;
+  // A text with less of the light around it than this is on the art: its background tells nothing
+  const LIT = 0.3;
+  // How much two texts' backgrounds must have in common to be the same one
+  const SAME = 0.4;
+
+  // The light parts of the page `rgba`, apart from the letters (`cores`), each with its number:
+  // one balloon's inside, the paper around it. Kept with the page's pixels, which don't change
+  // between two clicks, and let go with them.
+  const regionsKept = new WeakMap();
+  const lightRegions = (rgba, cores, w, h) => {
+    const kept = regionsKept.get(rgba);
+    if (kept && kept.cores === cores && kept.region.length === w * h) return kept.region;
+    const size = w * h;
+    const light = new Uint8Array(size);
+    for (let i = 0; i < size; i++) light[i] = !cores[i] && rgba[i * 4] * 0.299 + rgba[i * 4 + 1] * 0.587 + rgba[i * 4 + 2] * 0.114 >= LIGHT ? 1 : 0;
+    const region = new Int32Array(size);
+    const stack = new Int32Array(size);
+    let next = 0;
+    for (let start = 0; start < size; start++) {
+      if (region[start] || !light[start]) continue;
+      next += 1;
+      let top = 0;
+      stack[top++] = start;
+      region[start] = next;
+      while (top) {
+        const j = stack[--top];
+        const x = j % w;
+        if (x > 0 && light[j - 1] && !region[j - 1]) { region[j - 1] = next; stack[top++] = j - 1; }
+        if (x < w - 1 && light[j + 1] && !region[j + 1]) { region[j + 1] = next; stack[top++] = j + 1; }
+        if (j >= w && light[j - w] && !region[j - w]) { region[j - w] = next; stack[top++] = j - w; }
+        if (j < size - w && light[j + w] && !region[j + w]) { region[j + w] = next; stack[top++] = j + w; }
+      }
+    }
+    regionsKept.set(rgba, { cores, region });
+    return region;
+  };
+
+  // The texts of `full` one by one, as a click leaves them out after Detect Text: its areas (see
+  // split), each split again where it joins texts on different backgrounds. Grown, a sound
+  // effect over a balloon's outline and the words inside, or two balloons side by side, touch:
+  // the eye still tells them apart, by the white of each balloon, cut from the page around it by
+  // its outline. `cores`: where the detection found letters, before they were grown (one byte a
+  // pixel over the page), which tells the texts apart; `rgba`, the page. Without them, the areas
+  // of split.
+  const textAreas = (full, rgba, w, h, link, cores) => {
+    const areas = split(full, w, h, link);
+    if (!cores || !rgba || cores.length !== w * h) return areas;
+    let region = null;
+    const regionAt = (i) => {
+      if (!region) region = lightRegions(rgba, cores, w, h);
+      return region[i];
+    };
+    const out = [];
+    areas.forEach((area) => {
+      // The area in a window a little larger, so what lies around it is there too
+      const pad = link + 1;
+      const left = Math.max(0, area.left - pad);
+      const top = Math.max(0, area.top - pad);
+      const bw = Math.min(w, area.left + area.width + pad) - left;
+      const bh = Math.min(h, area.top + area.height + pad) - top;
+      const mine = new Uint8Array(bw * bh);
+      const core = new Uint8Array(bw * bh);
+      for (let y = 0; y < area.height; y++) {
+        for (let x = 0; x < area.width; x++) {
+          if (!area.data[y * area.width + x]) continue;
+          const i = (area.top - top + y) * bw + area.left - left + x;
+          mine[i] = 1;
+          core[i] = cores[(area.top + y) * w + area.left + x];
+        }
+      }
+      // Its letters, in pieces (a word, a balloon's lines when they touch)
+      const seeds = split(core, bw, bh, 0, 1);
+      if (seeds.length < 2) {
+        out.push(area);
+        return;
+      }
+      // Each pixel of the area goes with the piece it's nearest to
+      const reach = link > 0 ? dilate(mine, bw, bh, link) : mine;
+      const owner = new Int32Array(bw * bh);
+      const queue = new Int32Array(bw * bh);
+      let tail = 0;
+      seeds.forEach((seed, k) => {
+        for (let y = 0; y < seed.height; y++) {
+          for (let x = 0; x < seed.width; x++) {
+            if (!seed.data[y * seed.width + x]) continue;
+            const i = (seed.top + y) * bw + seed.left + x;
+            owner[i] = k + 1;
+            queue[tail++] = i;
+          }
+        }
+      });
+      const last = bw * (bh - 1);
+      for (let head = 0; head < tail; head++) {
+        const i = queue[head];
+        const x = i % bw;
+        const o = owner[i];
+        if (x > 0 && reach[i - 1] && !owner[i - 1]) { owner[i - 1] = o; queue[tail++] = i - 1; }
+        if (x < bw - 1 && reach[i + 1] && !owner[i + 1]) { owner[i + 1] = o; queue[tail++] = i + 1; }
+        if (i >= bw && reach[i - bw] && !owner[i - bw]) { owner[i - bw] = o; queue[tail++] = i - bw; }
+        if (i < last && reach[i + bw] && !owner[i + bw]) { owner[i + bw] = o; queue[tail++] = i + bw; }
+      }
+      // What lies just outside each piece's part of the area: how much is light, in which parts
+      // of the page; and which pieces touch
+      const n = seeds.length;
+      const around = new Float64Array(n + 1);
+      const lit = new Float64Array(n + 1);
+      const homes = Array.from({ length: n + 1 }, () => new Map());
+      const touch = new Set();
+      const look = (i, q, qx, qy) => {
+        const o = owner[i];
+        if (reach[q] && owner[q] !== o) touch.add(Math.min(o, owner[q]) * (n + 1) + Math.max(o, owner[q]));
+        if (!mine[i] || mine[q]) return;
+        around[o]++;
+        const r = regionAt((top + qy) * w + left + qx);
+        if (!r) return;
+        lit[o]++;
+        homes[o].set(r, (homes[o].get(r) || 0) + 1);
+      };
+      for (let y = 0; y < bh; y++) {
+        for (let x = 0; x < bw; x++) {
+          const i = y * bw + x;
+          if (!reach[i]) continue;
+          if (x > 0) look(i, i - 1, x - 1, y);
+          if (x < bw - 1) look(i, i + 1, x + 1, y);
+          if (y > 0) look(i, i - bw, x, y - 1);
+          if (y < bh - 1) look(i, i + bw, x, y + 1);
+        }
+      }
+      // Two pieces that touch are one text, unless both are on a light background and not the same
+      const parent = Array.from({ length: n + 1 }, (_, k) => k);
+      const find = (k) => (parent[k] === k ? k : (parent[k] = find(parent[k])));
+      const placed = (k) => around[k] > 0 && lit[k] >= LIT * around[k];
+      const same = (a, b) => {
+        let shared = 0;
+        homes[a].forEach((count, r) => { shared += Math.min(count / lit[a], (homes[b].get(r) || 0) / lit[b]); });
+        return shared >= SAME;
+      };
+      touch.forEach((key) => {
+        const a = Math.floor(key / (n + 1));
+        const b = key % (n + 1);
+        // A pixel no piece reached: the area stays whole
+        if (!a) return;
+        if (!placed(a) || !placed(b) || same(a, b)) parent[find(a)] = find(b);
+      });
+      const group = new Map();
+      for (let k = 1; k <= n; k++) if (!group.has(find(k))) group.set(find(k), group.size + 1);
+      if (group.size < 2 || owner.some((o, i) => mine[i] && !o)) {
+        out.push(area);
+        return;
+      }
+      const boxes = Array.from({ length: group.size + 1 }, () => ({ left: bw, top: bh, right: -1, bottom: -1, count: 0 }));
+      const of = new Uint8Array(bw * bh);
+      for (let i = 0; i < bw * bh; i++) {
+        if (!mine[i]) continue;
+        const g = group.get(find(owner[i]));
+        of[i] = g;
+        const box = boxes[g];
+        const x = i % bw;
+        const y = (i - x) / bw;
+        box.count++;
+        if (x < box.left) box.left = x;
+        if (x > box.right) box.right = x;
+        if (y < box.top) box.top = y;
+        if (y > box.bottom) box.bottom = y;
+      }
+      for (let g = 1; g <= group.size; g++) {
+        const box = boxes[g];
+        const width = box.right - box.left + 1;
+        const height = box.bottom - box.top + 1;
+        const data = new Uint8Array(width * height);
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) if (of[(box.top + y) * bw + box.left + x] === g) data[y * width + x] = 1;
+        }
+        out.push({ left: left + box.left, top: top + box.top, width, height, data, count: box.count });
+      }
+    });
+    return out;
+  };
+
   /* ------------------ what can be painted over without the model ------------------ */
 
   // How far, on each channel, a pixel may be from the background and still be the background
@@ -876,5 +1057,5 @@
   // False only once the service has missed several times in a row
   const available = () => health !== "down";
 
-  window.TypeRTextMask = { API, load, enabled, available, watch, detect, dilate, split, plainOf, areasOf, TextMaskError };
+  window.TypeRTextMask = { API, load, enabled, available, watch, detect, dilate, split, textAreas, plainOf, areasOf, TextMaskError };
 })();
