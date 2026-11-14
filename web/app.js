@@ -6532,7 +6532,12 @@
   };
 
   // The box being dragged: Shift makes it square, Alt draws it from the centre,
-  // when they are pressed during the drag (before it, they choose add or subtract)
+  // when they are pressed during the drag (before it, they choose add or subtract). A key held
+  // from the click and let go can be pressed again: then it shapes the box, as in Photoshop.
+  const keysLetGo = (current, event) => {
+    if (!event.shiftKey) current.shiftAtStart = false;
+    if (!event.altKey) current.altAtStart = false;
+  };
   const marqueeBox = (current, event) => {
     let [x0, y0] = current.start;
     let [x1, y1] = current.last;
@@ -6814,6 +6819,7 @@
       if (gesture && gesture.kind === "retouch") window.TypeRRetouch.cancel(gesture);
       gesture = null;
       setDrag("");
+    keysLetGo(current, event);
       hud(null);
       event.preventDefault();
       return;
@@ -7078,7 +7084,11 @@
       event.preventDefault();
       return;
     }
-    const mode = selectionMode(event);
+    // With no selection, Shift and Alt held before the click have nothing to add to or take
+    // from: they draw a square, or from the centre, as in Photoshop
+    const blank = isMarquee(tool) && !doc.state.selection;
+    if (blank) Object.assign(base, { shiftAtStart: false, altAtStart: false });
+    const mode = blank ? app.selectionMode : selectionMode(event);
     const plain = !event.shiftKey && !event.altKey && mode === "new";
     if (plain && doc.state.selection && ops.selectionContains(point[0], point[1])) {
       // On a text found by Detect Text, a click leaves out that text alone
@@ -7567,6 +7577,7 @@
   });
 
   const textAt = (point, slack = 6) => {
+      keysLetGo(current, event);
     const doc = app.doc;
     for (let i = doc.state.layers.length - 1; i >= 0; i--) {
       const layer = doc.state.layers[i];
