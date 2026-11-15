@@ -1249,6 +1249,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Without the page's name": "Sin el nombre de la página",
     "Off": "Desactivada",
     "What your Discord friends see while you work. Discord must be open on this computer.": "Lo que tus amigos de Discord ven mientras trabajas. Discord debe estar abierto en este ordenador.",
+    "Anonymous usage statistics": "Estadísticas de uso anónimas",
+    "Once a day, TypeR Studio tells its team it was opened, so they know how many people use it and what to improve: a random number, web or desktop app, the system, the language, how often each tool and command was used and the errors the app ran into. Nothing about you or your files.": "Una vez al día, TypeR Studio avisa a su equipo de que se ha abierto, para saber cuántas personas lo usan y qué mejorar: un número aleatorio, versión web o de escritorio, el sistema, el idioma, cuántas veces se ha usado cada herramienta y cada comando, y los errores de la app. Nada sobre ti ni tus archivos.",
     "Typesetting": "Typesetting",
     "Cleaning": "Cleaning",
     "Searching Font FindeR…": "Buscando en Font FindeR…",

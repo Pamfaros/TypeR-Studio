@@ -1249,6 +1249,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Without the page's name": "不显示页面名称",
     "Off": "关闭",
     "What your Discord friends see while you work. Discord must be open on this computer.": "你工作时 Discord 好友看到的内容。这台电脑上需要打开 Discord。",
+    "Anonymous usage statistics": "匿名使用统计",
+    "Once a day, TypeR Studio tells its team it was opened, so they know how many people use it and what to improve: a random number, web or desktop app, the system, the language, how often each tool and command was used and the errors the app ran into. Nothing about you or your files.": "TypeR Studio 每天一次告知团队它已被打开，以便了解有多少人在使用以及需要改进什么：一个随机编号、网页版或桌面版、系统、语言、每个工具和命令的使用次数，以及应用遇到的错误。不包含任何关于你或你的文件的信息。",
     "Typesetting": "嵌字",
     "Cleaning": "清理",
     "Searching Font FindeR…": "正在 Font FindeR 上搜索…",

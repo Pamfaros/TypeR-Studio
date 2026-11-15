@@ -26,6 +26,9 @@
   const fill = (text, values) => Object.keys(values).reduce((out, key) => out.split(`{${key}}`).join(values[key]), text);
   const IS_MAC = /mac/i.test(navigator.platform || "");
   const Shell = window.TypeRShell;
+  // An error that stopped what the user asked for (an open, a save), counted without what it was
+  // about, for Settings › Anonymous usage statistics (stats.js)
+  const reportError = (error) => window.TypeRStats && window.TypeRStats.error(error);
   const DISCORD = "https://discord.com/invite/Pdmfmqk";
   const KOFI = "https://ko-fi.com/typertools";
 
@@ -2539,6 +2542,7 @@
             const row = under && under.closest(".tool-flyout__item");
             if (!row || !toolFlyout.list.contains(row)) return;
             closeToolFlyout();
+            countTool(row.dataset.tool, "toolbar");
             setTool(row.dataset.tool);
           };
           window.addEventListener("pointerup", release, true);
@@ -2550,6 +2554,7 @@
     ["pointerup", "pointercancel"].forEach((type) => button.addEventListener(type, () => clearTimeout(held)));
     button.addEventListener("click", () => {
       if (opened || toolDragged) return;
+      countTool(slot.current, "toolbar");
       setTool(slot.current);
     });
     button.addEventListener("contextmenu", (event) => {
@@ -2626,6 +2631,7 @@
       row.addEventListener("click", () => {
         if (toolDragged) return;
         closeToolFlyout();
+        countTool(id, "toolbar");
         setTool(id);
       });
       list.appendChild(row);
@@ -3705,6 +3711,7 @@
     // Discord activity: in the desktop app only, a browser can't reach Discord
     const Discord = window.TypeRDesktop && window.TypeRDesktop.discord;
     const discord = Boolean(Discord) && (await Discord.available().catch(() => false));
+    const Stats = window.TypeRStats;
     // The default folder picked here, kept with OK: undefined while unchanged, null for none
     let folderChoice;
     const folderCard = () => {
@@ -3797,7 +3804,7 @@
         };
         const general = document.createElement("div");
         general.className = "settings__pane";
-        general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed", ...(discord ? ["discord"] : [])), card("language", "ligature", "hyphenate", "textOnTop", "sizeStep"));
+        general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed", ...(discord ? ["discord"] : []), ...(Stats ? ["stats"] : [])), card("language", "ligature", "hyphenate", "textOnTop", "sizeStep"));
         if (canChooseFolder) general.appendChild(folderCard());
         middle.textContent = "";
         const panes = { general, appearance: appearance.pane };
@@ -3871,6 +3878,7 @@
         { id: "lang", label: T("Interface language"), value: lang, options: Object.keys(LANGUAGES).map((code) => [code, LANGUAGES[code]]) },
         { id: "wheel", label: T("Mouse wheel"), value: settings.wheel, options: [["pan", T("Like Photoshop")], ["zoom", T("The wheel zooms")], ...(IS_MAC ? [] : [["auto", T("Mouse zooms, trackpad scrolls")]])], hint: (value) => (value === "zoom" ? T("The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.") : T(value === "auto" ? "A mouse's wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers scroll and a pinch zooms." : "The wheel scrolls up and down. Alt + wheel zooms, Ctrl or Cmd + wheel scrolls sideways. On a trackpad, two fingers scroll and a pinch zooms.")) },
         { id: "zoomSpeed", label: T("Zoom speed"), value: settings.zoomSpeed, options: [["normal", T("Normal")], ["fast", T("Fast")], ["veryFast", T("Very fast")]], hint: () => T("When dragging sideways with Ctrl + Space or the Zoom tool.") },
+        ...(Stats ? [{ id: "stats", label: T("Anonymous usage statistics"), type: "checkbox", checked: Stats.enabled(), hint: () => T("Once a day, TypeR Studio tells its team it was opened, so they know how many people use it and what to improve: a random number, web or desktop app, the system, the language, how often each tool and command was used and the errors the app ran into. Nothing about you or your files.") }] : []),
         ...(discord ? [{ id: "discord", label: T("Discord activity"), value: settings.discord, options: [["page", T("With the page's name")], ["app", T("Without the page's name")], ["off", T("Off")]], hint: () => T("What your Discord friends see while you work. Discord must be open on this computer.") }] : []),
         { id: "language", label: T("Language of new text"), value: d.language, options: PS.TEXT_LANGUAGES.map(([name, , own]) => [name, own]) },
         { id: "ligature", label: T("Standard ligatures in new text"), type: "checkbox", checked: d.ligature },
@@ -3885,6 +3893,7 @@
     settings.zoomSpeed = answer.zoomSpeed;
     if (discord) settings.discord = answer.discord;
     if (folderChoice !== undefined) setDefaultFolder(folderChoice);
+    if (Stats && answer.stats !== Stats.enabled()) Stats.setEnabled(answer.stats);
     // Text with no language of its own is drawn again in the new one
     const relanguage = d.language !== answer.language;
     d.language = answer.language;
@@ -11452,7 +11461,10 @@
       } catch (error) {
         console.error(error);
         if (error.tooLarge) toast(tooLargeText(error.tooLarge.width, error.tooLarge.height), true);
-        else unreadable.push(file.name);
+        else {
+          reportError(error);
+          unreadable.push(file.name);
+        }
       }
       working(null);
     }
@@ -11570,6 +11582,7 @@
       // A place the system protects, opened by a double-click: it can be read, not written
       if (error.name === "SecurityError" && !as) return saveInDesign(doc, true);
       console.error(error);
+      reportError(error);
       toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
       return false;
     } finally {
@@ -11622,6 +11635,7 @@
     } catch (error) {
       if (error.name !== "AbortError") {
         console.error(error);
+        reportError(error);
         toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
       }
     } finally {
@@ -12716,6 +12730,7 @@
     } catch (error) {
       if (error.name === "AbortError") return false;
       console.error(error);
+      reportError(error);
       toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
       return false;
     }
@@ -12778,6 +12793,7 @@
         // A place the system protects, opened by a double-click: it can be read, not written
         if (error.name === "SecurityError") return saveAsNow(doc, { block });
         console.error(error);
+        reportError(error);
         toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
         return false;
       }
@@ -12862,7 +12878,10 @@
       } else await shareOrDownload([{ blob, name }]);
       toast(fill(T(window.showSaveFilePicker ? "Saved {name}." : "Downloaded {name}."), { name }));
     } catch (error) {
-      if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      if (error.name !== "AbortError") {
+        reportError(error);
+        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      }
     }
   };
 
@@ -12886,7 +12905,10 @@
       await shareOrDownload(entries);
       toast(fill(T("{count} pages exported."), { count: entries.length }));
     } catch (error) {
-      if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      if (error.name !== "AbortError") {
+        reportError(error);
+        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      }
     }
   };
 
@@ -13096,7 +13118,10 @@
         state.targetFolder = await pickIn("showDirectoryPicker", { id: "typer-batch-save", mode: "readwrite" }, imagesPlace());
         render();
       } catch (error) {
-        if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        if (error.name !== "AbortError") {
+          reportError(error);
+          toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        }
       }
     }) : null;
     if (!toFolder) make("p", "bsave__note", two, T("The files will go to your downloads."));
@@ -13435,7 +13460,10 @@
       try {
         await shareOrDownload(entries);
       } catch (error) {
-        if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        if (error.name !== "AbortError") {
+          reportError(error);
+          toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        }
         return;
       }
     }
@@ -13569,7 +13597,10 @@
     try {
       folder = await pickIn("showDirectoryPicker", { id: "typer-photoshop", mode: "readwrite" }, near);
     } catch (error) {
-      if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      if (error.name !== "AbortError") {
+        reportError(error);
+        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      }
       return null;
     }
     const taken = new Set();
@@ -13618,6 +13649,7 @@
         if (where) placed.push([doc, where]);
       } catch (error) {
         console.error(error);
+        reportError(error);
         toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
         return null;
       } finally {
@@ -17931,11 +17963,29 @@
   };
   // The rows of a list a keyboard goes through: its own, and its submenus' rows, not their items
   const topRowsOf = (list) => Array.from(list.querySelectorAll(":scope > .menu__item:not(:disabled), :scope > .menu__subwrap > .menu__item:not(:disabled)"));
-  const runMenuItem = (item) => {
+  const runMenuItem = (item, via = "menu") => {
     closeMenus();
     if (!item.keepsTransform && !VIEW_ITEMS.has(item)) commitTransform();
+    countUse(item, via);
     runCommand(item);
   };
+  // How often each command and tool is used, and from where ("key", "menu", "context", "search",
+  // "toolbar"), for Settings › Anonymous usage statistics (stats.js). By the English names of
+  // TypeR Studio's own commands only: the user's actions count as one, without their names.
+  let usageNames = null;
+  const countUse = (item, via) => {
+    const Stats = window.TypeRStats;
+    if (!Stats || !item) return;
+    if (!usageNames) {
+      usageNames = new Map(SHORTCUTS.filter(({ group }) => group !== "Actions").map((known) => [known.item, known.id]));
+      MENUS.filter(([name]) => name === "TypeR").forEach(([name, items]) => {
+        items.filter(Boolean).flatMap((known) => (known.submenu ? known.submenu.filter(Boolean) : [known])).forEach((known) => usageNames.set(known, `${name}:${known.id || known.label}`));
+      });
+    }
+    const name = usageNames.get(item) || (ACTION_ITEMS.includes(item) ? "Actions:Play an action" : null);
+    if (name) Stats.count(name, via);
+  };
+  const countTool = (id, via) => countUse(TOOL_ITEMS.find((item) => item.entry[0] === id), via);
   // Every command, from a menu, its keys or the search, goes through here: the Actions panel
   // records it while recording (actions.js)
   const runCommand = (item) => (window.TypeRActions ? window.TypeRActions.command(item) : item.action());
@@ -18127,6 +18177,7 @@
       row.addEventListener("click", () => {
         closeContextMenu();
         if (!item.keepsTransform && !VIEW_ITEMS.has(item)) commitTransform();
+        countUse(item, "context");
         runCommand(item);
       });
       list.appendChild(row);
@@ -18250,8 +18301,10 @@
     const run = (entry) => {
       if (!usable(entry)) return;
       closeSearch(true);
-      if (entry.item.virtual) entry.item.action();
-      else runMenuItem(entry.item);
+      if (entry.item.virtual) {
+        countUse(entry.item, "search");
+        entry.item.action();
+      } else runMenuItem(entry.item, "search");
     };
     const render = () => {
       list.textContent = "";
@@ -18504,6 +18557,7 @@
         // Held, a tool's key repeats: the tool is already there
         if (item.entry && event.repeat) return;
         const before = app.tool;
+        countUse(item, "key");
         runCommand(item);
         // The panel keeps its key ups: only the page's keys lend a tool
         if (item.entry && !fromPanel && app.tool !== before) spring = { key: springKey(event), tool: app.tool, previous: before, time: performance.now(), used: false, released: false };

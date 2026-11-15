@@ -1,0 +1,19 @@
+name = "typer-stats"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = false
+routes = [{ pattern = "stats.teamscanr.fr", custom_domain = true }]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "typer-stats"
+database_id = "821d56ca-0bcc-48c7-8f18-8170f0906d62"
+
+# An app says it's open once a day: a few a minute from one address is already a lot
+[[ratelimits]]
+name = "LIMIT"
+namespace_id = "1002"
+
+  [ratelimits.simple]
+  limit = 10
+  period = 60
