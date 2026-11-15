@@ -14030,16 +14030,24 @@
     if (!ui.editor.hidden) placeEditor();
   };
 
+  // Tab, as in Photoshop: the panels, the tools and the options bar out of sight at once, the
+  // page alone on the screen, and back with the next Tab
   let typerBeforeHiding = true;
   const toggleAllPanels = () => {
     const panes = Workspace();
-    if (panes.sideVisible() || panes.isVisible("typer")) {
+    // On a phone or a tablet, the bar holds what the selected text can do: it stays
+    const options = !Shell.touch && !ui.options.hidden;
+    if (panes.sideVisible() || panes.isVisible("typer") || panes.toolsVisible() || options) {
       typerBeforeHiding = panes.isVisible("typer");
       if (panes.sideVisible()) panes.toggleSide();
       if (typerBeforeHiding) panes.setVisible("typer", false);
+      panes.setTools(false);
+      ui.options.hidden = !Shell.touch;
     } else {
       panes.toggleSide();
       if (typerBeforeHiding) panes.setVisible("typer", true);
+      panes.setTools(true);
+      ui.options.hidden = false;
     }
     renderMenusState();
   };
@@ -16938,7 +16946,8 @@
       null,
       { label: "Show or Hide All Panels", keys: "Tab", action: toggleAllPanels },
       { label: "TypeR", check: () => Workspace().isVisible("typer"), action: () => Workspace().toggle("typer") },
-      { label: "Side Panels", check: () => Workspace().sideVisible(), action: () => Workspace().toggleSide() },
+      // Shift+Tab, as in Photoshop: the panels alone, TypeR's script kept beside the page
+      { label: "Side Panels", keys: "Shift+Tab", check: () => Workspace().sideVisible(), action: () => { Workspace().toggleSide(); renderMenusState(); } },
       null,
       { label: "Layers", check: () => Workspace().isVisible("layers"), action: () => Workspace().toggle("layers") },
       { label: "Character", check: () => Workspace().isVisible("character"), action: () => Workspace().toggle("character") },
@@ -18277,8 +18286,9 @@
     for (const item of allShortcuts()) {
       if (item.virtual && panelBusy) continue;
       if (matches(event, item.keys) || (item.alias && matches(event, item.alias))) {
-        // Tab still goes from one control to the next, once one has the focus
-        if (item.keys === "Tab" && active !== document.body && active !== ui.stage) return;
+        // Tab still goes from one control to the next when the keyboard brought the focus there,
+        // not on a button just clicked, nor in TypeR's panel
+        if ((item.keys === "Tab" || item.keys === "Shift+Tab") && active && active !== active.ownerDocument.body && active !== ui.stage && active.matches(":focus-visible")) return;
         // With nothing to act on, Cmd+D must not bookmark the page, but the browser's zoom can stay
         if (item.enabled && !item.enabled()) {
           if (!item.browserWhenOff) event.preventDefault();

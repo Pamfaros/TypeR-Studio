@@ -115,6 +115,8 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 /* the options bar */
 .obar { display: flex; align-items: center; gap: 12px; padding: 0 10px; background: var(--ui); border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
 .obar::-webkit-scrollbar { display: none; }
+/* Hidden with Tab, as the tools and the panels: its row goes to the page */
+.app:has(> .obar[hidden]) { grid-template-rows: 30px 0 auto minmax(0, 1fr); }
 .obar label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
 .obar label > * { color: var(--text); }
 .obar input[type="number"] { width: 52px; }
