@@ -290,6 +290,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "This browser can't write WebP.": "Цей браузер не вміє зберігати WebP.",
     "Eyedropper": "Піпетка",
     "Faux bold": "Псевдожирний",
+    "Extra bold": "Наджирний",
     "Faux italic": "Псевдокурсив",
     "All Caps": "Усі великі",
     "Zoom speed": "Швидкість масштабування",

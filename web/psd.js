@@ -224,6 +224,8 @@
     // Kerning set by hand: the space before this letter, in thousandths of an em
     if (style.kerning) out.kerning = style.kerning;
     if (style.leading && style.autoLeading === false) out.leading = (style.leading * scale * 72) / resolution;
+    // Extra Bold: Faux Bold with the letters outlined in the text itself (see styleToPsd)
+    if (out.syntheticBold && style.strokeFlag && style.outlineWidth > 0) out.extraBold = true;
     return out;
   };
 
@@ -1075,6 +1077,13 @@
       language: PS().textLanguageNumber(style.textLanguage),
     };
     if (style.autoLeading === false && style.leading) out.leading = (style.leading * resolution) / 72;
+    // Extra Bold, which Photoshop has no control for: the characters' own stroke, in their
+    // colour, which Photoshop draws (tried in Photoshop 2026) and keeps when the text is edited
+    const extra = Boolean(style.syntheticBold && style.extraBold);
+    out.strokeFlag = extra;
+    // The stroke's width is in 128ths of the size, whatever the size and the resolution: Photoshop
+    // draws a width of 8 one sixteenth of the size wide (measured in Photoshop 2026, 16 to 200 px)
+    if (extra) Object.assign(out, { strokeColor: out.fillColor, outlineWidth: 128 * PS().EXTRA_BOLD_WIDTH, fillFirst: true });
     return out;
   };
 

@@ -10848,7 +10848,7 @@
     const row = document.createElement("div");
     row.className = "character__row wide";
     row.append(c.color, c.aligns,
-      iconTextToggle("B", T("Faux bold"), style.syntheticBold, () => applyTextPatch({ syntheticBold: !style.syntheticBold })),
+      boldToggle(style),
       iconTextToggle("I", T("Faux italic"), style.syntheticItalic, () => applyTextPatch({ syntheticItalic: !style.syntheticItalic })),
       // In capitals by the text's language, as in Photoshop: the letters typed stay as they are
       iconTextToggle("TT", T("All Caps"), style.fontCaps === "allCaps", () => patchTypography({ fontCaps: style.fontCaps === "allCaps" ? "normal" : "allCaps" })));
@@ -10976,6 +10976,19 @@
     }
     if (boxes.some((item) => item.raster && Fonts.isMissing(item.params.layerText.textStyleRange[0].textStyle.fontPostScriptName))) toast(T("This text's font is missing: it will be drawn with another font."), true);
     ops.setTextStyle(boxes.map((item) => item.id), null, { hyphenate: on });
+  };
+  // Faux Bold, then Extra Bold (TypeR's own: bolder still, see photoshop.js), then neither: each
+  // click goes one step on. The B is bolder too while Extra Bold is on.
+  const boldToggle = (style) => {
+    const extra = Boolean(style.syntheticBold && style.extraBold);
+    const button = iconTextToggle("B", extra ? T("Extra bold") : T("Faux bold"), style.syntheticBold, () => {
+      applyTextPatch(!style.syntheticBold ? { syntheticBold: true } : !extra ? { extraBold: true } : { syntheticBold: false, extraBold: false });
+    });
+    if (extra) {
+      button.style.fontWeight = "900";
+      button.style.webkitTextStroke = "0.06em currentColor";
+    }
+    return button;
   };
   const iconTextToggle = (letter, title, on, action) => {
     const button = document.createElement("button");

@@ -290,6 +290,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "This browser can't write WebP.": "Este navegador não consegue gravar WebP.",
     "Eyedropper": "Conta-gotas",
     "Faux bold": "Negrito falso",
+    "Extra bold": "Negrito extra",
     "Faux italic": "Itálico falso",
     "All Caps": "Todas em maiúsculas",
     "Zoom speed": "Velocidade do zoom",

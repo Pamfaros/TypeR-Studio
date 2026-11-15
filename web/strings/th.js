@@ -290,6 +290,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "This browser can't write WebP.": "เบราว์เซอร์นี้เขียนไฟล์ WebP ไม่ได้",
     "Eyedropper": "Eyedropper",
     "Faux bold": "ตัวหนาเทียม",
+    "Extra bold": "ตัวหนาพิเศษ",
     "Faux italic": "ตัวเอียงเทียม",
     "All Caps": "ตัวพิมพ์ใหญ่ทั้งหมด",
     "Zoom speed": "ความเร็วการซูม",

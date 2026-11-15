@@ -984,7 +984,8 @@
       Skew: style.syntheticItalic ? "12" : "0",
       // InDesign has no faux bold: a thin stroke of the letters' own colour comes close
       StrokeColor: style.syntheticBold ? color : "Swatch/None",
-      StrokeWeight: style.syntheticBold ? num((style.impliedFontSize || style.size || 12) / 40) : "0",
+      // and Extra Bold, the outline Photoshop draws for it on top
+      StrokeWeight: style.syntheticBold ? num((style.impliedFontSize || style.size || 12) * Math.max(1 / 40, style.extraBold ? PS().EXTRA_BOLD_WIDTH : 0)) : "0",
     };
     const leading = style.autoLeading === false && style.leading > 0 ? `<Leading type="unit">${num(style.leading)}</Leading>` : `<Leading type="enumeration">Auto</Leading>`;
     const content = text.split(LINE_BREAK).map((part) => esc(cleanText(part))).join(LINE_BREAK);

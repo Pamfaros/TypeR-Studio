@@ -43,6 +43,15 @@
   // Photoshop's Faux Bold sets each letter 0.027 of the size wider, the last one of a line too
   // (measured in Photoshop 2026, in 3 fonts at 16 and 40 px)
   const FAUX_BOLD_SPACING = 0.027;
+  // Extra Bold, TypeR's own, over Faux Bold: the letters outlined in their own colour, this much
+  // of the size wide (half of it outside them), as the PSD keeps it in the text itself (its
+  // characters' stroke, which Photoshop draws but has no control for). The letters keep their
+  // places: Photoshop's outline makes them no wider. Photoshop's Faux Bold is such an outline
+  // too, 0.029 of the size wide, which a wider one replaces (measured in Photoshop 2026): about
+  // twice as bold. Here the browser's Faux Bold is as wide, so the rest is drawn over it.
+  const EXTRA_BOLD_WIDTH = 0.06;
+  const FAUX_BOLD_OUTLINE = 0.029;
+  const extraBoldOf = (textStyle) => Boolean(textStyle && textStyle.syntheticBold && textStyle.extraBold);
   const setRunFont = (ctx, textStyle, sizePx) => {
     ctx.font = cssFont(textStyle, sizePx);
     const spacing = (textStyle.tracking || 0) / 1000 + (textStyle.syntheticBold ? FAUX_BOLD_SPACING : 0);
@@ -1089,10 +1098,16 @@
         place(g, line, item, () => {
           g.fillStyle = hollow ? "#000" : rgbCss(item.run.style.color);
           g.fillText(item.shown, 0, 0);
-          if (bolder) {
+          const extra = extraBoldOf(item.run.style) ? (EXTRA_BOLD_WIDTH - FAUX_BOLD_OUTLINE) * item.size : 0;
+          if (bolder || extra) {
             // In the run's own units, which its width and height scale
             g.strokeStyle = g.fillStyle;
-            g.lineWidth = (bolder * 2) / Math.max(item.scaleX, item.scaleY);
+            g.lineWidth = (bolder * 2) / Math.max(item.scaleX, item.scaleY) + extra;
+            // Photoshop's outline has sharp corners
+            if (extra) {
+              g.lineJoin = "miter";
+              g.miterLimit = 4;
+            }
             g.strokeText(item.shown, 0, 0);
           }
         });
@@ -11550,6 +11565,8 @@
         const patched = (style) => {
           const change = typeof patch === "function" ? patch(style) : patch;
           Object.assign(style, change);
+          // Extra Bold goes with Faux Bold
+          if (!extraBoldOf(style)) delete style.extraBold;
           // No kerning set by hand: none kept, so the letter joins the style around it
           if (change.kerning === 0) delete style.kerning;
           if (change.size) style.impliedFontSize = change.size;
@@ -13440,6 +13457,7 @@
     withResolution,
     wrapWords,
     cssFont,
+    EXTRA_BOLD_WIDTH,
     languageTagOf,
     TEXT_LANGUAGES,
     DEFAULT_TEXT_LANGUAGE,
