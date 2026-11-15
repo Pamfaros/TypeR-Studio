@@ -12,7 +12,9 @@
 //   Note-en: New Magic Eraser (Shift+E)        (optional: the subject otherwise)
 //
 // and, for commits already made, in whats-new-translations.json beside this file, by the first
-// 12 characters of their hash, which also corrects a commit's own lines: the file wins.
+// 12 characters of their hash, which also corrects a commit's own lines: the file wins. A commit
+// listed under "hide" there shows no note (a repair of something never released, typed fix by
+// mistake).
 //
 //   node desktop/scripts/whats-new.js [ref]    writes web/whats-new.json from ref (HEAD)
 
@@ -51,16 +53,19 @@ const notesAt = (ref = "HEAD") => {
     throw new Error(`${TRANSLATIONS} isn't valid JSON at ${ref}: ${error.message}`);
   }
   const out = execFileSync("git", ["log", "--no-merges", "--format=%H%x1f%cI%x1f%s%x1f%b%x1e", ref], { cwd: REPO, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const hidden = new Set(translations.hide || []);
   const notes = [];
   for (const record of out.split("\x1e")) {
     const [hash, at, subject, body = ""] = record.replace(/^\s+/, "").split("\x1f");
     const match = subject && KINDS.exec(subject);
     if (!match) continue;
     const id = hash.slice(0, 12);
+    if (hidden.has(id)) continue;
     const words = {};
     for (const [, lang, text] of body.matchAll(LINE)) words[lang.toLowerCase()] = tidy(text);
     // After the commit's lines: a note already pushed is corrected there
     Object.keys(translations).sort().forEach((lang) => {
+      if (lang === "hide") return;
       if (translations[lang] && translations[lang][id]) words[lang] = tidy(translations[lang][id]);
     });
     const note = { id, at, kind: match[1], text: words.en || tidy(match[2]) };
