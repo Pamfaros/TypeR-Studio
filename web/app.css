@@ -734,6 +734,16 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .actions__label { color: var(--muted); }
 .actions__param span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
 .actions__empty { margin: 12px; color: var(--muted); }
+/* Button Mode: a button per action, in its colour, as many across as the panel holds */
+.pane--actions.is-buttons .actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); align-content: start; gap: 2px; padding: 2px; }
+.pane--actions.is-buttons .actions__empty { grid-column: 1 / -1; }
+.actions__button { --button: var(--ui-3); display: flex; align-items: center; min-width: 0; height: 24px; padding: 0 8px; border: 1px solid rgb(0 0 0 / 0.35); border-radius: 3px; background: var(--button); color: var(--strong); text-align: left; white-space: nowrap; }
+.actions__button:not(:disabled):hover { filter: brightness(1.18); }
+.actions__button:not(:disabled):active { filter: brightness(0.9); }
+.actions__button:disabled { opacity: 0.55; cursor: default; }
+.actions__button.is-playing { box-shadow: inset 0 0 0 2px var(--blue); opacity: 1; }
+.actions__button .actions__keys { color: inherit; opacity: 0.75; }
+.pane--actions.is-buttons .actions__foot > :not(.actions__menu):not(.actions__grow) { display: none; }
 .actions__foot { justify-content: flex-start; }
 .actions__grow { flex: 1; }
 .actions__foot .actions__record.is-recording, .actions__foot .actions__record.is-recording:disabled { color: #e5534b; background: rgb(229 83 75 / 0.18); }

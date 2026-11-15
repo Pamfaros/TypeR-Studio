@@ -89,12 +89,20 @@
     return playback;
   };
   const playback = loadPlayback();
+  // Button Mode, as Photoshop's: each action a button in its colour, which plays it
+  let buttonMode = false;
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(STORE));
+    buttonMode = Boolean(saved && saved.buttons);
+  } catch (error) {
+    // As by default
+  }
   let saveTimer = 0;
   const keep = () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try {
-        window.localStorage.setItem(STORE, JSON.stringify({ version: 1, sets, playback }));
+        window.localStorage.setItem(STORE, JSON.stringify({ version: 1, sets, playback, buttons: buttonMode || undefined }));
       } catch (error) {
         console.warn("TypeR web: could not keep the actions", error);
         A.toast(T("The actions could not be kept: the browser's storage is full."), true);
@@ -2028,9 +2036,43 @@
     });
   };
 
+  // An action's colour (Action Options), the one a .atn keeps: the Layers panel's colour labels
+  const ACTION_COLORS = [["No Colour", ""], ["Red", "#a63a3a"], ["Orange", "#b0662a"], ["Yellow", "#a8902c"], ["Green", "#4d8a3a"], ["Blue", "#3a6aa6"], ["Violet", "#7a4fa6"], ["Grey", "#6c6c6c"]];
+  // Button Mode: every action of every set, a button that plays it with a click, as in
+  // Photoshop. A right click still opens the panel's menu, on that action.
+  const renderButtons = () => {
+    const scroll = list.scrollTop;
+    sets.forEach((set) => set.actions.forEach((action) => {
+      const button = make("button", "actions__button", list);
+      button.type = "button";
+      const color = (ACTION_COLORS[action.colorIndex | 0] || ACTION_COLORS[0])[1];
+      if (color) button.style.setProperty("--button", color);
+      if (running && running.action === action) button.classList.add("is-playing");
+      make("span", "actions__name", button, ATN.displayName(action.name));
+      const keys = keyText(action);
+      if (keys) make("kbd", "actions__keys", button, keys);
+      button.title = `${ATN.displayName(action.name)} (${ATN.displayName(set.name)})`;
+      button.addEventListener("click", () => playAction(action));
+      button.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        choose({ action });
+        openMenu(event.clientX, event.clientY);
+      });
+    }));
+    if (!list.children.length) make("p", "actions__empty", list, T("No actions. Load a Photoshop .atn file, or make a new set."));
+    list.scrollTop = scroll;
+    renderFoot();
+  };
+
   const render = () => {
     const scroll = list.scrollTop;
     list.textContent = "";
+    pane.classList.toggle("is-buttons", buttonMode);
+    list.setAttribute("role", buttonMode ? "group" : "tree");
+    if (buttonMode) {
+      renderButtons();
+      return;
+    }
     sets.forEach((set) => {
       const setRow = rowOf(0, set, "set");
       if (selection.set === set && !selection.action && !selection.step) setRow.classList.add("is-on");
@@ -2163,6 +2205,8 @@
     footButtons.play.disabled = Boolean(running) || recorder.on || !chosenAction() || !app.doc;
     footButtons.delete.disabled = Boolean(running) || (!selection.set && !selection.action && !selection.step);
     pane.classList.toggle("is-recording", recorder.on);
+    // Played only on a page, one at a time
+    list.querySelectorAll(".actions__button").forEach((button) => { button.disabled = Boolean(running) || recorder.on || !app.doc; });
   };
 
   const stopAll = () => {
@@ -2224,6 +2268,8 @@
       fields: [
         { id: "name", label: T("Name"), value: action ? ATN.displayName(action.name) : numbered("Action {n}", current.actions.map((one) => one.name)) },
         { id: "set", label: TL("Actions:Set", "Set"), value: String(sets.indexOf(current)), options: sets.map((set, at) => [String(at), ATN.displayName(set.name)]) },
+        // Its button's colour in Button Mode
+        { id: "color", label: T("Color"), value: String(action ? action.colorIndex | 0 : 0), options: ACTION_COLORS.map(([name], at) => [String(at), T(name)]) },
       ],
       ready: (inputs) => {
         inputs.set.closest("label").after(...keys.nodes);
@@ -2231,14 +2277,14 @@
       },
     });
     if (!values || !values.name.trim()) return null;
-    return { name: values.name.trim(), set: sets[Number(values.set)] || current, keys: keys.keys(), take: keys.take };
+    return { name: values.name.trim(), set: sets[Number(values.set)] || current, color: Math.max(0, Math.min(ACTION_COLORS.length - 1, Number(values.color) | 0)), keys: keys.keys(), take: keys.take };
   };
   const newAction = async () => {
     if (running || recorder.on) return null;
     const answer = await actionOptions(T("New Action"), null, T("Record"));
     if (!answer) return null;
     answer.take();
-    const action = ATN.action(answer.name, [], { expanded: true });
+    const action = ATN.action(answer.name, [], { expanded: true, colorIndex: answer.color });
     giveKeys(action, answer.keys);
     const at = selection.action && setOfAction(selection.action) === answer.set ? answer.set.actions.indexOf(selection.action) + 1 : answer.set.actions.length;
     answer.set.actions.splice(at, 0, action);
@@ -2254,6 +2300,7 @@
     if (!answer) return;
     answer.take();
     action.name = answer.name;
+    action.colorIndex = answer.color;
     if (answer.keys !== keysOf(action)) giveKeys(action, answer.keys);
     const from = setOfAction(action);
     if (from !== answer.set) {
@@ -2354,6 +2401,13 @@
     const action = chosenAction();
     const idle = !running && !recorder.on;
     const items = [
+      // Not while recording: the panel's Stop would go with the list
+      { label: "Button Mode", check: () => buttonMode, enabled: () => !recorder.on, action: () => {
+        buttonMode = !buttonMode;
+        keep();
+        render();
+      } },
+      null,
       { label: "New Action…", enabled: () => idle, action: () => newAction() },
       { label: "New Set…", enabled: () => !running, action: () => newSet() },
       { label: "Duplicate", enabled: () => idle && Boolean(selection.set || selection.action || selection.step), action: duplicateChosen },

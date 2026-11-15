@@ -338,6 +338,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "“{step}” can't be played in TypeR Studio. Turn this step off in the Actions panel to play the action without it.": "«{step}» no se puede reproducir en TypeR Studio. Desactiva este paso en el panel Acciones para reproducir la acción sin él.",
     "Action: {name}": "Acción: {name}",
     "Playback Options…": "Opciones de reproducción…",
+    "Button Mode": "Modo de botón",
     "Playback Options": "Opciones de reproducción",
     "Speed": "Velocidad",
     "Accelerated": "Acelerado",
