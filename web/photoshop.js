@@ -508,6 +508,8 @@
     const ascent = ownGlyph(firstStyle, "d") ? inkTopOf(firstStyle, "d") * firstSize : 0;
     // A font of capitals only has no "d" of its own: 0.75 is what Photoshop comes close to
     const firstOffset = ascent > 0 ? ascent : firstSize * 0.75;
+    // What a line is left out of a fixed box by (see below): the height of the font's capitals
+    const capitals = ownGlyph(firstStyle, "E") ? inkTopOf(firstStyle, "E") * firstSize : firstOffset;
     let baseline = 0;
     const out = [];
     let left = Infinity;
@@ -519,10 +521,8 @@
     lines.forEach((runs, index) => {
       const m = measureRuns(runs, resolution);
       let lead = 0;
-      let largest = 0;
       runs.forEach((run) => {
         const size = sizePxOf(run.style, resolution);
-        largest = Math.max(largest, size);
         lead = Math.max(lead, run.style.autoLeading === false && run.style.leading > 0 ? (run.style.leading * resolution) / 72 : size * (paragraph.autoLeadingPercentage || 1.2));
       });
       if (!runs.length) {
@@ -532,10 +532,17 @@
       if (index > 0) baseline += lead;
       else if (frame) baseline = firstOffset;
       contentBottom = baseline + Math.max(m.fontDescent, lead * 0.2);
-      // As in Photoshop, a line that doesn't fit in a fixed box isn't drawn. It wants 0.075 of
-      // its size below the baseline, whatever its letters: on real PSDs it hid the lines with
-      // 0.069 or less, and kept the ones with 0.082 or more
-      if (frame && !frame.autoHeight && index > 0 && baseline + Math.max(m.descent, largest * 0.075) > frame.height) {
+      // As in Photoshop, a line that doesn't fit in a fixed box isn't drawn: one whose baseline
+      // falls below the box, whatever its letters, descenders or not. Photoshop counts the
+      // first baseline from the top of the box by the height of the font's capitals, not by its
+      // "d": a third line shows from a box 2 leadings and 0.87 of the size high in Sakana, 0.73
+      // in Victory Speech Lower, 0.77 in CC Ask For Mercy and Komika Title, 0.81 in Wildjess,
+      // 0.71 in Arial, 0.75 in Augie, 0.65 in Amiri, where their "E" rises 0.88, 0.74, 0.78,
+      // 0.77, 0.80, 0.72, 0.76 and 0.65 (measured in Photoshop 2026 by 0.02 of the size, at 16
+      // and 30 px, the same with "Hdpg" as with "HdE"). 0.075 of the size was wanted below the
+      // baseline before, which is Augie's gap between the two: in Sakana that hid the last line
+      // of 5 real texts that Photoshop shows.
+      if (frame && !frame.autoHeight && index > 0 && baseline - firstOffset + capitals > frame.height) {
         overflow = true;
         return;
       }
