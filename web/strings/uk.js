@@ -149,6 +149,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Centre the text vertically in its box": "Центрувати текст по вертикалі в рамці",
     "Detach": "Відкріпити",
     "Dock": "Закріпити",
+    "Collapse to Icons": "Згорнути до значків",
+    "Expand Panels": "Розгорнути панелі",
     "Done": "Готово",
     "Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.": "Перетягніть кути на поверхню, а середні точки — щоб вигнути її (Alt: лише один край). Shift: по прямій. Esc: готово.",
     "Exit Full Screen": "Вийти з повноекранного режиму",

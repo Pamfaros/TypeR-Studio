@@ -149,6 +149,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Centre the text vertically in its box": "Căn giữa văn bản theo chiều dọc trong hộp",
     "Detach": "Tách ra",
     "Dock": "Gắn vào",
+    "Collapse to Icons": "Thu gọn thành biểu tượng",
+    "Expand Panels": "Mở rộng bảng",
     "Done": "Xong",
     "Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.": "Kéo các góc lên bề mặt và các điểm giữa để uốn cong (Alt: chỉ một cạnh). Shift: giữ thẳng. Esc: xong.",
     "Exit Full Screen": "Thoát toàn màn hình",

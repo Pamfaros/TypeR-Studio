@@ -149,6 +149,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Centre the text vertically in its box": "Tengahkan teks secara vertikal di dalam kotaknya",
     "Detach": "Lepas",
     "Dock": "Tambatkan",
+    "Collapse to Icons": "Ciutkan ke ikon",
+    "Expand Panels": "Perluas panel",
     "Done": "Selesai",
     "Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.": "Seret sudut ke permukaan dan titik tengah untuk melengkungkannya (Alt: satu tepi saja). Shift: tetap lurus. Esc: selesai.",
     "Exit Full Screen": "Keluar dari layar penuh",

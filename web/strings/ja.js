@@ -149,6 +149,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Centre the text vertically in its box": "テキストをボックス内で上下中央に揃える",
     "Detach": "切り離す",
     "Dock": "ドッキング",
+    "Collapse to Icons": "アイコンパネルに折りたたみ",
+    "Expand Panels": "パネルを展開",
     "Done": "完了",
     "Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.": "角を面に合わせてドラッグし、中央の点で曲げます（Alt: 片方の辺のみ）。Shift: まっすぐ。Esc: 完了。",
     "Exit Full Screen": "フルスクリーンを終了",

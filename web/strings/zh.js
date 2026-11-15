@@ -149,6 +149,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Centre the text vertically in its box": "在文本框中垂直居中文本",
     "Detach": "分离",
     "Dock": "停靠",
+    "Collapse to Icons": "折叠为图标",
+    "Expand Panels": "展开面板",
     "Done": "完成",
     "Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.": "将角拖到表面上，拖动中点使其弯曲（Alt：仅一条边）。Shift：保持笔直。Esc：完成。",
     "Exit Full Screen": "退出全屏",

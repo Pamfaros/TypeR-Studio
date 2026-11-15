@@ -149,6 +149,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Centre the text vertically in its box": "Tekst verticaal centreren in het tekstvak",
     "Detach": "Losmaken",
     "Dock": "Vastzetten",
+    "Collapse to Icons": "Samenvouwen tot pictogrammen",
+    "Expand Panels": "Deelvensters uitvouwen",
     "Done": "Klaar",
     "Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.": "Sleep de hoeken op het oppervlak en de middelste punten om het te buigen (Alt: één rand). Shift: recht blijven. Esc: klaar.",
     "Exit Full Screen": "Volledig scherm afsluiten",

@@ -149,6 +149,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Centre the text vertically in its box": "Metni kutusunda dikey olarak ortala",
     "Detach": "Ayır",
     "Dock": "Yerleştir",
+    "Collapse to Icons": "Simgelere daralt",
+    "Expand Panels": "Panelleri genişlet",
     "Done": "Bitti",
     "Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.": "Köşeleri yüzeye, orta noktaları ise bükmek için sürükleyin (Alt: tek kenar). Shift: düz kal. Esc: bitir.",
     "Exit Full Screen": "Tam ekrandan çık",

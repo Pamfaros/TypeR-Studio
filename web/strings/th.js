@@ -149,6 +149,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Centre the text vertically in its box": "จัดข้อความกึ่งกลางแนวตั้งในกรอบ",
     "Detach": "แยกออก",
     "Dock": "เชื่อมต่อ",
+    "Collapse to Icons": "ย่อเป็นไอคอน",
+    "Expand Panels": "ขยายแผง",
     "Done": "เสร็จ",
     "Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.": "ลากมุมไปบนพื้นผิว และลากจุดกึ่งกลางเพื่อทำให้โค้ง (Alt: ขอบเดียว) Shift: คงแนวตรง Esc: เสร็จ",
     "Exit Full Screen": "ออกจากโหมดเต็มหน้าจอ",

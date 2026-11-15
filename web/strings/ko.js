@@ -149,6 +149,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Centre the text vertically in its box": "텍스트를 상자 안에서 세로 가운데 정렬",
     "Detach": "분리",
     "Dock": "도킹",
+    "Collapse to Icons": "아이콘으로 축소",
+    "Expand Panels": "패널 확장",
     "Done": "완료",
     "Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.": "모서리를 표면으로 드래그하고 가운데 점으로 구부립니다(Alt: 한쪽 가장자리만). Shift: 직선 유지. Esc: 완료.",
     "Exit Full Screen": "전체 화면 종료",

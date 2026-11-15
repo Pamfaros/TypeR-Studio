@@ -149,6 +149,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Centre the text vertically in its box": "Centralizar o texto verticalmente na caixa",
     "Detach": "Desencaixar",
     "Dock": "Encaixar",
+    "Collapse to Icons": "Recolher para ícones",
+    "Expand Panels": "Expandir painéis",
     "Done": "Concluído",
     "Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.": "Arraste os cantos sobre a superfície e os pontos centrais para curvá-la (Alt: só uma borda). Shift: manter reto. Esc: concluir.",
     "Exit Full Screen": "Sair da tela cheia",
