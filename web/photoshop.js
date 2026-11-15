@@ -514,8 +514,9 @@
       const lineText = runs.map((run) => run.text).join("");
       const spaces = /[ \t]*$/.exec(lineText)[0].length;
       const shown = spaces ? measureRuns(sliceRuns(runs, 0, lineText.length - spaces), resolution) : m;
-      // Roman Hanging Punctuation: what hangs is left out of the line's width
-      const [hangLeft, hangRight] = paragraph.hangingRoman ? hangsOf(shown) : [0, 0];
+      // Roman Hanging Punctuation: what hangs is left out of the line's width. In a box only:
+      // Photoshop sets a point text as if it were off (measured in Photoshop 2026)
+      const [hangLeft, hangRight] = paragraph.hangingRoman && frame ? hangsOf(shown) : [0, 0];
       const set = shown.advance - trailingTracking(shown) - hangLeft - hangRight;
       let x;
       if (frame) x = align === "left" ? 0 : align === "right" ? frame.width - set : (frame.width - set) / 2;
