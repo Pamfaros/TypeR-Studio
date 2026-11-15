@@ -1066,6 +1066,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Review Page by Page": "Revoir page par page",
     "Remove Text on several pages is already under way.": "Effacer le texte sur plusieurs pages est déjà en cours.",
     "Remove Text went through {done} of {count} pages.": "Effacer le texte a traité {done} pages sur {count}.",
+    "The chapter's pages open one at a time. Once its text is removed, each is saved as a PSD in its folder, beside the original, and closed.": "Les pages du chapitre s’ouvrent une à une. Une fois son texte effacé, chacune est enregistrée en PSD dans son dossier, à côté de l’original, puis fermée.",
+    "{name} stays open: it couldn't be saved in its folder.": "{name} reste ouvert : il n’a pas pu être enregistré dans son dossier.",
     "{count} couldn't be read: {reason}": "{count} n’ont pas pu être lues : {reason}",
     "Generative Fill is finishing the art.": "Le Remplissage génératif termine le dessin.",
     "The text detection couldn't be reached: trying again in {seconds} s": "La détection du texte est injoignable : nouvel essai dans {seconds} s",

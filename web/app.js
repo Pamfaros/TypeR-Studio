@@ -5766,23 +5766,24 @@
     head.append(all, allText);
     const list = document.createElement("div");
     list.className = "tbatch__pages";
+    // A row: an open page ({ doc }) or one of the chapter's pages no tab shows ({ ref })
     const pages = [];
-    const addRow = (doc, checked) => {
+    const addRow = (item, checked) => {
       const row = document.createElement("label");
       row.className = "tbatch__page";
       const box = document.createElement("input");
       box.type = "checkbox";
       box.checked = checked;
       const name = document.createElement("span");
-      name.textContent = doc.name;
-      name.title = doc.name;
+      name.textContent = item.doc ? item.doc.name : item.ref.file.name;
+      name.title = name.textContent;
       row.append(box, name);
       list.appendChild(row);
-      pages.push({ doc, box });
+      pages.push(Object.assign({ box }, item));
     };
-    app.docs.forEach((doc) => addRow(doc, !preset || preset.includes(doc)));
+    app.docs.forEach((doc) => addRow({ doc }, !preset || preset.includes(doc)));
     // More pages, from here: opened in their tabs and ticked. The chapter's pages wait in the
-    // pager, closed: they can all be opened at once.
+    // pager, closed: they're added as they are, and open one at a time once it starts.
     const adding = document.createElement("div");
     adding.className = "tbatch__add";
     const addOpened = async (open) => {
@@ -5791,7 +5792,7 @@
       try {
         await open();
       } finally {
-        app.docs.forEach((doc) => { if (!before.has(doc) && !pages.some((one) => one.doc === doc)) addRow(doc, true); });
+        app.docs.forEach((doc) => { if (!before.has(doc) && !pages.some((one) => one.doc === doc)) addRow({ doc }, true); });
         list.scrollTop = list.scrollHeight;
         syncAdding();
         sync();
@@ -5808,12 +5809,13 @@
     const addChapter = document.createElement("button");
     addChapter.type = "button";
     addChapter.className = "btn btn--small";
-    const closedPages = () => (chapter ? chapter.pages.filter((page) => !app.docs.some((doc) => doc.path === pageKey(page))) : []);
-    addChapter.addEventListener("click", () => addOpened(async () => {
-      const entries = [];
-      for (const page of closedPages()) entries.push({ file: page.handle ? await page.handle.getFile() : app.files.get(pageKey(page)) || page.file, handle: page.handle });
-      if (entries.length) await openFiles(entries);
-    }));
+    const closedPages = () => (chapter ? chapter.pages.filter((page) => !app.docs.some((doc) => doc.path === pageKey(page)) && !pages.some((one) => one.ref === page)) : []);
+    addChapter.addEventListener("click", () => {
+      closedPages().forEach((ref) => addRow({ ref }, true));
+      list.scrollTop = list.scrollHeight;
+      syncAdding();
+      sync();
+    });
     const syncAdding = () => {
       const closed = closedPages().length;
       addChapter.hidden = !closed;
@@ -5822,11 +5824,16 @@
     };
     syncAdding();
     adding.append(addFiles, addChapter);
-    body.append(intro, head, list, adding);
+    // What becomes of the chapter's pages: said as soon as one is ticked
+    const saving = document.createElement("p");
+    saving.className = "tbatch__saving";
+    saving.textContent = T("The chapter's pages open one at a time. Once its text is removed, each is saved as a PSD in its folder, beside the original, and closed.");
+    body.append(intro, head, list, adding, saving);
     let inputs = null;
     let buttons = [];
     const sync = () => {
       const count = pages.filter(({ box }) => box.checked).length;
+      saving.hidden = !pages.some(({ box, ref }) => ref && box.checked);
       allText.textContent = fill(T("Open pages ({count} of {total})"), { count, total: pages.length });
       all.checked = count === pages.length;
       all.indeterminate = count > 0 && count < pages.length;
@@ -5843,7 +5850,7 @@
     const fields = [{ id: "which", label: T("Text to remove"), value: Gen ? (["all", "art", "plain"].includes(saved.which) ? saved.which : "all") : "plain", options: Gen ? [["all", T("All the text")], ["art", T("Only Over the Art (Generative Fill)")], ["plain", T("Only on Plain Backgrounds")]] : [["plain", T("Only on Plain Backgrounds")]] }];
     if (Gen) fields.push({ id: "model", label: T("Generative Fill"), value: choices.some(([id]) => id === saved.model) ? saved.model : current, options: choices, hint: (value) => removalPrice(accountFor(value)) });
     const answer = (values, review) => {
-      const docs = pages.filter(({ box, doc }) => box.checked && app.docs.includes(doc)).map(({ doc }) => doc);
+      const docs = pages.filter(({ box, doc, ref }) => box.checked && (ref ? chapter && chapter.pages.includes(ref) : app.docs.includes(doc))).map(({ doc, ref }) => (ref ? { ref } : { doc }));
       if (!values || !docs.length) {
         resolve(null);
         return;
@@ -5888,6 +5895,9 @@
     }
     const choice = await askTextBatch(preset.length ? preset : null);
     if (!choice || textBatch) return;
+    // The chapter's pages are saved where they are: asked now, while the click that started it
+    // still allows the browser to ask
+    await allowBatchSaves(choice.docs.filter((item) => item.ref).map((item) => item.ref));
     let account = null;
     if (Gen && choice.which !== "plain") {
       account = accountFor(choice.model);
@@ -5899,10 +5909,16 @@
       }
       if (!(await agreeToDownload(account))) return;
     }
-    const docs = choice.docs.filter((doc) => app.docs.includes(doc));
-    if (textBatch || !docs.length) return;
+    // A page of the chapter opened meanwhile is an open page like the others
+    const items = choice.docs.map((item) => {
+      const open = item.ref && app.docs.find((doc) => doc.path === pageKey(item.ref));
+      return open ? { doc: open } : item;
+    }).filter((item) => (item.ref ? chapter && chapter.pages.includes(item.ref) : app.docs.includes(item.doc)));
+    if (textBatch || !items.length) return;
     const batch = {
-      pages: docs.map((doc) => ({ doc, state: "waiting", tries: 0, mask: null, message: "" })),
+      // `ref`: a page of the chapter no tab showed, opened by the batch (`opened`) when its turn
+      // comes, saved and closed once done
+      pages: items.map((item) => ({ doc: item.doc || null, ref: item.ref || null, opened: false, state: "waiting", tries: 0, mask: null, message: "" })),
       review: choice.review,
       which: choice.which,
       account,
@@ -5921,7 +5937,7 @@
     if (batch.review) {
       app.selectionMode = "add";
       if (!SELECTION_TOOLS.has(app.tool)) setTool("lasso");
-      if (app.doc !== docs[0]) switchDoc(docs[0]);
+      bringReviewPage(batch, batch.pages[0]);
       renderOptions();
     }
     genTrayOpen = true;
@@ -5936,6 +5952,156 @@
       resolve();
     }, { once: true });
   });
+  /* ---- The chapter's closed pages ---- */
+
+  // A page of the chapter no tab shows is opened by the batch when its turn comes, in a tab
+  // behind the page in front (Start Now) or in front (Review Page by Page). Once its text is
+  // removed and its art drawn, it's saved as a PSD where it is (a picture gets a PSD beside it,
+  // which the pager then opens) and closed: one page of the chapter in a tab at a time. A page
+  // that can't be saved there stays open, to be saved by hand.
+  const chapterFile = async (ref) => (ref.handle ? ref.handle.getFile() : app.files.get(pageKey(ref)) || ref.file);
+  // Read without a tab, for its text to be found ahead (Review Page by Page); let go with
+  // ops.dropDetached()
+  const readBatchPage = async (ref) => ops.readDetached(await chapterFile(ref), ref.file.name);
+  const openBatchPage = async (page, front) => {
+    const { ref } = page;
+    let doc = app.docs.find((one) => one.path === pageKey(ref));
+    if (!doc) {
+      doc = await ops.openBehind(await chapterFile(ref), ref.file.name, ref.handle);
+      page.opened = true;
+    }
+    page.doc = doc;
+    if (front && app.doc !== doc) switchDoc(doc);
+    return doc;
+  };
+  // Where a page of the chapter is saved: its own PSD, or a PSD beside the picture in the folder
+  // it was opened from (`dir`: the folders down to it). Null when the browser gave no way to
+  // write there (pages picked one by one, a browser without folders).
+  const batchSaveTarget = async (ref) => {
+    if (!ref.handle || ref.handle.kind !== "file") return null;
+    let folder = null;
+    let dir = null;
+    for (const one of openedFolders) {
+      const path = await one.resolve(ref.handle).catch(() => null);
+      if (path) {
+        folder = one;
+        dir = path.slice(0, -1);
+        break;
+      }
+    }
+    if (/\.ps[db]$/i.test(ref.file.name)) return { handle: ref.handle, folder };
+    return folder ? { folder, dir } : null;
+  };
+  const writable = async (handle, ask) => {
+    if (!handle.queryPermission) return true;
+    try {
+      if ((await handle.queryPermission({ mode: "readwrite" })) === "granted") return true;
+      return ask && handle.requestPermission ? (await handle.requestPermission({ mode: "readwrite" })) === "granted" : false;
+    } catch (error) {
+      return false;
+    }
+  };
+  // Each folder asked once (a folder dropped here can be read, not yet written to)
+  const allowBatchSaves = async (refs) => {
+    const asked = new Set();
+    for (const ref of refs) {
+      const target = await batchSaveTarget(ref);
+      const handle = target && (target.folder || target.handle);
+      if (!handle || asked.has(handle)) continue;
+      asked.add(handle);
+      await writable(handle, true);
+    }
+  };
+  const saveBatchPage = async (page) => {
+    const { doc, ref } = page;
+    if (savingDocs.has(doc)) return false;
+    let handle = null;
+    let built = null;
+    const going = (async () => {
+      const target = await batchSaveTarget(ref);
+      if (!target || !(await writable(target.folder || target.handle, false))) return false;
+      if (target.handle) {
+        // Changed on disk meanwhile (Photoshop): not replaced
+        if (await changedOnDisk(doc)) return false;
+        handle = target.handle;
+      } else {
+        let folder = target.folder;
+        for (const part of target.dir) folder = await folder.getDirectoryHandle(part);
+        const name = psdName(doc);
+        // A PSD of that name already there is someone's work: never replaced
+        if (await folder.getFileHandle(name).catch(() => null)) return false;
+        handle = await folder.getFileHandle(name, { create: true });
+      }
+      built = await buildPsd(doc, handle.name);
+      await writeTo(handle, built.blob);
+      return true;
+    })();
+    savingDocs.set(doc, going);
+    let saved = false;
+    try {
+      saved = await going;
+    } catch (error) {
+      console.warn("TypeR web: a page of the chapter couldn't be saved", error);
+    } finally {
+      savingDocs.delete(doc);
+    }
+    if (!saved || !app.docs.includes(doc)) {
+      toast(fill(T("{name} stays open: it couldn't be saved in its folder."), { name: doc.name }), true);
+      return false;
+    }
+    const file = await handle.getFile();
+    doc.handle = handle;
+    doc.name = handle.name;
+    ops.fileWritten(doc, file);
+    ops.markSaved(doc, built.savedId);
+    // The page of the chapter is this PSD from now on
+    ref.file = file;
+    ref.handle = handle;
+    renderStatus();
+    renderTabs();
+    if (window.TypeRVerification) window.TypeRVerification.pagesChanged();
+    return true;
+  };
+  // A page the batch opened, once its art is drawn: saved if its text was removed, closed unless
+  // it's the page in front, or a drawing failed on it (to be tried again there)
+  const finishBatchPage = (page) => {
+    if (!page.opened || !page.doc) return Promise.resolve();
+    if (!page.finishing) page.finishing = (async () => {
+      const doc = page.doc;
+      const mine = (job) => job.doc === doc;
+      while (app.docs.includes(doc) && genJobs.some((job) => mine(job) && job.state !== "done" && job.state !== "failed")) await new Promise((done) => setTimeout(done, 500));
+      if (!app.docs.includes(doc)) return;
+      if (page.state === "done" && PS.isDirty(doc) && !(await saveBatchPage(page))) return;
+      if (app.doc !== doc && app.docs.includes(doc) && !PS.isDirty(doc) && !savingDocs.has(doc) && !genJobs.some((job) => mine(job) && job.state === "failed")) ops.closeDoc(doc);
+    })();
+    return page.finishing;
+  };
+  // Start Now: the pages the batch opened and is done with, saved and closed before the next
+  const batchPagesDone = (batch) => Promise.all(batch.pages.filter((one) => one.opened && !["waiting", "finding", "found"].includes(one.state)).map(finishBatchPage));
+  // Review Page by Page: the page whose turn it is, in front, opened first if it's closed
+  const bringReviewPage = async (batch, page) => {
+    if (page.ref && !page.doc) {
+      try {
+        await openBatchPage(page, false);
+      } catch (error) {
+        console.warn("TypeR web: a page of the chapter couldn't be opened", error);
+        page.state = "failed";
+        page.message = (error && error.message) || String(error);
+      }
+      if (textBatch !== batch || batch.pages[batch.at] !== page) {
+        if (page.opened) finishBatchPage(page);
+        return;
+      }
+    }
+    if (!page.doc || !app.docs.includes(page.doc)) {
+      nextReviewPage(batch, true);
+      return;
+    }
+    if (app.doc !== page.doc) switchDoc(page.doc);
+    renderGenTray();
+    schedule(false);
+  };
+
   // The text detection, one page after the other, in their order: the page being reviewed
   // first, the next ones ready by the time they come
   const findBatchText = async (batch) => {
@@ -5943,7 +6109,33 @@
       if (textBatch !== batch) return;
       const page = batch.pages.find((one) => one.state === "waiting");
       if (!page) break;
-      if (!app.docs.includes(page.doc)) {
+      // A page of the chapter no tab shows. Start Now: opened behind, once the one before is
+      // saved and closed. Review Page by Page: read without a tab, opened when its turn comes.
+      let detached = null;
+      if (page.ref && !page.doc) {
+        if (!batch.review) await batchPagesDone(batch);
+        // Found two pages ahead of the review at most: a long chapter's masks don't all wait in memory
+        else while (textBatch === batch && batch.pages.indexOf(page) > batch.at + 2) await batchSleep(300, batch.controller.signal);
+        if (textBatch !== batch) return;
+        if (page.state !== "waiting" || page.doc) continue;
+        try {
+          if (batch.review) detached = await readBatchPage(page.ref);
+          else await openBatchPage(page, false);
+        } catch (error) {
+          console.warn("TypeR web: a page of the chapter couldn't be read", error);
+          page.state = "failed";
+          page.message = (error && error.message) || String(error);
+          renderGenTray();
+          schedule(false);
+          continue;
+        }
+        if (textBatch !== batch) {
+          if (detached) ops.dropDetached(detached);
+          return;
+        }
+      }
+      const doc = detached || page.doc;
+      if (!detached && !app.docs.includes(doc)) {
         page.state = "skipped";
         continue;
       }
@@ -5951,16 +6143,21 @@
       renderGenTray();
       schedule(false);
       try {
-        const pixels = ops.reshapePage(null, page.doc);
+        const pixels = ops.reshapePage(null, doc);
+        if (detached) {
+          ops.dropDetached(detached);
+          detached = null;
+        }
         const found = await TextMask.detect(pixels, { confidence: TextMask.load().confidence, signal: batch.controller.signal });
         if (textBatch !== batch) return;
         // Skipped meanwhile, or closed
         if (page.state !== "finding") continue;
-        page.mask = TextMask.dilate(found.mask, pixels.width, pixels.height, textGrow(page.doc));
+        page.mask = TextMask.dilate(found.mask, pixels.width, pixels.height, textGrow(doc));
         page.cores = found.mask;
         page.state = "found";
         if (!batch.review) await removeFoundText(batch, page);
       } catch (error) {
+        if (detached) ops.dropDetached(detached);
         if (textBatch !== batch || (error && error.name === "AbortError")) return;
         if (page.state !== "finding") continue;
         const kind = error && error.kind;
@@ -6015,6 +6212,8 @@
     if (textBatch !== batch) return;
     textBatch = null;
     batch.controller.abort();
+    // The pages it opened: saved and closed once their art is drawn
+    batch.pages.forEach((page) => { if (page.opened) finishBatchPage(page); });
     if (batch.review) {
       app.selectionMode = batch.mode;
       if (app.tool !== batch.tool && SELECTION_TOOLS.has(app.tool) && !SELECTION_TOOLS.has(batch.tool)) setTool(batch.tool);
@@ -6079,13 +6278,14 @@
   const reviewShown = () => {
     const batch = textBatch;
     const page = batch && batch.review ? batch.pages[batch.at] : null;
-    return page && app.doc === page.doc ? page : null;
+    return page && page.doc && app.doc === page.doc ? page : null;
   };
   const backToReview = () => {
     const batch = textBatch;
     const page = batch && batch.review ? batch.pages[batch.at] : null;
     if (!page) return;
-    if (app.docs.includes(page.doc)) {
+    if (page.ref && !page.doc) bringReviewPage(batch, page);
+    else if (app.docs.includes(page.doc)) {
       if (app.doc !== page.doc) switchDoc(page.doc);
     } else nextReviewPage(batch, true);
     renderGenTray();
@@ -6110,7 +6310,8 @@
     else if (page && page.state !== "done" && page.state !== "failed") page.state = "skipped";
     if (page) page.mask = page.cores = null;
     batch.at += 1;
-    while (batch.at < batch.pages.length && !app.docs.includes(batch.pages[batch.at].doc)) {
+    // A page closed meanwhile is passed by; the chapter's closed pages open when they come
+    while (batch.at < batch.pages.length && !(batch.pages[batch.at].ref && !batch.pages[batch.at].doc) && !app.docs.includes(batch.pages[batch.at].doc)) {
       batch.pages[batch.at].state = "skipped";
       batch.at += 1;
     }
@@ -6118,9 +6319,8 @@
       finishTextBatch(batch);
       return;
     }
-    switchDoc(batch.pages[batch.at].doc);
-    renderGenTray();
-    schedule(false);
+    // The page left, if the batch opened it: saved and closed once the next one is in front
+    bringReviewPage(batch, batch.pages[batch.at]).then(() => { if (page && page.opened) finishBatchPage(page); });
   };
   // Each paint: the page under review gets its text selected once found, and a page closed
   // meanwhile is passed by; both after the paint, never in it
@@ -6129,7 +6329,8 @@
     const batch = textBatch;
     if (!batch || !batch.review || reviewSyncing) return;
     const page = batch.pages[batch.at];
-    if (!page) return;
+    // A page of the chapter on its way
+    if (!page || !page.doc) return;
     const closed = !app.docs.includes(page.doc);
     const due = page.state === "found" && app.doc === page.doc && !page.doc.state.quickMask && !pageBusy();
     if (!closed && !due) return;
@@ -12230,6 +12431,11 @@
       .map((entry) => ({ file: entry.file || entry, handle: entry.handle || null }))
       .filter((page) => PAGE_FILES.test(page.file.name))
       .sort((a, b) => NATURAL_ORDER.compare(a.file.name, b.file.name));
+    // A raw and its PSD (01.jpg, and the 01.psd Remove Text on several pages saved beside it)
+    // are one page: the PSD's
+    const base = (name) => name.replace(/\.[^.]+$/, "").toLowerCase();
+    const psds = new Set(pages.filter((page) => /\.ps[db]$/i.test(page.file.name)).map((page) => base(page.file.name)));
+    for (let at = pages.length - 1; at >= 0; at--) if (!/\.ps[db]$/i.test(pages[at].file.name) && psds.has(base(pages[at].file.name))) pages.splice(at, 1);
     const had = Boolean(chapter);
     chapter = pages.length > 1 ? { pages, at: 0 } : null;
     renderStatus();

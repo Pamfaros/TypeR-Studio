@@ -12271,6 +12271,20 @@
     dropDetached(doc) {
       forgetDocPixels(doc);
     },
+    // A page opened in a tab behind the one in front (Remove Text on several pages, on the
+    // chapter's closed pages): the page being worked on stays in front
+    async openBehind(file, name, handle) {
+      const doc = await ops.readDetached(file, name);
+      doc.path = ops.registerFile(file);
+      doc.handle = handle || null;
+      doc.stamp = fileStamp(file);
+      if (!app.doc) setDoc(doc);
+      else {
+        app.docs.push(doc);
+        emit("document", app.doc);
+      }
+      return doc;
+    },
     // The file on disk is now the document's: opening it again finds the document, and
     // the next save can tell whether someone else changed it
     fileWritten(doc, file) {
