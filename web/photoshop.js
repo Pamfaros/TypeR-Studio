@@ -4466,8 +4466,74 @@
     return out;
   };
 
+  /* ============================ smart filters ============================ */
+
+  // A text Photoshop would keep as a smart object: `layer.filters`, its Smart Filters. A list
+  // (empty: a smart object with no filter yet), applied in order to the text drawn whole, its
+  // letters with their stroke and their effects, as the smart object holds them, before the
+  // layer's masks, its opacity and its blend mode. The text stays a text here, edited, styled,
+  // warped and moved as any other, and the filters are drawn again from it; psd.js writes it as
+  // Photoshop would, a smart object holding the text with these as its Smart Filters, and reads
+  // one back. Each filter is { type, ...its settings }: "motionBlur" has { angle, distance }.
+  // Another blur joins by its entry here (Gaussian Blur: { radius }, blurred by blurVariance's),
+  // and by its name in psd.js (SMART_FILTER_OUT).
+  const SMART_FILTERS = {
+    motionBlur: {
+      clean: (f) => (Number(f.distance) >= 1 ? { type: "motionBlur", angle: Math.max(-360, Math.min(360, Math.round(Number(f.angle) || 0))), distance: Math.max(1, Math.min(MOTION_MAX, Math.round(Number(f.distance)))) } : null),
+      blur: (f) => motionKernel(f.angle, f.distance),
+    },
+  };
+  // The step of history each one makes, Photoshop's name for it
+  const SMART_FILTER_NAMES = { motionBlur: "Motion Blur" };
+  const cleanFilter = (filter) => (filter && SMART_FILTERS[filter.type] ? SMART_FILTERS[filter.type].clean(filter) : null);
+  const isSmart = (layer) => Boolean(layer && layer.kind === "text" && Array.isArray(layer.filters));
+  const filtersOn = (layer) => (isSmart(layer) && layer.filters.some((filter) => SMART_FILTERS[filter.type]) ? layer.filters.filter((filter) => SMART_FILTERS[filter.type]) : null);
+  // What the smart object holds: the text with its stroke and effects, alone on nothing (its
+  // effects blend with nothing under them, and its blend mode is the smart object's)
+  const smartContents = (layer, doc) => {
+    const inside = Object.assign({}, layer, { id: `${layer.id}|inside`, blend: "normal", filters: undefined, mask: null, vectorMask: null });
+    return inside.effects ? styledTextVisual(inside, doc) : textVisual(inside, doc);
+  };
+  // A picture blurred as Photoshop blurs a smart object: as a pixel layer's (see blurRegions),
+  // grown as far as the blur reaches, within the page and the picture
+  const blurredVisual = (visual, how, doc) => {
+    const rect = visualRect(visual);
+    const vis = { left: Math.floor(rect.left), top: Math.floor(rect.top), right: Math.ceil(rect.right), bottom: Math.ceil(rect.bottom) };
+    const whole = unionOf(vis, { left: 0, top: 0, right: doc.width, bottom: doc.height });
+    const out = blurClip(blurGrow(vis, how.reach), whole);
+    const read = blurClip(blurGrow(out, how.reach), whole);
+    if (emptyRect(out) || !canvasFits(read.right - read.left, read.bottom - read.top)) return visual;
+    const canvas = newCanvas(read.right - read.left, read.bottom - read.top);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (visual.under) drawUnder(ctx, visual, -read.left, -read.top, 1);
+    ctx.drawImage(visual.canvas, visual.x - read.left, visual.y - read.top);
+    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const local = { left: out.left - read.left, top: out.top - read.top, right: out.right - read.left, bottom: out.bottom - read.top };
+    blurImage(image, how, local, null, false, false);
+    const result = newCanvas(out.right - out.left, out.bottom - out.top);
+    result.getContext("2d").putImageData(image, -local.left, -local.top, local.left, local.top, local.right - local.left, local.bottom - local.top);
+    return { canvas: result, x: out.left, y: out.top };
+  };
+  // Kept by the picture filtered, a few places of it (copies of a text share their letters)
+  const filteredVisuals = new WeakMap();
+  const filteredVisual = (visual, filters, doc) => {
+    if (!visual || !visual.canvas || !visual.canvas.width || !visual.canvas.height) return visual;
+    const key = [JSON.stringify(filters), visual.x, visual.y, visual.version || 0, doc.width, doc.height].concat((visual.under || NONE).map((item) => [identity(item.canvas), item.x, item.y, item.blend].join(","))).join("|");
+    let kept = filteredVisuals.get(visual.canvas);
+    if (!kept) {
+      kept = new Map();
+      filteredVisuals.set(visual.canvas, kept);
+    }
+    if (!kept.has(key)) {
+      if (kept.size >= 4) kept.delete(kept.keys().next().value);
+      kept.set(key, filters.reduce((picture, filter) => blurredVisual(picture, SMART_FILTERS[filter.type].blur(filter), doc), visual));
+    }
+    return kept.get(key);
+  };
+
   const visualOf = (layer, doc) => {
-    const visual = layer.kind === "text" ? (layer.effects ? styledTextVisual(layer, doc) : textVisual(layer, doc)) : layer.kind === "raster" ? fadedVisual(rasterVisual(layer, doc), fillOf(layer)) : null;
+    const filters = layer.kind === "text" ? filtersOn(layer) : null;
+    const visual = filters ? filteredVisual(smartContents(layer, doc), filters, doc) : layer.kind === "text" ? (layer.effects ? styledTextVisual(layer, doc) : textVisual(layer, doc)) : layer.kind === "raster" ? fadedVisual(rasterVisual(layer, doc), fillOf(layer)) : null;
     return applyMasks(visual, layer, doc);
   };
   // A layer as the page shows it: a pixel layer with its effects too
@@ -11831,6 +11897,69 @@
       return textBlurRefusal(layer);
     },
     textBlurMax: TEXT_BLUR_MAX,
+    // Convert to Smart Object, on texts: each becomes a smart object holding its text (see
+    // SMART_FILTERS), which looks the same until it is given a filter. The number converted.
+    convertToSmartObject(ids) {
+      const doc = app.doc;
+      if (!doc) return 0;
+      const chosen = new Set(ids);
+      let count = 0;
+      const layers = doc.state.layers.map((layer) => {
+        if (!chosen.has(layer.id) || layer.kind !== "text" || isSmart(layer)) return layer;
+        count++;
+        return Object.assign({}, layer, { filters: [] });
+      });
+      if (!count) return 0;
+      commitState(doc, "Convert to Smart Object", { layers });
+      firePanelEvent(EVENT_HISTORY);
+      return count;
+    },
+    // A Smart Filter on these texts, those that are smart objects: `filter` ({ type, ...its
+    // settings }) takes the place of the one of its type, or joins the list. The number changed.
+    setSmartFilter(ids, filter, coalesce) {
+      const doc = app.doc;
+      const next = cleanFilter(filter);
+      if (!doc || !next) return 0;
+      const chosen = new Set(ids);
+      let count = 0;
+      const layers = doc.state.layers.map((layer) => {
+        if (!chosen.has(layer.id) || !isSmart(layer)) return layer;
+        const at = layer.filters.findIndex((item) => item.type === next.type);
+        if (at >= 0 && JSON.stringify(layer.filters[at]) === JSON.stringify(next)) return layer;
+        count++;
+        return Object.assign({}, layer, { filters: at < 0 ? layer.filters.concat(next) : layer.filters.map((item, index) => (index === at ? next : item)) });
+      });
+      if (!count) return 0;
+      commitState(doc, SMART_FILTER_NAMES[next.type], { layers }, coalesce);
+      if (!coalesce) firePanelEvent(EVENT_HISTORY);
+      return count;
+    },
+    // The filter of that type taken off these texts; one left with no filter is a plain text
+    // again, saved as a text layer. The number changed.
+    removeSmartFilter(ids, type) {
+      const doc = app.doc;
+      if (!doc) return 0;
+      const chosen = new Set(ids);
+      let count = 0;
+      const layers = doc.state.layers.map((layer) => {
+        if (!chosen.has(layer.id) || !isSmart(layer) || !layer.filters.some((item) => item.type === type)) return layer;
+        count++;
+        const out = Object.assign({}, layer, { filters: layer.filters.filter((item) => item.type !== type) });
+        if (!out.filters.length) delete out.filters;
+        return out;
+      });
+      if (!count) return 0;
+      commitState(doc, SMART_FILTER_NAMES[type] || "Smart Filters", { layers });
+      firePanelEvent(EVENT_HISTORY);
+      return count;
+    },
+    // Whether a text is a smart object here, and its filter of a type (null: none)
+    isSmart(layer) {
+      return isSmart(layer);
+    },
+    smartFilterOf(layer, type) {
+      return (isSmart(layer) && layer.filters.find((item) => item.type === type)) || null;
+    },
     // Layer > Layer Style > Clear Layer Style: no stroke, no effects, and the blending back to
     // Normal at 100%, Fill 100%, as Photoshop clears it. On texts and folders (an SFX keeps its
     // own). The number of layers cleared.
@@ -13285,6 +13414,10 @@
     shapeFrameOf,
     envelopeOn,
     warpBoundsOf,
+    isSmart,
+    filtersOn,
+    cleanFilter,
+    smartContents,
     traceText,
     isDirty,
     newRaster,

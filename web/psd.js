@@ -530,8 +530,10 @@
   const warpsForSave = (doc) => doc.state.layers
     .filter((layer) => layer.kind === "text" && (layer.warp || meshed(layer)))
     .map((layer) => {
-      if (layer.warp) return { name: layer.name, text: layer.params.layerText.textKey, warp: layer.warp };
-      const entry = { name: layer.name, text: layer.params.layerText.textKey };
+      // Its Smart Filters too: what shows is saved filtered, as pixels
+      const smart = PS().isSmart(layer) ? { filters: layer.filters } : {};
+      if (layer.warp) return Object.assign({ name: layer.name, text: layer.params.layerText.textKey, warp: layer.warp }, smart);
+      const entry = Object.assign({ name: layer.name, text: layer.params.layerText.textKey }, smart);
       if (PS().meshOk(layer.mesh)) entry.mesh = layer.mesh;
       if (outlined(layer)) Object.assign(entry, { outline: layer.outline, frame: PS().shapeFrameOf(layer, doc) });
       return entry;
@@ -582,11 +584,225 @@
         mesh = undefined;
       }
       Object.assign(text, { name: shown.name, visible: shown.visible, opacity: shown.opacity, blend: shown.blend, clipping: shown.clipping, locked: shown.locked, locks: shown.locks, color: shown.color, warp: surface ? entry.warp : undefined, mesh, outline, raster: null });
+      if (Array.isArray(entry.filters)) text.filters = entry.filters.map((filter) => PS().cleanFilter(filter)).filter(Boolean);
       gone.add(text);
       gone.add(shown);
     });
     const shownLayers = new Set(Array.from(gone).filter((layer) => layer.kind !== "text"));
     for (let i = layers.length - 1; i >= 0; i--) if (shownLayers.has(layers[i])) layers.splice(i, 1);
+  };
+
+  /* ----------------------------- smart objects ----------------------------- */
+
+  // A text that is a smart object here (`layer.filters`, see SMART_FILTERS in photoshop.js) is
+  // saved as Photoshop keeps one: a smart object layer, whose pixels are the text filtered, and
+  // inside the PSD the file it stands for, a PSD of its own that holds the text layer (a double
+  // click on the smart object opens it in Photoshop, the text still a text), with the filters
+  // as its Smart Filters. Nothing of it goes in the metadata: opening reads the same things
+  // back, so a smart object made or changed in Photoshop (its text, its filter's settings)
+  // opens as the text it holds too. One that holds anything TypeR can't keep as a text (more
+  // than a text layer, a filter it doesn't know, a painted filter mask, a scale or a turn, a
+  // layer style of its own) stays the pixel layer it has always been here, and goes back into
+  // the file as it came.
+  // Each filter as ag-psd names it, both ways (see SMART_FILTERS)
+  const SMART_FILTER_OUT = {
+    motionBlur: (f) => ({ type: "motion blur", name: "Motion Blur...", filter: { angle: f.angle, distance: { value: f.distance, units: "Pixels" } } }),
+  };
+  const SMART_FILTER_IN = {
+    "motion blur": (item) => ({ type: "motionBlur", angle: item.filter && item.filter.angle, distance: item.filter && item.filter.distance && item.filter.distance.value }),
+  };
+  const uuid = () => {
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 15) | 64;
+    b[8] = (b[8] & 63) | 128;
+    const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  };
+  // What makes the look of a smart text: while each is still what the file gave, the smart
+  // object goes back into the file untouched
+  const SMART_LOOK = ["params", "raster", "stroke", "effects", "filters", "fill", "knockout", "envelope", "rotated", "spin", "warp", "mesh", "outline"];
+  const smartLook = (layer) => SMART_LOOK.reduce((out, key) => Object.assign(out, { [key]: layer[key] }), { opacity: layer.opacity });
+  // (in the document it came with: dragged into another, its file isn't in that one's)
+  const smartKept = (layer, doc) => {
+    const from = layer.smart && layer.smart.node;
+    const files = doc.psd && doc.psd.source && doc.psd.source.linkedFiles;
+    if (!from || !from.placedLayer || !Array.isArray(files) || !files.some((file) => file.id === from.placedLayer.id)) return false;
+    return SMART_LOOK.every((key) => layer[key] === layer.smart.as[key]) && (layer.smart.inside === 1 || layer.opacity === layer.smart.as.opacity);
+  };
+  // Any effect of a layer style that is on, whichever (a bevel too)
+  const anyEffectOn = (effects) => Boolean(effects) && !effects.disabled && Object.keys(effects).some((key) => {
+    const value = effects[key];
+    return (Array.isArray(value) ? value : [value]).some((entry) => entry && typeof entry === "object" && entry.enabled === true);
+  });
+  // How many layers a PSD has, read from its first bytes: a smart object's file is only
+  // decoded when it has the one layer a text would be
+  const layerCountOf = (bytes) => {
+    try {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      if (view.getUint32(0) !== 0x38425053) return -1;
+      const large = view.getUint16(4) === 2;
+      let at = 26;
+      at += 4 + view.getUint32(at);
+      at += 4 + view.getUint32(at);
+      at += large ? 16 : 8;
+      return Math.abs(view.getInt16(at));
+    } catch (error) {
+      return -1;
+    }
+  };
+  // Whether a filter mask is white all over (PackBits rows, their lengths first, or raw bytes)
+  const allWhite = (part, rows) => {
+    const { data, compressionMode } = part;
+    if (!data || !(rows > 0)) return false;
+    if (compressionMode === 0) return data.every((value) => value === 255);
+    if (compressionMode !== 1) return false;
+    return [4, 2].some((size) => {
+      let at = rows * size;
+      if (at > data.length) return false;
+      const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      for (let row = 0; row < rows; row++) {
+        const end = at + (size === 2 ? view.getUint16(row * 2) : view.getUint32(row * 4));
+        if (end > data.length) return false;
+        while (at < end) {
+          const n = data[at] > 127 ? data[at] - 256 : data[at];
+          at++;
+          if (n === -128) continue;
+          const count = n < 0 ? 1 : n + 1;
+          if (at + count > end) return false;
+          for (let i = 0; i < count; i++) if (data[at + i] !== 255) return false;
+          at += count;
+        }
+      }
+      return at === data.length;
+    });
+  };
+  // A row of bytes packed as PSD files pack them (PackBits)
+  const packBits = (row) => {
+    const n = row.length;
+    const out = new Uint8Array(n + Math.ceil(n / 128) + 2);
+    let o = 0;
+    let i = 0;
+    while (i < n) {
+      let run = 1;
+      while (i + run < n && run < 128 && row[i + run] === row[i]) run++;
+      if (run > 1) {
+        out[o++] = 257 - run;
+        out[o++] = row[i];
+        i += run;
+        continue;
+      }
+      const start = i;
+      i++;
+      while (i < n && i - start < 128 && (i + 1 >= n || row[i] !== row[i + 1])) i++;
+      out[o++] = i - start - 1;
+      out.set(row.subarray(start, i), o);
+      o += i - start;
+    }
+    return out.slice(0, o);
+  };
+  // What Photoshop keeps of a smart object before its Smart Filters, by the id of its placing
+  // (the file's FEid block): the picture unfiltered, over the whole page, its colours (white
+  // where there is nothing) then how much of each pixel it covers, and the filters' mask, all
+  // white; every row packed, the rows' lengths first, four bytes each. Without it, Photoshop
+  // takes the layer's pixels, filtered already, as what to filter when a filter is changed
+  // there: the text would be blurred twice. `picture` has its top left at (left, top).
+  const filterCacheOf = (id, picture, left, top, doc, colorMode) => {
+    const W = doc.width;
+    const H = doc.height;
+    const pw = picture.width;
+    const data = picture.getContext("2d").getImageData(0, 0, pw, picture.height).data;
+    const x0 = Math.max(0, left);
+    const x1 = Math.min(W, left + pw);
+    const y0 = Math.max(0, top);
+    const y1 = Math.min(H, top + picture.height);
+    const plane = (pick, empty) => {
+      const row = new Uint8Array(W).fill(empty);
+      const blank = packBits(row);
+      const rows = [];
+      let total = 0;
+      for (let y = 0; y < H; y++) {
+        let packed = blank;
+        if (pick && y >= y0 && y < y1 && x1 > x0) {
+          for (let x = x0, i = ((y - top) * pw + x0 - left) * 4; x < x1; x++, i += 4) row[x] = pick(i);
+          packed = packBits(row);
+        }
+        rows.push(packed);
+        total += packed.length;
+      }
+      const out = new Uint8Array(H * 4 + total);
+      const view = new DataView(out.buffer);
+      let at = H * 4;
+      rows.forEach((packed, y) => {
+        view.setUint32(y * 4, packed.length);
+        out.set(packed, at);
+        at += packed.length;
+      });
+      return { compressionMode: 1, data: out };
+    };
+    const channels = new Array(26);
+    if (colorMode === 1) channels[0] = plane((i) => (data[i + 3] ? Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]) : 255), 255);
+    else [0, 1, 2].forEach((c) => { channels[c] = plane((i) => (data[i + 3] ? data[i + c] : 255), 255); });
+    channels[25] = plane((i) => data[i + 3], 0);
+    return { id, top: 0, left: 0, bottom: H, right: W, depth: 8, channels, extra: Object.assign({ top: 0, left: 0, bottom: H, right: W }, plane(null, 255)) };
+  };
+  // The text a smart object holds, when TypeR can keep it as one: { text: its layer as the
+  // page has it, filters, source: its file's own settings, inside: the opacity it has in
+  // there }. Null for any other.
+  const smartTextOf = async (node, psd, doc, globalAngle) => {
+    const placed = node.placedLayer;
+    if (!placed || placed.external || placed.type !== "raster" || node.adjustment || node.text || node.children) return null;
+    const filters = [];
+    if (placed.filter) {
+      if (placed.filter.enabled === false) return null;
+      for (const item of placed.filter.list || []) {
+        const filter = SMART_FILTER_IN[item.type] && item.enabled !== false && (item.blendMode || "normal") === "normal" && !(item.opacity < 1) ? PS().cleanFilter(SMART_FILTER_IN[item.type](item)) : null;
+        if (!filter) return null;
+        filters.push(filter);
+      }
+      // A filter mask painted on hides part of the filters
+      const cache = filters.length && placed.filter.maskEnabled !== false ? (psd.filterEffectsMasks || []).find((entry) => entry.id === placed.placed) : null;
+      if (cache && cache.extra && !allWhite(cache.extra, cache.extra.bottom - cache.extra.top)) return null;
+    }
+    // Laid as it is: its corners square, at its own size, on whole pixels
+    const t = placed.transform;
+    const near = (a, b) => Math.abs(a - b) < 0.01;
+    if (!Array.isArray(t) || t.length !== 8 || placed.nonAffineTransform || (placed.warp && placed.warp.style && placed.warp.style !== "none")) return null;
+    if (!near(t[0], t[6]) || !near(t[2], t[4]) || !near(t[1], t[3]) || !near(t[5], t[7]) || !near(t[0], Math.round(t[0])) || !near(t[1], Math.round(t[1]))) return null;
+    if (placed.comp !== undefined && placed.comp !== -1) return null;
+    // Its own Fill or layer style would come after the filters: a text's come before
+    if ((node.fillOpacity !== undefined && node.fillOpacity < 1) || anyEffectOn(node.effects)) return null;
+    const file = (psd.linkedFiles || []).find((entry) => entry.id === placed.id);
+    if (!file || !file.data || layerCountOf(file.data) !== 1) return null;
+    let inner;
+    try {
+      inner = await decode(file.data.slice().buffer, null);
+    } catch (error) {
+      return null;
+    }
+    const kids = inner.children || [];
+    const text = kids[0];
+    if (kids.length !== 1 || !text.text || text.children || text.hidden || text.mask || text.realMask || text.vectorMask || text.placedLayer) return null;
+    if (!near(t[2] - t[0], inner.width) || !near(t[7] - t[1], inner.height) || (inner.bitsPerChannel || 8) !== 8 || (inner.colorMode || 3) !== (psd.colorMode || 3)) return null;
+    const info = inner.imageResources && inner.imageResources.resolutionInfo;
+    if (!near((info && info.horizontalResolution) || 72, doc.resolution)) return null;
+    // Effects lit by the Global Light take the angle of the file they are in
+    const angle = inner.imageResources && inner.imageResources.globalAngle;
+    if (angle !== undefined && angle !== globalAngle && JSON.stringify(text.effects || {}).includes('"useGlobalLight":true')) return null;
+    const dx = Math.round(t[0]);
+    const dy = Math.round(t[1]);
+    const transform = (text.text.transform || [1, 0, 0, 1, 0, 0]).slice();
+    transform[4] += dx;
+    transform[5] += dy;
+    const source = Object.assign({}, inner);
+    delete source.children;
+    delete source.canvas;
+    delete source.imageData;
+    return {
+      text: Object.assign({}, text, { left: (text.left || 0) + dx, top: (text.top || 0) + dy, right: (text.right || 0) + dx, bottom: (text.bottom || 0) + dy, text: Object.assign({}, text.text, { transform }), linkGroup: node.linkGroup }),
+      filters,
+      source,
+      inside: text.opacity === undefined ? 1 : text.opacity,
+    };
   };
 
   /* ------------------------------- opening ------------------------------- */
@@ -646,9 +862,37 @@
       raw: node,
     });
 
+    // The smart objects that hold a text, found before the layers are walked: their files are
+    // decoded as the PSD itself is
+    const smartTexts = new Map();
+    const findSmart = async (children) => {
+      for (const node of children || []) {
+        if (node.children) await findSmart(node.children);
+        else {
+          const smart = await smartTextOf(node, psd, doc, globalAngle);
+          if (smart) smartTexts.set(node, smart);
+        }
+      }
+    };
+    await findSmart(psd.children);
+
     const groupsRead = [];
     const walk = (children, parent) => {
       (children || []).forEach((node, index) => {
+        const smart = smartTexts.get(node);
+        if (smart) {
+          // The text it holds, read as any text layer, where the smart object puts it; the
+          // layer's name, opacity, blend mode, masks and locks are the smart object's
+          walk([smart.text], parent);
+          const layer = layers[layers.length - 1];
+          const outer = common(node, parent);
+          Object.assign(layer, { name: outer.name, visible: outer.visible, opacity: outer.opacity * smart.inside, blend: outer.blend, clipping: outer.clipping, locked: outer.locked, locks: outer.locks, color: outer.color, filters: smart.filters });
+          delete layer.mask;
+          delete layer.vectorMask;
+          masksIn(node, layer);
+          layer.smart = { node, source: smart.source, inside: smart.inside, as: smartLook(layer) };
+          return;
+        }
         if (node.children) {
           const group = Object.assign(common(node, parent), { kind: "group", open: node.opened !== false });
           group.blend = node.blendMode || "pass through";
@@ -1120,7 +1364,7 @@
       node.text = textToPsd(layer, doc);
       // A text's pixels are only its letters, even a hollow one's, which Photoshop hides at
       // Fill 0%: Photoshop draws the layer style's stroke and effects around them
-      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined, knockout: false, stroke: null, effects: undefined, raster: null }), doc);
+      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined, knockout: false, stroke: null, effects: undefined, raster: null, filters: undefined }), doc);
       if (visual) place(node, visual.canvas, visual.x, visual.y);
       // Fill at 0%: a hollow text (an SFX's), or one set to 0
       if (layer.knockout || PS().fillOf(layer) === 0) node.fillOpacity = 0;
@@ -1145,9 +1389,104 @@
     return node;
   };
 
+  // A smart text's layer (see "smart objects" above). Untouched since the file was opened, it
+  // goes back as it came, with the file it stands for. Else it is made again: `typerSmart` is
+  // the PSD it holds, which `write` encodes and puts in the file's linkedFiles.
+  const smartNodeFor = (layer, doc, flags) => {
+    const engine = PS();
+    const from = layer.smart && layer.smart.node;
+    const outerOf = () => {
+      const node = commonOut(Object.assign({}, layer, { raw: from || null, fill: undefined, knockout: false }));
+      delete node.text;
+      return node;
+    };
+    if (smartKept(layer, doc)) {
+      const node = outerOf();
+      // Its opacity in its own file stays there
+      if (layer.smart.inside !== 1) node.opacity = from.opacity === undefined ? 1 : from.opacity;
+      if ((layer.mask || null) === pixelMaskOf(from) && (layer.vectorMask || null) === vectorMaskOf(from)) node.typerRaw = rawParts.get(from);
+      return masksOut(node, layer, doc);
+    }
+    // What it holds: the text alone, with its stroke, its effects and its Fill
+    const inside = Object.assign({}, layer, { filters: undefined, smart: undefined, opacity: 1, blend: "normal", clipping: false, visible: true, mask: null, vectorMask: null, locked: false, locks: undefined, color: undefined, link: undefined });
+    const contents = engine.flatVisual(engine.smartContents(layer, doc));
+    // A text with nothing to show has no picture to be a smart object of
+    if (!contents || !contents.canvas || !contents.canvas.width || !contents.canvas.height) return nodeFor(Object.assign({}, layer, { filters: undefined }), doc, flags);
+    const left = Math.floor(contents.x);
+    const top = Math.floor(contents.y);
+    const width = Math.ceil(contents.x + contents.canvas.width) - left;
+    const height = Math.ceil(contents.y + contents.canvas.height) - top;
+    const composite = engine.newCanvas(width, height);
+    composite.getContext("2d").drawImage(contents.canvas, contents.x - left, contents.y - top);
+    const innerFlags = { editedText: false };
+    const text = nodeFor(inside, doc, innerFlags);
+    // In its own file, the text is where the smart object's corner makes it
+    if (text.left !== undefined) Object.assign(text, { left: text.left - left, top: text.top - top, right: text.right - left, bottom: text.bottom - top });
+    const transform = ((text.text && text.text.transform) || [1, 0, 0, 1, 0, 0]).slice();
+    transform[4] -= left;
+    transform[5] -= top;
+    text.text = Object.assign({}, text.text, { transform });
+    const kept = (layer.smart && layer.smart.source) || {};
+    const imageResources = Object.assign({}, kept.imageResources, {
+      resolutionInfo: { horizontalResolution: doc.resolution, horizontalResolutionUnit: "PPI", widthUnit: "Inches", verticalResolution: doc.resolution, verticalResolutionUnit: "PPI", heightUnit: "Inches" },
+    });
+    delete imageResources.thumbnail;
+    delete imageResources.thumbnailRaw;
+    // Effects lit by the Global Light keep the page's angle in there
+    const pageResources = doc.psd && doc.psd.source && doc.psd.source.imageResources;
+    ["globalAngle", "globalAltitude"].forEach((key) => { if (imageResources[key] === undefined && pageResources && pageResources[key] !== undefined) imageResources[key] = pageResources[key]; });
+    const root = Object.assign({}, kept, { width, height, bitsPerChannel: 8, canvas: composite, children: [text], imageResources });
+    delete root.linkedFiles;
+    delete root.filterEffectsMasks;
+    const id = uuid();
+    const node = outerOf();
+    // Its pixels: the text filtered, without its masks
+    const shown = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null }), doc);
+    if (shown && shown.canvas && shown.canvas.width) place(node, shown.canvas, Math.round(shown.x), Math.round(shown.y));
+    else delete node.canvas;
+    const pixels = (value) => ({ value, units: "Pixels" });
+    node.placedLayer = {
+      id,
+      // A new one each time: Photoshop keeps the unfiltered picture by it, and must not find an old one
+      placed: uuid(),
+      type: "raster",
+      pageNumber: 1,
+      totalPages: 1,
+      frameCount: 1,
+      transform: [left, top, left + width, top, left + width, top + height, left, top + height],
+      width,
+      height,
+      resolution: { value: doc.resolution, units: "Density" },
+      warp: { style: "none", value: 0, perspective: 0, perspectiveOther: 0, rotate: "horizontal", bounds: { top: pixels(0), left: pixels(0), bottom: pixels(height), right: pixels(width) }, uOrder: 4, vOrder: 4 },
+      crop: 1,
+      comp: -1,
+      compInfo: { compID: -1, originalCompID: -1 },
+    };
+    const filters = (engine.filtersOn(layer) || []).filter((filter) => SMART_FILTER_OUT[filter.type]);
+    if (filters.length) {
+      node.placedLayer.filter = {
+        enabled: true,
+        validAtPosition: true,
+        maskEnabled: true,
+        maskLinked: false,
+        maskExtendWithWhite: true,
+        list: filters.map((filter) => Object.assign({ opacity: 1, blendMode: "normal", enabled: true, hasOptions: true, foregroundColor: { r: 0, g: 0, b: 0 }, backgroundColor: { r: 255, g: 255, b: 255 } }, SMART_FILTER_OUT[filter.type](filter))),
+      };
+    }
+    node.typerSmart = {
+      root,
+      options: { invalidateTextLayers: innerFlags.editedText, trimImageData: true, noBackground: true, logMissingFeatures: false },
+      // The picture before the filters, for Photoshop (see filterCacheOf)
+      unfiltered: filters.length ? { picture: composite, left, top } : null,
+      file: { id, name: `${String(layer.name || "Text").replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").trim().slice(0, 40) || "Text"}.psb`, type: "8BPB", creator: "8BIM", descriptor: { compInfo: { compID: -1, originalCompID: -1 } }, childDocumentID: "", assetModTime: 0, assetLockedState: 0 },
+    };
+    return masksOut(node, layer, doc);
+  };
+
   // Photoshop's text can't follow a surface. It gets what shows, as pixels, with the text
   // itself below it, hidden: still editable there, and nothing else in the file depends on it.
   const nodesFor = (layer, doc, flags) => {
+    if (layer.kind === "text" && PS().isSmart(layer) && !(layer.warp || meshed(layer))) return [smartNodeFor(layer, doc, flags)];
     if (layer.kind !== "text" || !(layer.warp || meshed(layer))) return [nodeFor(layer, doc, flags)];
     const text = nodeFor(Object.assign({}, layer, { warp: null, mesh: null, outline: null }), doc, flags);
     // What shows is drawn through the masks: the copy needs none of its own
@@ -1155,7 +1494,7 @@
     text.hidden = true;
     const shown = { name: layer.name, hidden: layer.visible === false, opacity: layer.opacity === undefined ? 1 : layer.opacity, blendMode: layer.blend || "normal" };
     if (layer.clipping) shown.clipping = true;
-    if (outlined(layer) && !PS().maskOn(layer) && !PS().vectorOn(layer)) {
+    if (outlined(layer) && !PS().maskOn(layer) && !PS().vectorOn(layer) && !PS().filtersOn(layer)) {
       const engine = PS();
       // A shape layer: its paths, its colour, its pixels the letter alone; its stroke and its
       // effects its layer style, as a text's
@@ -1273,6 +1612,24 @@
     return Boolean(node.children) && nodesHaveColour(node.children);
   });
 
+  // A PSD's tree into its bytes, in the worker when there is one. `composite`: the picture its
+  // thumbnail is made of (none for the PSD a smart object holds).
+  const encode = async (root, options, composite) => {
+    if (await startWorker()) {
+      try {
+        const transfer = [];
+        const thumbnail = composite ? thumbnailOf(composite, root.width, root.height) : undefined;
+        const psd = await nodeForWorker(root, transfer, { psb: Boolean(options.psb), colorMode: root.colorMode });
+        return await askWorker("write", { psd, options, thumbnail }, transfer);
+      } catch (error) {
+        console.warn("TypeR web: saving without the worker", error);
+      }
+    }
+    const lib = await library();
+    await nextFrame();
+    return lib.writePsdUint8Array(root, Object.assign({ generateThumbnail: Boolean(composite) }, options));
+  };
+
   // A PSB when the file's name says so, or when the page is too large for a PSD
   const write = async (doc, target = doc.name) => {
     await nextFrame();
@@ -1329,6 +1686,48 @@
       root.colorMode = 3;
       delete imageResources.iccProfile;
     }
+    // A smart text made here: the PSD it holds, encoded as this one is, joins the files inside
+    const smarts = [];
+    const findSmarts = (nodes) => nodes.forEach((node) => {
+      if (node.typerSmart) smarts.push(node);
+      if (node.children) findSmarts(node.children);
+    });
+    findSmarts(children);
+    // The layers' own numbers in the file, as Photoshop gives each: a smart object needs one
+    // of its own for Photoshop to take what is kept of it before its filters (it refuses the
+    // file otherwise)
+    const layerIds = new Map();
+    const countIds = (nodes) => nodes.forEach((node) => {
+      if (node.id > 0) layerIds.set(node.id, (layerIds.get(node.id) || 0) + 1);
+      if (node.children) countIds(node.children);
+    });
+    countIds(children);
+    let lastId = Math.max(0, imageResources.idsSeedNumber || 0, ...layerIds.keys());
+    for (const node of smarts) {
+      const { root: inner, options: innerOptions, file, unfiltered } = node.typerSmart;
+      delete node.typerSmart;
+      inner.colorMode = root.colorMode;
+      file.data = await encode(inner, innerOptions, null);
+      root.linkedFiles = (root.linkedFiles || []).concat(file);
+      if (!unfiltered || (root.colorMode !== 3 && root.colorMode !== 1)) continue;
+      if (!(node.id > 0) || layerIds.get(node.id) > 1) {
+        if (node.id > 0) layerIds.set(node.id, layerIds.get(node.id) - 1);
+        node.id = ++lastId;
+        if (imageResources.idsSeedNumber !== undefined) imageResources.idsSeedNumber = lastId;
+      }
+      root.filterEffectsMasks = (root.filterEffectsMasks || []).concat(filterCacheOf(node.placedLayer.placed, unfiltered.picture, unfiltered.left, unfiltered.top, doc, root.colorMode));
+    }
+    // Photoshop's own keepsake of a smart object before its filters goes with it too
+    if (root.filterEffectsMasks) {
+      const placed = new Set();
+      const findPlaced = (nodes) => nodes.forEach((node) => {
+        if (node.placedLayer && node.placedLayer.placed) placed.add(node.placedLayer.placed);
+        if (node.children) findPlaced(node.children);
+      });
+      findPlaced(children);
+      root.filterEffectsMasks = root.filterEffectsMasks.filter((entry) => placed.has(entry.id));
+      if (!root.filterEffectsMasks.length) delete root.filterEffectsMasks;
+    }
     // The file a smart object keeps inside the PSD goes only with a layer that still uses it:
     // Photoshop refuses to open a PSD with one left over, as when a folder of Generative Fill
     // layers was merged here
@@ -1344,19 +1743,7 @@
     }
     const psb = /\.psb$/i.test(target) || doc.width > 30000 || doc.height > 30000;
     const options = { psb, invalidateTextLayers: flags.editedText, trimImageData: true, noBackground: !(bottom && bottom.isBackground), logMissingFeatures: false };
-    if (await startWorker()) {
-      try {
-        const transfer = [];
-        const thumbnail = thumbnailOf(composite, doc.width, doc.height);
-        const psd = await nodeForWorker(root, transfer, { psb, colorMode: root.colorMode });
-        return await askWorker("write", { psd, options, thumbnail }, transfer);
-      } catch (error) {
-        console.warn("TypeR web: saving without the worker", error);
-      }
-    }
-    const lib = await library();
-    await nextFrame();
-    return lib.writePsdUint8Array(root, Object.assign({ generateThumbnail: true }, options));
+    return encode(root, options, composite);
   };
 
   window.TypeRPSD = { read, readText, write, library, sfxOfXmp, xmpWithSfx, effectsFromPsd, strokeFromEffects };

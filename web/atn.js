@@ -1319,6 +1319,7 @@
   event("mergeLayers", "MrgL", "Merge Layers", false, "file", "no descriptor | MrgL{} (older Photoshop)");
   event("rasterizeLayer", "", "Rasterize", false, "file+played", `rasterizeLayer{ ${TARGET}, What?: enum rasterizeItem.Type|placed|shape|vectorMask|layerStyle }`, [["What", "What"]]);
   event("rasterizeTypeLayer", "", "Rasterize Type Layer", false, "file", "no descriptor");
+  event("newPlacedLayer", "", "Convert to Smart Object", false, "played", "no descriptor");
   event("disableLayerStyle", "", "Clear Layer Style", false, "played", `disableLayerStyle{ ${TARGET} }`);
   // A click in the Styles panel (Photoshop 2026 says ASty is applyStyle)
   event("applyStyle", "ASty", "Apply Style", false, "", 'ASty{ null: ref(name Styl "…"), T: ref(Enmr Lyr Ordn.Trgt) }', [["null", "Style"]]);
@@ -1705,6 +1706,8 @@
         Intr: enumv("Intp", "Bcbc"),
       }),
     rasterizeLayer: (o = {}) => step("rasterizeLayer", { null: ref(target()), What: o.what && enumv("rasterizeItem", o.what) }),
+    // Layer > Smart Objects > Convert to Smart Object, as Photoshop records it before a Smart Filter
+    convertToSmartObject: () => step("newPlacedLayer", null),
     // effects: [[key, Objc], …] or { dropShadow: obj("DrSh", {…}), … } (see the "set" shape)
     setLayerStyle: (effects, scale = 100) =>
       step("set", { null: ref(refProp("Prpr", "Lefx"), target()), "T   ": obj("Lefx", [["Scl ", pct(scale)]].concat(toItems(effects))) }),

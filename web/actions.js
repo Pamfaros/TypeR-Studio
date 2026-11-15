@@ -898,6 +898,13 @@
       return rasterizeTexts;
     },
     rasterizeTypeLayer: () => rasterizeTexts,
+    // Convert to Smart Object: the texts chosen, which stay texts here and take the filters
+    // that follow as Smart Filters. A pixel layer has no smart object here: it stays as it is,
+    // and a filter that follows changes its pixels.
+    newPlacedLayer: () => () => {
+      needDoc();
+      ops.convertToSmartObject(activeIds().filter((id) => layerById(id) && layerById(id).kind === "text"));
+    },
     disableLayerStyle(item) {
       const target = get(item.descriptor, "null");
       if (target && !isTargetRef(target)) return null;
@@ -1483,6 +1490,8 @@
       return [step];
     },
     rasterizeText: ([id], was) => (was.sole ? { steps: [ATN.make.rasterizeLayer()], key: `rasterize:${id}` } : null),
+    // A text made a smart object for a filter (Photoshop's question before Motion Blur)
+    convertToSmartObject: () => ({ steps: [ATN.make.convertToSmartObject()], key: "smartObject" }),
     clearLayerStyle: () => [ATN.make.clearLayerStyle()],
     resizeImage: ([width, height, resolution], was) => {
       const o = { width };

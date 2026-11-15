@@ -9721,6 +9721,22 @@
           flag.title = fill(T("Missing font: {font}"), { font: ps });
           row.appendChild(flag);
         }
+        // A smart object's Smart Filter: its dialog by a double click, as in Photoshop
+        if (ops.smartFilterOf(layer, "motionBlur")) {
+          const smart = document.createElement("button");
+          smart.type = "button";
+          smart.tabIndex = -1;
+          smart.className = "layer__fx";
+          smart.textContent = "≋";
+          smart.title = fill(T("Smart Filter: {name}. Double-click to change it or take it off."), { name: T("Motion Blur") });
+          smart.addEventListener("dblclick", (event) => {
+            event.stopPropagation();
+            if (!doc.state.activeIds.includes(layer.id) || doc.state.activeIds.length !== 1) ops.selectLayer(layer.id);
+            ops.setMaskTarget(layer.id, null);
+            showMotionBlur();
+          });
+          row.appendChild(smart);
+        }
       }
       if (layer.adjustment) {
         const flag = document.createElement("span");
@@ -14829,12 +14845,7 @@
     if (!lastFilter || !app.doc) return;
     // Motion Blur's, with its angle and distance
     if (lastFilter.kind === "motion") {
-      try {
-        applyMotionBlur(lastFilter);
-        recordStep("motionBlur", { angle: lastFilter.angle, distance: lastFilter.distance });
-      } catch (error) {
-        toast(error.message || String(error));
-      }
+      repeatMotionBlur();
       return;
     }
     settleForResize();
@@ -14866,11 +14877,23 @@
     recordStep("gaussianBlur", { radius });
   };
 
-  /* ---- Filter > Blur > Motion Blur: Photoshop's, on pixels or a mask; a text is rasterized ---- */
-  // Photoshop can't blur a text in motion and keep it a text (no layer effect does it, as a Drop
-  // Shadow does a Gaussian Blur): it asks to rasterize it first, and so does TypeR. Angle from
-  // -90° to 90° (a line has two ends), Distance from 1 to 2000 pixels, as Photoshop's.
+  /* ---- Filter > Blur > Motion Blur: Photoshop's, on pixels, a mask or a text ---- */
+  // No layer effect blurs a text in motion (as a Drop Shadow does a Gaussian Blur): on a text,
+  // Photoshop asks to convert it to a smart object or to rasterize it first, and so does TypeR.
+  // A smart object, the text stays a text here (see SMART_FILTERS in photoshop.js): the blur is
+  // its Smart Filter, changed or taken off by the same dialog. Angle from -90° to 90° (a line
+  // has two ends), Distance from 1 to 2000 pixels, as Photoshop's.
   const MOTION_DISTANCE_MAX = 2000;
+  // Photoshop's question before a filter on a text: "smart", "rasterize", or null (Cancel)
+  const askSmartOrRasterize = async (title) => {
+    const answer = await dialog({
+      title,
+      body: T("This type layer must be rasterized or converted to a smart object before proceeding. If rasterized, its text will no longer be editable."),
+      ok: T("Convert to Smart Object"),
+      also: T("Rasterize"),
+    });
+    return !answer ? null : answer.also ? "rasterize" : "smart";
+  };
   const sliderOfDistance = (d) => Math.round((Math.log10(Math.max(1, d)) / Math.log10(MOTION_DISTANCE_MAX)) * 1000);
   const distanceOfSlider = (v) => Math.max(1, Math.round(10 ** ((v / 1000) * Math.log10(MOTION_DISTANCE_MAX))));
   const motionAngle = (a) => {
@@ -14895,14 +14918,25 @@
       toast(styleRefusal());
       return null;
     }
+    // Texts: smart objects already, their blur is changed; else Photoshop's question first
+    const ids = texts.map((layer) => layer.id);
+    let smart = texts.length > 0 && texts.every((layer) => ops.isSmart(layer));
+    if (texts.length && !smart) {
+      const choice = await askSmartOrRasterize(T("Motion Blur"));
+      if (!choice || app.doc !== doc) return null;
+      smart = choice === "smart";
+    }
+    // The blur a text has already: the dialog starts from it, and can take it off
+    const own = smart ? texts.map((layer) => ops.smartFilterOf(layer, "motionBlur")).find(Boolean) || null : null;
     const kept = lastFilter && lastFilter.kind === "motion" ? lastFilter : null;
-    let angle = motionAngle(preset ? preset.angle : kept ? kept.angle : 0);
-    let distance = Math.max(1, Math.min(MOTION_DISTANCE_MAX, Math.round(preset ? preset.distance : kept ? kept.distance : 10)));
+    let angle = motionAngle(preset ? preset.angle : own ? own.angle : kept ? kept.angle : 0);
+    let distance = Math.max(1, Math.min(MOTION_DISTANCE_MAX, Math.round(preset ? preset.distance : own ? own.distance : kept ? kept.distance : 10)));
     let previewOn = true;
     // As Gaussian Blur's: each try starts again from the step before the dialog, or from the
-    // texts made pixels
+    // texts made smart objects or pixels
     const base = doc.history[doc.historyIndex];
-    const rasterIds = texts.length ? rasterizeForBlur(texts.map((layer) => layer.id)) : [];
+    if (smart) ops.convertToSmartObject(ids);
+    const rasterIds = texts.length && !smart ? rasterizeForBlur(ids) : [];
     const rasterBase = texts.length ? doc.history[doc.historyIndex] : null;
     const backTo = (step) => {
       const at = doc.history.indexOf(step);
@@ -14919,6 +14953,10 @@
       backTo(rasterBase || base);
       partial = false;
       if (!previewOn && !full) return null;
+      if (smart) {
+        ops.setSmartFilter(ids, { type: "motionBlur", angle, distance }, token);
+        return null;
+      }
       let error = null;
       (rasterIds.length ? rasterIds.map((id) => ({ id })) : [{}]).forEach((options) => {
         const done = ops.motionBlur(angle, distance, Object.assign({ coalesce: token, area: full ? null : onScreen() }, options));
@@ -14964,7 +15002,7 @@
     number.step = "1";
     number.setAttribute("aria-label", T("Distance"));
     make("span", "mask-props__unit", line, "px");
-    if (texts.length) make("p", "modal__hint", body, T("The text becomes pixels: its words can't be edited any more."));
+    if (texts.length) make("p", "modal__hint", body, smart ? T("The text stays a text: Photoshop opens it as a smart object with this Smart Filter.") : T("The text becomes pixels: its words can't be edited any more."));
     const partNote = make("p", "modal__hint", body, T("The preview blurs the part of the page on screen; OK blurs it all."));
     partNote.hidden = true;
     const previewRow = make("label", "levels__preview", body);
@@ -15051,6 +15089,7 @@
     const pending = dialog({
       title: T("Motion Blur"),
       body,
+      also: own ? T("Remove the Blur") : undefined,
       ready: () => ui.modal.classList.add("modal--levels"),
     });
     // The page has to be seen: the window moves by its title, as Gaussian Blur's
@@ -15082,6 +15121,12 @@
       backTo(base);
       return null;
     }
+    if (answer.also) {
+      // The texts are plain texts again
+      backTo(base);
+      ops.removeSmartFilter(ids, "motionBlur");
+      return null;
+    }
     const error = run(true);
     ops.sealHistory();
     if (error) toast(blurWhy(error));
@@ -15090,8 +15135,10 @@
     renderMenusState();
     return error ? null : { angle, distance };
   };
-  // Motion Blur without its dialog, as an action or Last Filter plays it: a text rasterized first
-  const applyMotionBlur = ({ angle, distance }) => {
+  // Motion Blur without its dialog, as an action or Last Filter plays it. Texts that are smart
+  // objects (an action's Convert to Smart Object just before, or blurred already) take it as
+  // their Smart Filter; `how` says what becomes of the others: "smart", or rasterized first.
+  const applyMotionBlur = ({ angle, distance }, how) => {
     if (!app.doc) return;
     settleForResize();
     const target = ops.gaussianBlurTarget();
@@ -15103,7 +15150,26 @@
     }
     const texts = styleTargets();
     if (!texts.length) throw new Error(styleRefusal());
-    rasterizeForBlur(texts.map((layer) => layer.id)).forEach((id) => ops.motionBlur(motionAngle(angle), distance, { id }));
+    const ids = texts.map((layer) => layer.id);
+    if (how === "smart") ops.convertToSmartObject(ids);
+    const smart = new Set(app.doc.state.layers.filter((layer) => ids.includes(layer.id) && ops.isSmart(layer)).map((layer) => layer.id));
+    ops.setSmartFilter(Array.from(smart), { type: "motionBlur", angle: motionAngle(angle), distance });
+    rasterizeForBlur(ids.filter((id) => !smart.has(id))).forEach((id) => ops.motionBlur(motionAngle(angle), distance, { id }));
+  };
+  // Filter > Last Filter, Motion Blur's: on a text not yet a smart object, Photoshop's question
+  const repeatMotionBlur = async () => {
+    const doc = app.doc;
+    let how;
+    if (ops.gaussianBlurTarget().kind === "text" && styleTargets().some((layer) => !ops.isSmart(layer))) {
+      how = await askSmartOrRasterize(T("Motion Blur"));
+      if (!how || app.doc !== doc) return;
+    }
+    try {
+      applyMotionBlur(lastFilter, how);
+      recordStep("motionBlur", { angle: lastFilter.angle, distance: lastFilter.distance });
+    } catch (error) {
+      toast(error.message || String(error));
+    }
   };
 
   const isParagraph = (layer) => {
