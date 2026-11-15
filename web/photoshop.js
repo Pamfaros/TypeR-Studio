@@ -160,8 +160,6 @@
       const size = sizePxOf(run.style, resolution);
       setRunFont(measureCtx, run.style, size);
       measureCtx.textAlign = "left";
-      const shown = shownText(run);
-      const m = measureCtx.measureText(shown);
       const scaleX = (run.style.horizontalScale || 100) / 100;
       const scaleY = (run.style.verticalScale || 100) / 100;
       const shift = ((run.style.impliedBaselineShift !== undefined ? run.style.impliedBaselineShift : run.style.baselineShift) || 0) * (resolution / 72);

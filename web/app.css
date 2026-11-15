@@ -745,10 +745,10 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .modal__body .playback__speeds { display: flex; flex-direction: column; gap: 4px; margin: 0 0 6px 2px; }
 .modal__body label.playback__speed, .modal__body label.playback__single { display: flex; align-items: center; gap: 6px; height: 26px; cursor: pointer; }
 .modal__body label.playback__speed input[type="radio"], .modal__body label.playback__single input { flex: none; width: auto; height: auto; margin: 0; }
-.modal__body label.playback__speed input[type="number"] { width: 56px; margin-left: 4px; }
-.modal__body label.playback__speed input[type="number"]:disabled { opacity: 0.5; }
 .modal__body label.modal__all { display: flex; align-items: center; gap: 6px; margin-top: 10px; cursor: pointer; }
 .modal__body label.modal__all input { flex: none; width: auto; height: auto; margin: 0; }
+.modal__body label.playback__speed input[type="number"] { width: 56px; margin-left: 4px; }
+.modal__body label.playback__speed input[type="number"]:disabled { opacity: 0.5; }
 .modal__body .playback__unit { color: var(--muted); }
 .modal__body .playback .playback__hint { margin: -4px 0 0 21px; }
 .status__actions { display: inline-flex; align-items: center; gap: 8px; color: var(--text); }
