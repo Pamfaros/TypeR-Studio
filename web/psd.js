@@ -321,8 +321,9 @@
   };
 
   // Photoshop's letters with their stroke around them, at the layer's Fill: the part outside
-  // under the letters, the part inside over them
-  const strokedDisplay = (bitmap, stroke, amount = 1) => {
+  // under the letters, the part inside over them. Letters that stand on their stroke are
+  // blended into its colour, as Photoshop blends them (see textGamma).
+  const strokedDisplay = (bitmap, stroke, amount = 1, layer = null) => {
     const engine = PS();
     const outside = engine.strokeOutside(stroke);
     const pad = Math.ceil(engine.strokeReach(stroke)) + 1;
@@ -338,7 +339,7 @@
     }
     if (amount > 0) {
       ctx.globalAlpha = amount;
-      ctx.drawImage(bitmap, pad, pad);
+      ctx.drawImage(layer && engine.strokeUnder(layer, stroke) ? engine.blendedText(bitmap, engine.lightnessOf(stroke.color)) : bitmap, pad, pad);
       ctx.globalAlpha = 1;
     }
     if (stroke.size > outside) engine.innerRingOf(bitmap, pad, stroke.size - outside, engine.strokePaint(stroke), canvas, engine.strokeAlpha(stroke));
@@ -932,7 +933,7 @@
             // Shown as they are, and saved again as an edited text: the file comes out right
             if (layer.stroke && amount === 1 && !layer.knockout && strokeDrawnIn(node.canvas, layer.stroke, params)) layer.raster.strokeDrawnIn = true;
             else if (layer.stroke) {
-              const { canvas, pad } = strokedDisplay(node.canvas, layer.stroke, amount);
+              const { canvas, pad } = strokedDisplay(node.canvas, layer.stroke, amount, layer);
               Object.assign(layer.raster, { display: canvas, displayLeft: -pad, displayTop: -pad });
             } else if (layer.knockout) Object.assign(layer.raster, { display: engine.newCanvas(1, 1), displayLeft: 0, displayTop: 0 });
             else if (amount < 1) {

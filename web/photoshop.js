@@ -45,15 +45,23 @@
   // Photoshop's Faux Bold sets each letter 0.027 of the size wider, the last one of a line too
   // (measured in Photoshop 2026, in 3 fonts at 16 and 40 px)
   const FAUX_BOLD_SPACING = 0.027;
-  // And it outlines the font's own letters in their colour, as much of the size wide (half of
-  // it outside them), whatever the font and its weight. With Smooth the outline stops growing
-  // at 26 px, about a pixel wide from there on: 1.2 px at 100 px in each of 60 fonts, where the
+  // With Strong it outlines the font's own letters in their colour, as much of the size wide
+  // (half of it outside them), whatever the font and its weight. So does Smooth from 26 px up,
+  // about a pixel wide whatever the size: 1.2 px at 100 px in each of 60 fonts, where the
   // browser's own bold draws 3.1 (measured in Photoshop 2026 on text made in Photoshop: 3 fonts
   // from 10 to 100 px in each anti-aliasing method, Arial and Wildjess from 8 to 150 px).
   const FAUX_BOLD_WIDTH = 0.027;
-  const FAUX_BOLD_HALF_PIXEL = 0.47;
   const FAUX_BOLD_SMOOTH_FROM = 26;
   const FAUX_BOLD_SMOOTH_WIDTH = 1.15;
+  // Everywhere else (Crisp, Sharp and None at any size, Smooth below 26 px) Faux Bold is no
+  // outline: each letter is drawn again to its right and below, by quarters of a pixel. Its left
+  // and top edges stay where the Regular's are, its right edge goes a quarter further at 12, 21,
+  // 30 and 39 px (0.25 px from 8 to 11 px, 0.5 from 12 to 20, 2.75 at 100), its bottom edge at
+  // 25, 37.5, 50 px (0.25 px up to 24 px, 2 at 100). Measured in Photoshop 2026 on the edges of
+  // an "I" from 8 to 150 px in Arial and Wildjess; against the outline all round, the letters
+  // come 2 to 4 times closer to Photoshop's pixels in 6 fonts from 9 to 100 px.
+  const fauxBoldRight = (sizePx) => Math.max(1, Math.round(sizePx / 9 + 1 / 6)) / 4;
+  const fauxBoldDown = (sizePx) => Math.max(1, Math.floor(sizePx / 12.5)) / 4;
   // Extra Bold, TypeR's own, over Faux Bold: the letters outlined in their own colour, this much
   // of the size wide (half of it outside them), as the PSD keeps it in the text itself (its
   // characters' stroke, which Photoshop draws but has no control for). The letters keep their
@@ -64,14 +72,21 @@
   // How wide the outline that makes a run bold is, in the run's own pixels: 0 for a plain run
   const boldWidthOf = (textStyle, sizePx, antiAlias) => {
     if (!textStyle.syntheticBold) return 0;
-    let faux = FAUX_BOLD_WIDTH * sizePx;
-    if (antiAlias !== "antiAliasStrong") {
-      // Every method but Strong draws it by quarters of a pixel: half a pixel from 12 px on
-      if (sizePx >= 11.5) faux = Math.max(faux, FAUX_BOLD_HALF_PIXEL);
-      const smooth = antiAlias !== "antiAliasCrisp" && antiAlias !== "antiAliasSharp" && antiAlias !== "antiAliasNone";
-      if (smooth && sizePx >= FAUX_BOLD_SMOOTH_FROM) faux = FAUX_BOLD_SMOOTH_WIDTH;
-    }
-    return Math.max(faux, extraBoldOf(textStyle) ? EXTRA_BOLD_WIDTH * sizePx : 0);
+    if (extraBoldOf(textStyle)) return EXTRA_BOLD_WIDTH * sizePx;
+    if (antiAlias === "antiAliasStrong") return FAUX_BOLD_WIDTH * sizePx;
+    const smooth = antiAlias !== "antiAliasCrisp" && antiAlias !== "antiAliasSharp" && antiAlias !== "antiAliasNone";
+    return smooth && sizePx >= FAUX_BOLD_SMOOTH_FROM ? FAUX_BOLD_SMOOTH_WIDTH : 0;
+  };
+  // How a run is made heavier than its font's letters: `around`, an outline that wide in the
+  // run's own pixels (Faux Bold's or Extra Bold's), `page`, one that wide in the page's pixels
+  // (the anti-aliasing method's, see emboldenOf), `right` and `down`, the letters drawn again
+  // that far, in the page's pixels (Faux Bold outside Strong)
+  const weightOf = (textStyle, sizePx, antiAlias) => {
+    const around = boldWidthOf(textStyle, sizePx, antiAlias);
+    // Under Extra Bold's outline Strong adds half as much (measured in Photoshop 2026)
+    const page = emboldenOf(antiAlias, textStyle, sizePx) * (extraBoldOf(textStyle) ? 1 : 2);
+    const smeared = textStyle.syntheticBold && !around;
+    return { around, page, right: smeared ? fauxBoldRight(sizePx) : 0, down: smeared ? fauxBoldDown(sizePx) : 0 };
   };
   const setRunFont = (ctx, textStyle, sizePx) => {
     ctx.font = cssFont(textStyle, sizePx);
@@ -468,6 +483,42 @@
     return inkTops.get(key);
   };
 
+  // How wide a font's upright strokes are, as a share of the size: read half way up its "l",
+  // "I", "H" and "n" drawn at 1024 px, where the stroke stands alone. 0.094 in Arial and
+  // Wildjess, 0.125 in Sakana, 0.143 in Komika Title.
+  const stemWidths = new Map();
+  const stemWidthOf = (textStyle) => {
+    const key = Fonts.generation + "|" + cssFont(textStyle, INK_SIZE);
+    if (!stemWidths.has(key)) {
+      const canvas = newCanvas(INK_SIZE * 2, Math.round(INK_SIZE * 1.5));
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      const widths = [];
+      ["l", "I", "H", "n"].forEach((ch) => {
+        if (!ownGlyph(textStyle, ch)) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = cssFont(textStyle, INK_SIZE);
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText(ch, INK_SIZE / 2, INK_SIZE);
+        const rise = inkTopOf(textStyle, ch) * INK_SIZE;
+        // The first stroke met on three rows around the middle of the letter
+        [0.4, 0.5, 0.6].forEach((share) => {
+          const row = ctx.getImageData(0, Math.round(INK_SIZE - rise * share), canvas.width, 1).data;
+          let run = 0;
+          for (let x = 0; x < canvas.width; x++) {
+            const a = row[x * 4 + 3] / 255;
+            if (a > 0) run += a;
+            else if (run) break;
+          }
+          if (run > 0) widths.push(run / INK_SIZE);
+        });
+      });
+      widths.sort((a, b) => a - b);
+      // No letter of its own to read: Adobe's own guess for a font that doesn't say
+      stemWidths.set(key, widths.length ? widths[widths.length >> 1] : 0.075);
+    }
+    return stemWidths.get(key);
+  };
+
   // Where each line goes and the box of its ink, measured once per text and style.
   // Everything here is relative to the layer's anchor: moving a layer costs nothing.
   const layoutCache = new Map();
@@ -477,10 +528,12 @@
     const shape = boxShape(lt);
     const box = shape && shape.box;
     const known = layoutByText.get(lt);
-    if (known && known.generation === Fonts.generation && known.resolution === resolution && known.textKey === lt.textKey && known.ranges === lt.textStyleRange && known.paragraphs === lt.paragraphStyleRange && known.box === box) return known.layout;
-    const key = Fonts.generation + "|" + resolution + "|" + JSON.stringify([lt.textKey, lt.textStyleRange, lt.paragraphStyleRange, box]);
+    // The anti-aliasing method too: the box of a Faux Bold's ink depends on it
+    const antiAlias = lt.antiAlias || "antiAliasSmooth";
+    if (known && known.generation === Fonts.generation && known.resolution === resolution && known.textKey === lt.textKey && known.ranges === lt.textStyleRange && known.paragraphs === lt.paragraphStyleRange && known.box === box && known.antiAlias === antiAlias) return known.layout;
+    const key = Fonts.generation + "|" + resolution + "|" + JSON.stringify([lt.textKey, lt.textStyleRange, lt.paragraphStyleRange, box, antiAlias]);
     const remember = (layout) => {
-      layoutByText.set(lt, { generation: Fonts.generation, resolution, textKey: lt.textKey, ranges: lt.textStyleRange, paragraphs: lt.paragraphStyleRange, box, layout });
+      layoutByText.set(lt, { generation: Fonts.generation, resolution, textKey: lt.textKey, ranges: lt.textStyleRange, paragraphs: lt.paragraphStyleRange, box, antiAlias, layout });
       return layout;
     };
     const cached = layoutCache.get(key);
@@ -570,10 +623,21 @@
       }
       out.push(line);
       if (runs.length) {
+        // Faux Bold drawn again to the right and below (see weightOf) reaches that much
+        // further, as the layer's bounds do in Photoshop: a text put back on Photoshop's
+        // pixels, or centred in a bubble, is set by this box
+        let boldRight = 0;
+        let boldDown = 0;
+        m.placed.forEach((item) => {
+          if (!item.run.style.syntheticBold) return;
+          const weight = weightOf(item.run.style, item.size, antiAlias);
+          boldRight = Math.max(boldRight, weight.right);
+          boldDown = Math.max(boldDown, weight.down);
+        });
         left = Math.min(left, line.x + line.m.inkLeft);
-        right = Math.max(right, line.x + line.m.inkRight);
+        right = Math.max(right, line.x + line.m.inkRight + boldRight);
         top = Math.min(top, baseline - m.ascent);
-        bottom = Math.max(bottom, baseline + m.descent);
+        bottom = Math.max(bottom, baseline + m.descent + boldDown);
       }
     });
     const hasInk = isFinite(left);
@@ -1082,7 +1146,6 @@
   const drawLines = (ctx, lines, stroke, layer) => {
     const paragraph = layer.params.layerText.paragraphStyleRange && layer.params.layerText.paragraphStyleRange[0];
     const antiAlias = layer.params.layerText.antiAlias || "antiAliasSmooth";
-    const bolder = emboldenOf(antiAlias);
     const direction = paragraph && paragraph.paragraphStyle && paragraph.paragraphStyle.directionType;
     ctx.save();
     ctx.textBaseline = "alphabetic";
@@ -1099,17 +1162,35 @@
       draw();
       g.restore();
     };
-    // Every letter's outline, `reach` pixels each side of it. A bold run's letters end half
-    // their own outline further out: a stroke outside them reaches that much further, the part
-    // of a stroke `inside` them that much less.
+    // Where a run's letters are drawn, in its own units: once, or for a Faux Bold drawn again
+    // to the right and below, at the corners of that reach, and half way across when the font's
+    // strokes are too thin to fill the gap between two copies. The anti-aliasing method's own
+    // outline (Sharp's) then goes into the reach, half of it on every side: no outline to draw.
+    const copiesOf = (weight, item) => {
+      if (!weight.right && !weight.down) return [[0, 0]];
+      const left = -weight.page / 2 / item.scaleX;
+      const right = (weight.right + weight.page / 2) / item.scaleX;
+      const top = -weight.page / 2 / item.scaleY;
+      const bottom = (weight.down + weight.page / 2) / item.scaleY;
+      const across = weight.right + weight.page > 0.35 * stemWidthOf(item.run.style) * item.size ? [left, (left + right) / 2, right] : [left, right];
+      return across.map((x) => [x, top]).concat(across.map((x) => [x, bottom]));
+    };
+    // The outline a run's letters are given, in its own units, which its width and height scale
+    const outlineOf = (weight, item) => (weight.right || weight.down ? 0 : weight.around + weight.page / Math.max(item.scaleX, item.scaleY));
+    // Every letter's outline, `reach` pixels each side of it. Letters outlined to be heavier
+    // end half their own outline further out: a stroke outside them reaches that much further,
+    // the part of a stroke `inside` them that much less.
     const outline = (g, color, reach, inside) => {
       g.strokeStyle = colorCss(color);
       lines.forEach((line) => {
         line.m.placed.forEach((item) => {
           place(g, line, item, () => {
-            const bold = boldWidthOf(item.run.style, item.size, antiAlias);
+            const weight = weightOf(item.run.style, item.size, antiAlias);
+            const bold = outlineOf(weight, item);
             g.lineWidth = Math.max(0.1, reach * 2 + (inside ? -bold : bold));
-            g.strokeText(item.shown, 0, 0);
+            const copies = copiesOf(weight, item);
+            g.strokeText(item.shown, ...copies[0]);
+            if (copies.length > 1) g.strokeText(item.shown, ...copies[copies.length - 1]);
           });
         });
       });
@@ -1129,17 +1210,18 @@
       line.m.placed.forEach((item) => {
         place(g, line, item, () => {
           g.fillStyle = hollow ? "#000" : rgbCss(item.run.style.color);
-          g.fillText(item.shown, 0, 0);
-          // Faux Bold and Extra Bold: the letters' own outline, as Photoshop draws them
-          const bold = boldWidthOf(item.run.style, item.size, antiAlias);
-          if (bolder || bold) {
-            // In the run's own units, which its width and height scale
+          // Faux Bold, Extra Bold and the anti-aliasing method's own weight, as Photoshop
+          // draws them (see weightOf)
+          const weight = weightOf(item.run.style, item.size, antiAlias);
+          const copies = copiesOf(weight, item);
+          copies.forEach(([x, y]) => g.fillText(item.shown, x, y));
+          const bold = outlineOf(weight, item);
+          if (bold) {
             g.strokeStyle = g.fillStyle;
-            // Under Extra Bold's outline Strong adds half as much (measured in Photoshop 2026)
-            g.lineWidth = (bolder * (extraBoldOf(item.run.style) ? 1 : 2)) / Math.max(item.scaleX, item.scaleY) + bold;
+            g.lineWidth = bold;
             // Photoshop's outline has sharp corners
-            g.lineJoin = bold ? "miter" : "round";
-            g.miterLimit = bold ? 4 : 2;
+            g.lineJoin = weight.around ? "miter" : "round";
+            g.miterLimit = weight.around ? 4 : 2;
             g.strokeText(item.shown, 0, 0);
           }
         });
@@ -1181,8 +1263,8 @@
     const outside = strokeOutside(stroke);
     const inside = stroke ? stroke.size - outside : 0;
     // The stroke around the stroke first, as wide as both, then the stroke over it
-    if (stroke && stroke.outer && stroke.outer.size > 0) ringAt(stroke.outer.color, strokeReach(stroke) + bolder, strokeAlpha(stroke.outer));
-    if (outside > 0) ringAt(strokePaint(stroke), outside + bolder, strokeAlpha(stroke));
+    if (stroke && stroke.outer && stroke.outer.size > 0) ringAt(stroke.outer.color, strokeReach(stroke), strokeAlpha(stroke.outer));
+    if (outside > 0) ringAt(strokePaint(stroke), outside, strokeAlpha(stroke));
     // Photoshop's Fill: the letters at that much, their stroke whole. At 0% (a hollow text)
     // the letters let the page through the stroke.
     const fill = fillOf(layer);
@@ -1202,7 +1284,7 @@
     if (inside > 0 && ctx.canvas && ctx.canvas.width && ctx.canvas.height) {
       const ring = apart();
       const painted = strokeIsGradient(stroke);
-      outline(ring, painted ? BLACK : stroke.color, Math.max(0.05, inside - bolder), true);
+      outline(ring, painted ? BLACK : stroke.color, Math.max(0.05, inside), true);
       const shape = lettersApart();
       ring.setTransform(1, 0, 0, 1, 0, 0);
       ring.globalCompositeOperation = "destination-in";
@@ -2558,13 +2640,29 @@
 
   // Photoshop's anti-aliasing methods. In all of them a pixel of a text layer is as opaque as
   // the share of it the letters cover, which is what the browser draws from their outlines:
-  // Smooth, Crisp and Sharp draw the outline itself, Strong draws it 0.145 px further out on
-  // every side, None keeps a pixel on or off at half (measured in Photoshop 2026 on text made
-  // in Photoshop, against the area of the outlines: 3 fonts from 10 to 100 px in each method;
-  // Strong within 0.01 px of the pixels of 240 text layers lettered in Photoshop 25). Sharp and
-  // Crisp also fit the letters to the pixels, small ones above all: that isn't done here.
+  // Smooth and Crisp draw the outline itself, Strong draws it 0.145 px further out on every
+  // side, None keeps a pixel on or off at half (measured in Photoshop 2026 on text made in
+  // Photoshop, against the area of the outlines: 3 fonts from 10 to 100 px in each method;
+  // Strong within 0.01 px of the pixels of 240 text layers lettered in Photoshop 25).
   const EMBOLDEN = { antiAliasStrong: 0.145 };
-  const emboldenOf = (mode) => EMBOLDEN[mode] || 0;
+  // Sharp draws small letters further out too, by how wide the font's upright strokes come out
+  // in pixels, as Adobe's own font rasteriser darkens stems: 0.275 px in all while they are
+  // 1 to 1.67 px wide, less and less up to 2.33 px and nothing beyond, more below 1 px. So
+  // Arial and Wildjess get it up to 24 px and Komika Title up to 15, and in a font that says
+  // how wide its strokes are (CC Ask For Mercy, 0.127 of the size) Photoshop's steps fall at
+  // 13 and 18 px, where that curve puts them. Here the strokes are measured (see stemWidthOf),
+  // and the letters given 0.8 of it: over 9 fonts from 9 to 32 px in Photoshop 2026, Sharp's
+  // ink is then off by 3.8% in the mean, from 8.6% without (-16% to -2% for Victory Speech
+  // Lower at 14.5 px). Sharp also fits the letters' height to the pixels, and with Crisp sets
+  // large letters on whole pixels: that isn't done here.
+  const SHARP_DARKENING = 0.8;
+  const stemDarkening = (stemPx) => (stemPx <= 0.5 ? 0.4 : stemPx <= 1 ? 0.4 - (stemPx - 0.5) * 0.25 : stemPx <= 1.667 ? 0.275 : stemPx < 2.333 ? (0.275 * (2.333 - stemPx)) / 0.666 : 0);
+  // How far out the method draws a run's letters, on every side, in the page's pixels. Without
+  // a run: what is the same for every run (Strong's)
+  const emboldenOf = (mode, textStyle, sizePx) => {
+    if (mode === "antiAliasSharp") return textStyle ? (SHARP_DARKENING * stemDarkening(stemWidthOf(textStyle) * sizePx)) / 2 : 0;
+    return EMBOLDEN[mode] || 0;
+  };
   // Photoshop then blends a text's letters into the page through a gamma (Blend Text Colors
   // Using Gamma, on as Photoshop comes): black text is lighter than its coverage, white text
   // on black bolder. How much depends on each user's Colour Settings. A pixel black letters
@@ -2576,57 +2674,97 @@
   // of the page B, the shape measured in Photoshop 2026 with 7 colours on 6 backdrops. The
   // canvas blends plainly, so each pixel is given the opacity that blends plainly into the same
   // colour. Exact for black letters on any page; other colours are taken to stand on white
-  // when dark and on black when light. Only the letters' own edges: Photoshop blends a layer's
-  // stroke plainly.
+  // when dark and on black when light, unless they stand on their stroke: over a layer style's
+  // stroke outside them Photoshop blends the letters the same way, into the stroke's colour
+  // (black on a red stroke is 39.7% black where half covered, as on white; a real page's black
+  // letters on their white stroke follow the page's own curve). The stroke's own edges it
+  // blends plainly.
+  // The layer's Opacity and Fill go through the same blend, each channel
+  // (o·F^p + (1 − o)·B^p)^(1/p): black letters at 50% are 40% black on white, on grey, on any
+  // page (measured in Photoshop 2026, 6 colours on 5 backdrops at 75, 50 and 25%, and Fill at
+  // 50%). The canvas lays the layer's opacity on plainly afterwards, so the letters are given
+  // what it leaves to reach that. Black and near-black letters only, whose blend is the same on
+  // any page: a colour's depends on the page under it (red at 50% is lighter than plainly
+  // blended on white, darker on black), and keeps the plain opacity.
   const TEXT_GAMMA = 1.4;
-  let textGammaTable = null;
-  // [how light the letters are, 0 to 255][coverage, 0 to 255] -> opacity
-  const textGamma = () => {
-    if (textGammaTable) return textGammaTable;
-    const table = new Uint8Array(256 * 256);
+  const FADED_UP_TO = 40;
+  const textGammaTables = new Map();
+  // [how light the letters are, 0 to 255][coverage, 0 to 255] -> opacity. `page`: how light
+  // what the letters stand on is, 0 to 255, where it is known; `opacity`: the layer's own
+  const textGamma = (page, opacity = 1) => {
+    const key = `${page === undefined ? "" : page}|${opacity}`;
+    let table = textGammaTables.get(key);
+    if (table) return table;
+    if (textGammaTables.size > 16) textGammaTables.clear();
+    table = new Uint8Array(256 * 256);
+    const b = page === undefined ? 0 : page / 255;
     for (let level = 0; level < 256; level++) {
       const f = level / 255;
       const light = Math.max(0, Math.min(1, (f - 0.35) / 0.3));
       const mix = light * light * (3 - 2 * light);
-      for (let i = 0; i < 256; i++) {
-        const a = i / 255;
+      // The opacity that blends plainly into what Photoshop's blend gives letters covering `a`
+      const blend = (a) => {
+        if (page !== undefined) return Math.abs(f - b) < 0.02 ? a : ((a * f ** TEXT_GAMMA + (1 - a) * b ** TEXT_GAMMA) ** (1 / TEXT_GAMMA) - b) / (f - b);
         const onWhite = f < 1 ? (1 - (a * f ** TEXT_GAMMA + (1 - a)) ** (1 / TEXT_GAMMA)) / (1 - f) : a;
         const onBlack = a ** (1 / TEXT_GAMMA);
-        table[level * 256 + i] = Math.round(Math.max(0, Math.min(1, onWhite * (1 - mix) + onBlack * mix)) * 255);
+        return onWhite * (1 - mix) + onBlack * mix;
+      };
+      const faded = opacity < 1 && level <= FADED_UP_TO;
+      if (faded) table.faded = true;
+      for (let i = 0; i < 256; i++) {
+        const a = i / 255;
+        table[level * 256 + i] = Math.round(Math.max(0, Math.min(1, faded ? blend(a * opacity) / opacity : blend(a))) * 255);
       }
     }
-    textGammaTable = table;
+    textGammaTables.set(key, table);
     return table;
   };
-  // `gamma`: the letters' edges meet the page (no stroke around them)
+  // `gamma`: the table that blends the letters' edges (see textGamma), none for edges that
+  // meet a stroke drawn with them
   const antiAliasPixels = (px, mode, gamma) => {
     if (mode === "antiAliasNone") {
       for (let i = 3; i < px.length; i += 4) px[i] = px[i] >= 128 ? 255 : 0;
       return;
     }
     if (!gamma) return;
-    const table = textGamma();
+    // A layer below 100% has its covered pixels blended too
+    const whole = gamma.faded ? 256 : 255;
     for (let i = 3; i < px.length; i += 4) {
       const a = px[i];
-      if (a === 0 || a === 255) continue;
-      px[i] = table[(((px[i - 3] * 77 + px[i - 2] * 150 + px[i - 1] * 29) >> 8) << 8) + a];
+      if (a === 0 || a === whole) continue;
+      px[i] = gamma[(((px[i - 3] * 77 + px[i - 2] * 150 + px[i - 1] * 29) >> 8) << 8) + a];
     }
   };
   // `unblended`: a text's pixels for a PSD file, which keeps them as opaque as the letters cover
   // them and blends them itself. Nor are letters with Extra Bold's outline, a stroke too.
-  const blendedEdges = (layer, stroke) => !stroke && !layer.unblended && !layer.params.layerText.textStyleRange.some((range) => extraBoldOf(range.textStyle));
-  // A text's pixels read from a file, blended the same way
+  // `opacity`: the layer's, for a text drawn alone (see textGamma)
+  const blendedEdges = (layer, stroke, opacity = 1) => (!stroke && !layer.unblended && !layer.params.layerText.textStyleRange.some((range) => extraBoldOf(range.textStyle)) ? textGamma(undefined, opacity) : null);
+  // How light a colour is, 0 to 255, as the tables count it
+  const lightnessOf = (color) => (color ? (color.r * 77 + color.g * 150 + color.b * 29) >> 8 : 0);
+  // The stroke a text's letters stand on, whose colour they are blended into: all of it
+  // outside them, whole, in one colour, under letters at their full Fill
+  const strokeUnder = (layer, stroke) => Boolean(stroke) && !layer.unblended && stroke.size > 0 && strokeOutside(stroke) >= stroke.size && strokeAlpha(stroke) >= 1 && !strokeIsGradient(stroke) && Boolean(stroke.color) && fillOf(layer) === 1 && !layer.params.layerText.textStyleRange.some((range) => extraBoldOf(range.textStyle));
+  // The colour of a text's letters when they all have the same, as { r, g, b }
+  const oneColourOf = (layer) => {
+    const colours = layer.params.layerText.textStyleRange.map(({ textStyle }) => (textStyle.color ? [Math.round(textStyle.color.red), Math.round(textStyle.color.green), Math.round(textStyle.color.blue)] : [0, 0, 0]));
+    if (!colours.length || colours.some((colour) => colour.some((value, j) => value !== colours[0][j]))) return null;
+    return { r: colours[0][0], g: colours[0][1], b: colours[0][2] };
+  };
+  // A text's pixels read from a file, blended the same way: into the page, or into the stroke
+  // they stand on (`page`, how light it is)
   const blendedTexts = new WeakMap();
-  const blendedText = (bitmap) => {
-    let canvas = blendedTexts.get(bitmap);
-    if (!canvas) {
-      canvas = newCanvas(Math.max(1, bitmap.width), Math.max(1, bitmap.height));
+  const blendedText = (bitmap, page, opacity = 1) => {
+    const key = `${page === undefined ? "" : page}|${opacity}`;
+    let kept = blendedTexts.get(bitmap);
+    if (!kept || kept.key !== key) {
+      const canvas = newCanvas(Math.max(1, bitmap.width), Math.max(1, bitmap.height));
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
       ctx.drawImage(bitmap, 0, 0);
-      applyAntiAlias(canvas, ctx, "", true);
-      blendedTexts.set(bitmap, canvas);
+      applyAntiAlias(canvas, ctx, "", textGamma(page, opacity));
+      kept = { key, canvas };
+      blendedTexts.set(bitmap, kept);
     }
-    return canvas;
+    return kept.canvas;
   };
   const applyAntiAlias = (canvas, ctx, mode, gamma) => {
     if (mode !== "antiAliasNone" && !gamma) return;
@@ -2678,6 +2816,47 @@
       }
     }
     ctx.restore();
+  };
+
+  // Letters drawn on their stroke, all in one colour: where they part cover a pixel of it the
+  // canvas mixed the two colours plainly, and the pixel is given Photoshop's blend of them
+  // instead, each channel (see textGamma). Only pixels the stroke fills, whose colour lies
+  // between the two.
+  const blendOnStroke = (canvas, ctx, letters, stroke) => {
+    const from = [stroke.r, stroke.g, stroke.b];
+    const to = [letters.r, letters.g, letters.b];
+    // Read on the channel where the two colours are furthest apart
+    const c = [0, 1, 2].reduce((best, j) => (Math.abs(to[j] - from[j]) > Math.abs(to[best] - from[best]) ? j : best), 0);
+    const span = to[c] - from[c];
+    if (Math.abs(span) < 48) return;
+    const tables = [0, 1, 2].map((j) => {
+      const table = new Uint8Array(256);
+      for (let i = 0; i < 256; i++) table[i] = Math.round(((i / 255) * (to[j] / 255) ** TEXT_GAMMA + (1 - i / 255) * (from[j] / 255) ** TEXT_GAMMA) ** (1 / TEXT_GAMMA) * 255);
+      return table;
+    });
+    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const px = image.data;
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i + 3] !== 255) continue;
+      const a = (px[i + c] - from[c]) / span;
+      if (!(a > 0.004 && a < 0.996)) continue;
+      if (Math.abs(px[i] - from[0] - a * (to[0] - from[0])) > 3 || Math.abs(px[i + 1] - from[1] - a * (to[1] - from[1])) > 3 || Math.abs(px[i + 2] - from[2] - a * (to[2] - from[2])) > 3) continue;
+      const at = Math.round(a * 255);
+      px[i] = tables[0][at];
+      px[i + 1] = tables[1][at];
+      px[i + 2] = tables[2][at];
+    }
+    ctx.putImageData(image, 0, 0);
+  };
+  // A text's lines on a canvas, through `transform`, then the anti-aliasing and the blend of
+  // the letters' edges: into the page, or into the stroke they stand on
+  const drawText = (canvas, ctx, transform, k, lines, stroke, layer, antiAlias, opacity) => {
+    drawFromOutlines(canvas, ctx, transform, k, (g) => drawLines(g, lines, stroke, layer));
+    applyAntiAlias(canvas, ctx, antiAlias, blendedEdges(layer, stroke, opacity));
+    // One colour of letters on one stroke: two strokes, or letters of several colours, can't be
+    // told apart from their pixels
+    const letters = antiAlias !== "antiAliasNone" && strokeUnder(layer, stroke) && !(stroke.outer && stroke.outer.size > 0) ? oneColourOf(layer) : null;
+    if (letters) blendOnStroke(canvas, ctx, letters, stroke.color);
   };
 
   // A picture laid on a grid of points, triangle by triangle: `pixels` (sw × sh) spread over
@@ -3047,16 +3226,19 @@
 
   const mixedTexts = new WeakMap();
   const fadedTexts = new WeakMap();
-  const textVisual = (layer, doc) => {
+  // `opacity`: the layer's own, for a text drawn alone, which is blended with it (see textGamma)
+  const textVisual = (layer, doc, opacity = 1) => {
     // Photoshop's own letters, as opaque as they cover: blended as it blends them, unless
     // they are shown with their stroke
-    if (layer.raster) return { canvas: layer.raster.display || (layer.raster.strokeDrawnIn || layer.unblended ? layer.raster.bitmap : blendedText(layer.raster.bitmap)), x: layer.raster.displayLeft !== undefined ? layer.raster.left + layer.raster.displayLeft : layer.raster.left, y: layer.raster.displayTop !== undefined ? layer.raster.top + layer.raster.displayTop : layer.raster.top };
+    if (layer.raster) return { canvas: layer.raster.display || (layer.raster.strokeDrawnIn || layer.unblended ? layer.raster.bitmap : blendedText(layer.raster.bitmap, undefined, opacity)), x: layer.raster.displayLeft !== undefined ? layer.raster.left + layer.raster.displayLeft : layer.raster.left, y: layer.raster.displayTop !== undefined ? layer.raster.top + layer.raster.displayTop : layer.raster.top };
     // Fill between 0 and 100 %: the hollow text, then its letters at that much. Mixed after
     // the anti-aliasing, which would bend a faded edge.
     const amount = fillOf(layer);
     if (amount > 0 && amount < 1) {
       const hollow = textVisual(Object.assign({}, layer, { knockout: true, fill: undefined }), doc);
-      const solid = textVisual(Object.assign({}, layer, { knockout: false, fill: undefined, stroke: null }), doc);
+      // Without a stroke under them, the letters' Fill is blended as the layer's opacity is
+      const bare = !(layer.stroke && layer.stroke.enabled && layer.stroke.size > 0);
+      const solid = textVisual(Object.assign({}, layer, { knockout: false, fill: undefined, stroke: null }), doc, bare ? opacity * amount : 1);
       const kept = mixedTexts.get(solid.canvas);
       if (kept && kept.hollow === hollow.canvas && kept.amount === amount && kept.dx === solid.x - hollow.x && kept.dy === solid.y - hollow.y) return { canvas: kept.canvas, x: Math.min(hollow.x, solid.x), y: Math.min(hollow.y, solid.y) };
       const x = Math.min(hollow.x, solid.x);
@@ -3099,7 +3281,7 @@
     const stroke = layer.stroke && layer.stroke.enabled && layer.stroke.size > 0 ? layer.stroke : null;
     const antiAlias = layer.params.layerText.antiAlias || "antiAliasSmooth";
     // Hollow at Fill 0%, whether an SFX's (`knockout`) or set to 0
-    const strokeKey = (stroke ? strokeKeyOf(stroke) : "") + "|" + antiAlias + (fillOf(layer) === 0 ? "|hollow" : "") + (layer.unblended ? "|unblended" : "");
+    const strokeKey = (stroke ? strokeKeyOf(stroke) : "") + "|" + antiAlias + (fillOf(layer) === 0 ? "|hollow" : "") + (layer.unblended ? "|unblended" : "") + (opacity < 1 && !stroke ? "|" + opacity : "");
     let forLayout = textBitmaps.get(relative);
     if (!forLayout) {
       forLayout = new Map();
@@ -3164,8 +3346,7 @@
         const x = Math.floor(minX);
         const y = Math.floor(minY);
         const k = outlineScale(relative.lines, Math.min(Math.hypot(spin[0], spin[1]), Math.hypot(spin[2], spin[3])));
-        drawFromOutlines(canvas, ctx, [spin[0], spin[1], spin[2], spin[3], -x, -y], k, (g) => drawLines(g, relative.lines, stroke, layer));
-        applyAntiAlias(canvas, ctx, antiAlias, blendedEdges(layer, stroke));
+        drawText(canvas, ctx, [spin[0], spin[1], spin[2], spin[3], -x, -y], k, relative.lines, stroke, layer, antiAlias, opacity);
         entry = { canvas, x, y };
       } else {
         // On whole pixels, as the turned text above: a picture laid between two pixels is
@@ -3174,8 +3355,7 @@
         const y = Math.floor(b.top - pad);
         const canvas = newCanvas(Math.ceil(b.right + pad) - x, Math.ceil(b.bottom + pad) - y);
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        drawFromOutlines(canvas, ctx, [1, 0, 0, 1, -x, -y], outlineScale(relative.lines, 1), (g) => drawLines(g, relative.lines, stroke, layer));
-        applyAntiAlias(canvas, ctx, antiAlias, blendedEdges(layer, stroke));
+        drawText(canvas, ctx, [1, 0, 0, 1, -x, -y], outlineScale(relative.lines, 1), relative.lines, stroke, layer, antiAlias, opacity);
         entry = { canvas, x, y };
       }
       keepText(forLayout, entryKey, entry);
@@ -4625,7 +4805,7 @@
 
   const visualOf = (layer, doc) => {
     const filters = layer.kind === "text" ? filtersOn(layer) : null;
-    const visual = filters ? filteredVisual(smartContents(layer, doc), filters, doc) : layer.kind === "text" ? (layer.effects ? styledTextVisual(layer, doc) : textVisual(layer, doc)) : layer.kind === "raster" ? fadedVisual(rasterVisual(layer, doc), fillOf(layer)) : null;
+    const visual = filters ? filteredVisual(smartContents(layer, doc), filters, doc) : layer.kind === "text" ? (layer.effects ? styledTextVisual(layer, doc) : textVisual(layer, doc, layer.unblended || layer.opacity === undefined ? 1 : layer.opacity)) : layer.kind === "raster" ? fadedVisual(rasterVisual(layer, doc), fillOf(layer)) : null;
     return applyMasks(visual, layer, doc);
   };
   // A layer as the page shows it: a pixel layer with its effects too
@@ -13536,6 +13716,9 @@
     wrapWords,
     cssFont,
     EXTRA_BOLD_WIDTH,
+    blendedText,
+    strokeUnder,
+    lightnessOf,
     languageTagOf,
     TEXT_LANGUAGES,
     DEFAULT_TEXT_LANGUAGE,
