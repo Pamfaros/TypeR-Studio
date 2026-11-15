@@ -1373,7 +1373,8 @@
       node.text = textToPsd(layer, doc);
       // A text's pixels are only its letters, even a hollow one's, which Photoshop hides at
       // Fill 0%: Photoshop draws the layer style's stroke and effects around them
-      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined, knockout: false, stroke: null, effects: undefined, raster: null, filters: undefined }), doc);
+      // As opaque as the letters cover them (`unblended`): Photoshop blends them itself
+      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined, knockout: false, stroke: null, effects: undefined, raster: null, filters: undefined, unblended: true }), doc);
       if (visual) place(node, visual.canvas, visual.x, visual.y);
       // Fill at 0%: a hollow text (an SFX's), or one set to 0
       if (layer.knockout || PS().fillOf(layer) === 0) node.fillOpacity = 0;

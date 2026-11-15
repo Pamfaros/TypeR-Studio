@@ -173,6 +173,8 @@
     const style = lt.textStyleRange[0].textStyle;
     const paragraph = lt.paragraphStyleRange[0].paragraphStyle;
     lines.style.font = PS.cssFont(style, fontSize());
+    // Faux Bold outlines the font's own letters (PS.cssFont keeps its weight), Extra Bold wider
+    lines.style.webkitTextStroke = style.syntheticBold ? `${style.extraBold ? PS.EXTRA_BOLD_WIDTH : 0.027}em currentColor` : "";
     lines.style.lineHeight = "1.25";
     lines.style.textAlign = paragraph.alignment || "center";
     lines.style.textTransform = style.fontCaps === "allCaps" ? "uppercase" : "none";
