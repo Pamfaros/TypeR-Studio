@@ -1365,5 +1365,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Downloading the update…": "Güncelleme indiriliyor…",
     "TypeR Studio is up to date.": "TypeR Studio güncel.",
     "Couldn't check for updates. Check your connection and try again.": "Güncellemeler denetlenemedi. Bağlantınızı kontrol edip yeniden deneyin.",
+    "Installing the update…": "Güncelleme yükleniyor…",
+    "Restarting TypeR Studio…": "TypeR Studio yeniden başlatılıyor…",
+    "TypeR Studio will reopen by itself in a moment.": "TypeR Studio birazdan kendiliğinden yeniden açılacak.",
   },
 });

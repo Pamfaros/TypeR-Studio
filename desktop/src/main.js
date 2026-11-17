@@ -442,6 +442,8 @@ let shellUpdater = null;
 let shellReady = false;
 let updatePending = false;
 let restarting = false;
+// The app is on its way out for an update: closing the updater window doesn't quit it twice
+let updating = false;
 const updateReady = () => {
   updatePending = true;
   if (win) win.webContents.send("update-ready");
@@ -1168,11 +1170,62 @@ ipcMain.on("discord-activity", (event, activity) => {
   if (fromPage(event) && discordOn) discord.set(activity);
 });
 
+// While the app restarts for an update, a small window says so: without it, the app is just gone
+// for a while. It shows long enough to be read, even when the restart itself is quick.
+const UPDATER_SHOWN = 1200;
+const UPDATER_WAIT = 3000;
+const INSTALL_LIMIT = 30 * 1000;
+const showUpdater = (installing) => new Promise((resolve) => {
+  const title = installing
+    ? strings.installingUpdate || "Installing the update…"
+    : strings.restartingForUpdate || "Restarting TypeR Studio…";
+  const detail = strings.reopensItself || "TypeR Studio will reopen by itself in a moment.";
+  const updater = new BrowserWindow({
+    width: 440,
+    height: 120,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    frame: false,
+    show: false,
+    center: true,
+    backgroundColor: "#232121",
+    title: app.getName(),
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, devTools: false },
+  });
+  let done = false;
+  const go = () => {
+    if (done) return;
+    done = true;
+    resolve();
+  };
+  updater.once("ready-to-show", () => {
+    if (isTest) updater.showInactive();
+    else updater.show();
+    setTimeout(go, UPDATER_SHOWN);
+  });
+  // A window that can't come up doesn't hold the update back
+  setTimeout(go, UPDATER_WAIT);
+  updater.webContents.on("will-navigate", (event) => event.preventDefault());
+  updater.loadFile(path.join(__dirname, "updater.html"), { query: { title, detail, dir: strings.dir === "rtl" ? "rtl" : "ltr" } }).catch(go);
+});
+
 // Restarting for an update closes the window as usual first, so that changes not kept by the
-// session still get their question. A new version of the app installs itself on the way.
-const restartNow = () => {
-  if (shellReady && shellUpdater) {
-    shellUpdater.quitAndInstall(true, true);
+// session still get their question. A new version of the app installs itself on the way: on
+// Windows, its installer shows how far it has gone.
+const restartNow = async () => {
+  restarting = false;
+  updating = true;
+  const installing = Boolean(shellReady && shellUpdater);
+  await showUpdater(installing);
+  if (installing) {
+    // An installation that doesn't start leaves the app as it was, rather than a window waiting
+    setTimeout(() => {
+      app.relaunch();
+      app.exit(0);
+    }, INSTALL_LIMIT);
+    shellUpdater.quitAndInstall(process.platform !== "win32", true);
     return;
   }
   app.relaunch();
@@ -1204,7 +1257,11 @@ app.on("open-file", (event, file) => {
   if (app.isReady() && !win) createWindow();
   openPaths([file]);
 });
-app.on("window-all-closed", () => (restarting ? restartNow() : app.quit()));
+app.on("window-all-closed", () => {
+  if (updating) return;
+  if (restarting) restartNow();
+  else app.quit();
+});
 app.on("will-quit", () => discord.stop());
 
 app.whenReady().then(() => {

@@ -1365,5 +1365,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Downloading the update…": "업데이트를 다운로드하는 중…",
     "TypeR Studio is up to date.": "TypeR Studio가 최신 버전입니다.",
     "Couldn't check for updates. Check your connection and try again.": "업데이트를 확인할 수 없습니다. 연결을 확인한 뒤 다시 시도하세요.",
+    "Installing the update…": "업데이트를 설치하는 중…",
+    "Restarting TypeR Studio…": "TypeR Studio를 다시 시작하는 중…",
+    "TypeR Studio will reopen by itself in a moment.": "잠시 후 TypeR Studio가 자동으로 다시 열립니다.",
   },
 });

@@ -389,6 +389,11 @@
       cancel: App.T("Cancel"),
       // The title of the system's dialog that Locate Photoshop… opens
       locatePhotoshop: App.T("Locate Photoshop…").replace(/…$/, ""),
+      // The small window shown while the app restarts for an update
+      installingUpdate: App.T("Installing the update…"),
+      restartingForUpdate: App.T("Restarting TypeR Studio…"),
+      reopensItself: App.T("TypeR Studio will reopen by itself in a moment."),
+      dir: document.documentElement.dir === "rtl" || (window.TYPER_I18N && window.TYPER_I18N.lang) === "ar" ? "rtl" : "ltr",
     });
     watchPresence();
     if (Desktop.platform === "mac") {

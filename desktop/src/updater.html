@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- What stays on screen while TypeR Studio restarts for an update (main.js, showUpdater): the app
+     is never just gone. The words come in the address, in the page's language. -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; align-items: center; gap: 16px; box-sizing: border-box; padding: 0 22px;
+      background: #232121; color: #e3e4e4; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      -webkit-app-region: drag; user-select: none; cursor: default;
+    }
+    img { width: 48px; height: 48px; flex: none; }
+    main { flex: 1; min-width: 0; }
+    h1 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+    p { margin: 10px 0 0; color: #a9a9a9; font-size: 12px; }
+    .bar { position: relative; height: 4px; overflow: hidden; border-radius: 2px; background: #3a3737; }
+    .bar::before {
+      content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 35%; border-radius: 2px;
+      background: #288edf; animation: run 1.2s ease-in-out infinite;
+    }
+    [dir="rtl"] .bar::before { animation-name: run-rtl; }
+    @keyframes run { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+    @keyframes run-rtl { from { transform: translateX(290%); } to { transform: translateX(-100%); } }
+    @media (prefers-reduced-motion: reduce) {
+      .bar::before { width: 100%; animation: none; opacity: 0.6; }
+    }
+  </style>
+</head>
+<body>
+  <img src="../content/assets/brand/typer-studio-icon.png" alt="">
+  <main>
+    <h1 id="title"></h1>
+    <div class="bar" role="progressbar" aria-labelledby="title"></div>
+    <p id="detail"></p>
+  </main>
+  <script>
+    const query = new URLSearchParams(location.search);
+    document.getElementById("title").textContent = query.get("title") || "";
+    document.getElementById("detail").textContent = query.get("detail") || "";
+    document.title = query.get("title") || "TypeR Studio";
+    if (query.get("dir") === "rtl") document.documentElement.dir = "rtl";
+  </script>
+</body>
+</html>
