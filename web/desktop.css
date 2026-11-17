@@ -22,3 +22,7 @@
 .update-note[dir="rtl"] { right: auto; left: 16px; padding: 10px 14px 10px 10px; }
 .update-note__text { margin-right: 6px; }
 .update-note[dir="rtl"] .update-note__text { margin-right: 0; margin-left: 6px; }
+.update-note__bar { width: 140px; height: 6px; -webkit-appearance: none; appearance: none; border: 0; border-radius: 3px; overflow: hidden; background: var(--ui); }
+.update-note__bar::-webkit-progress-bar { background: var(--ui); border-radius: 3px; }
+.update-note__bar::-webkit-progress-value { background: var(--blue); border-radius: 3px; transition: width 0.3s; }
+.update-note__amount { min-width: 4ch; font-variant-numeric: tabular-nums; text-align: end; }

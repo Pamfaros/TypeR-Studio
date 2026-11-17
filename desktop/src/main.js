@@ -447,6 +447,16 @@ const updateReady = () => {
   if (win) win.webContents.send("update-ready");
 };
 
+// How far the download of a new version of the app has gone, for the page's note: 0 to 100.
+// Only the whole percents, a download says much more than that.
+let shellProgress = null;
+const tellProgress = (percent) => {
+  const now = Math.max(0, Math.min(100, Math.floor(percent)));
+  if (now === shellProgress) return;
+  shellProgress = now;
+  if (win && !win.isDestroyed()) win.webContents.send("update-progress", now);
+};
+
 const checkContent = async () => {
   if (await content.check()) updateReady();
 };
@@ -470,14 +480,17 @@ const checkShell = (found) => {
         autoUpdater.autoDownload = true;
         autoUpdater.autoInstallOnAppQuit = true;
         autoUpdater.on("error", (error) => console.warn("App update:", error.message));
+        autoUpdater.on("download-progress", (progress) => tellProgress(progress.percent));
         autoUpdater.on("update-downloaded", () => {
           shellReady = true;
+          shellProgress = null;
           updateReady();
         });
       }
       const result = await autoUpdater.checkForUpdates();
       if (!result || !result.isUpdateAvailable || !result.downloadPromise) return "none";
       shellFound.forEach((tell) => tell());
+      if (!shellReady) tellProgress(shellProgress || 0);
       await result.downloadPromise;
       shellReady = true;
       return "ready";

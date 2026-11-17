@@ -204,7 +204,9 @@
   const UPDATE_ENGLISH = ["Update installed. Restart TypeR Studio?", "Restart", "Later"];
 
   const showUpdateNote = () => {
-    if (document.getElementById("update-note")) return;
+    const shown = document.getElementById("update-note");
+    if (shown && !shown.classList.contains("update-note--downloading")) return;
+    if (shown) shown.remove();
     const lang = window.TYPER_I18N && window.TYPER_I18N.lang;
     const [text, restart, later] = UPDATE_WORDS[lang] || UPDATE_ENGLISH;
     const note = document.createElement("div");
@@ -229,6 +231,52 @@
     document.body.appendChild(note);
   };
 
+  // A new version of the app itself is a long download: the same note shows how far it has gone,
+  // then offers to restart. Put away, it stays away until the download is done.
+  let progressPutAway = false;
+  const showUpdateProgress = (percent) => {
+    const App = window.TypeRApp;
+    let note = document.getElementById("update-note");
+    if (note && !note.classList.contains("update-note--downloading")) return;
+    if (!note) {
+      if (progressPutAway) return;
+      const lang = window.TYPER_I18N && window.TYPER_I18N.lang;
+      note = document.createElement("div");
+      note.id = "update-note";
+      note.className = "update-note update-note--downloading";
+      note.setAttribute("role", "status");
+      if (lang === "ar") note.dir = "rtl";
+      const label = document.createElement("span");
+      label.className = "update-note__text";
+      label.textContent = App.T("Downloading the update…");
+      const bar = document.createElement("progress");
+      bar.className = "update-note__bar";
+      bar.max = 100;
+      bar.setAttribute("aria-label", label.textContent);
+      const amount = document.createElement("span");
+      amount.className = "update-note__amount";
+      const hide = document.createElement("button");
+      hide.type = "button";
+      hide.className = "btn btn--small";
+      hide.textContent = App.T("Hide");
+      hide.addEventListener("click", () => {
+        progressPutAway = true;
+        note.remove();
+      });
+      note.append(label, bar, amount, hide);
+      document.body.appendChild(note);
+    }
+    const lang = window.TYPER_I18N && window.TYPER_I18N.lang;
+    note.querySelector(".update-note__bar").value = percent;
+    let said;
+    try {
+      said = new Intl.NumberFormat(lang || undefined, { style: "percent" }).format(percent / 100);
+    } catch (error) {
+      said = `${percent} %`;
+    }
+    note.querySelector(".update-note__amount").textContent = said;
+  };
+
   // Help > Check for Updates…: what's found downloads, then the note above offers to restart.
   // Up to date, or no connection, is said in a toast.
   let checkingUpdates = false;
@@ -238,7 +286,13 @@
     checkingUpdates = true;
     App.toast(App.T("Checking for updates…"));
     try {
-      const result = await Desktop.checkForUpdates(() => App.toast(App.T("Downloading the update…"), true));
+      // The note shows the download where the app tells how far it has gone
+      const result = await Desktop.checkForUpdates(() => {
+        if (Desktop.onUpdateProgress) {
+          progressPutAway = false;
+          showUpdateProgress(0);
+        } else App.toast(App.T("Downloading the update…"), true);
+      });
       if (result === "none") App.toast(App.T("TypeR Studio is up to date."));
       else if (result !== "ready") App.toast(App.T("Couldn't check for updates. Check your connection and try again."), true);
     } catch (error) {
@@ -365,7 +419,11 @@
       fontsAsked = Date.now();
       window.TypeRFonts.useInstalled().catch(() => {});
     });
-    Desktop.onUpdateReady(showUpdateNote);
+    Desktop.onUpdateReady(() => {
+      progressPutAway = false;
+      showUpdateNote();
+    });
+    if (Desktop.onUpdateProgress) Desktop.onUpdateProgress(showUpdateProgress);
     Desktop.alive();
   };
 
