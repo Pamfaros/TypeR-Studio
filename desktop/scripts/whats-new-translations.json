@@ -65,6 +65,7 @@
     "31abbbe00873": "Une fois par jour, TypeR Studio envoie des statistiques d’utilisation anonymes (combien de fois chaque outil sert, les erreurs de l’app, rien sur vous ni vos fichiers) ; Paramètres > Statistiques d’utilisation anonymes pour les couper"
   },
   "hide": [
-    "918a20130a57"
+    "918a20130a57",
+    "e46c6f844394"
   ]
 }

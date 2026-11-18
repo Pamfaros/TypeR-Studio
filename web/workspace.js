@@ -231,9 +231,7 @@
         if (!groups.length) return;
         const id = typeof column.id === "string" && column.id && !ids.has(column.id) ? column.id : "";
         ids.add(id);
-        const kept = { id, width: size(column.width, 250), icons: column.icons === true, groups };
-        if (groups.length === 1 && Number.isFinite(column.short) && column.short > 0) kept.short = Math.round(column.short);
-        out.docks[side].push(kept);
+        out.docks[side].push({ id, width: size(column.width, 250), icons: column.icons === true, fill: column.fill !== false, groups });
       });
     });
     allColumns(out).forEach((column) => { if (!column.id) column.id = newColumnId(out); });
@@ -516,65 +514,105 @@
     }, save);
   };
 
-  const heightSplit = (id, above, below) => (event) => {
-    const start = event.clientY;
-    geometry.columns[id].parts.forEach((part) => { if (!part.group.min) part.group.h = part.h; });
-    const a = above.h;
-    const b = below.h;
-    dragging(event, (next) => {
-      const moved = clamp(next.clientY - start, tallest(above) - a, b - tallest(below));
-      above.h = a + moved;
-      below.h = b - moved;
-      apply();
-    }, save);
+  // The room a column has for its groups' contents: below its bar, less a splitter under each
+  // group and the title bar of each group shrunk to it
+  const roomOf = (column, height) => {
+    const groups = shownIn(column);
+    return Math.max(0, height - BAR - SPLIT * groups.length - HEAD * groups.filter((group) => group.min).length);
+  };
+  const seenRoom = (column) => {
+    const seen = geometry.columns[column.id];
+    return roomOf(column, seen ? seen.bottom - seen.top : geometry.bottom - geometry.top);
+  };
+  // The heights the groups of a column show with, kept as their own before they change
+  const keepHeights = (column) => {
+    const seen = geometry.columns[column.id];
+    if (seen) seen.parts.forEach((part) => { if (!part.group.min && column.groups.includes(part.group)) part.group.h = part.h; });
+  };
+  // Too tall for the column: the others give way, nearest first, down to their minimum, and only
+  // then `group` itself
+  const makeRoom = (column, group, room) => {
+    const open = shownIn(column).filter((item) => !item.min);
+    const at = open.indexOf(group);
+    let over = sum(open.map((item) => item.h)) - room;
+    const others = open.filter((item) => item !== group).sort((a, b) => Math.abs(open.indexOf(a) - at) - Math.abs(open.indexOf(b) - at));
+    others.forEach((item) => {
+      if (over <= 0) return;
+      const give = clamp(item.h - tallest(item), 0, over);
+      item.h -= give;
+      over -= give;
+    });
+    if (over > 0 && at >= 0) group.h = Math.max(tallest(group), group.h - over);
   };
 
-  // A panel alone in its column fills it, unless it was made shorter from its bottom edge: the
-  // room below stays empty. Dragged back to the bottom, it fills the column again.
-  const loneSplit = (id, room) => (event) => {
+  // Docked panels keep the height they're given: what a column has left below them stays empty,
+  // unless the last one reaches the bottom (it snaps there), and then follows it.
+  // A group's splitter is its bottom edge: the groups under it move along, and give way if it
+  // needs their room.
+  const SNAP = 16;
+  const edgeSplit = (id, group) => (event) => {
     const start = event.clientY;
     const column = findColumn(id);
-    const from = geometry.columns[id].parts[0].h;
-    const least = Math.min(tallest(shownIn(column)[0]), room);
+    keepHeights(column);
+    const room = seenRoom(column);
+    const open = shownIn(column).filter((item) => !item.min);
+    const at = open.indexOf(group);
+    const below = open.slice(at + 1);
+    const before = below.map((item) => item.h);
+    const from = group.h;
+    const above = sum(open.slice(0, at).map((item) => item.h));
+    const free = Math.max(0, room - above - from - sum(before));
     dragging(event, (next) => {
-      const h = clamp(from + next.clientY - start, least, room);
-      if (h >= room - 8) delete column.short;
-      else column.short = Math.round(h);
+      below.forEach((item, index) => { item.h = before[index]; });
+      let h = Math.max(tallest(group), from + next.clientY - start);
+      if (!below.length) {
+        const most = room - above;
+        column.fill = most - h <= SNAP;
+        h = column.fill ? most : Math.min(h, most);
+      } else {
+        let over = h - from - free;
+        below.forEach((item) => {
+          if (over <= 0) return;
+          const give = clamp(item.h - tallest(item), 0, over);
+          item.h -= give;
+          over -= give;
+        });
+        if (over > 0) h -= over;
+      }
+      group.h = Math.round(h);
       apply();
     }, save);
   };
 
   // The groups of a column, one under the other, below its bar. A group shrunk to its title bar
-  // keeps only that; the others share the rest.
+  // keeps only that. Taller together than the column, they all shrink alike to fit it.
   const stack = (column, x, w, top, height, plan, parts) => {
     const groups = shownIn(column);
     const open = groups.filter((group) => !group.min);
-    const lone = groups.length === 1 && open.length === 1;
-    // A column that no longer has one panel only forgets how short that panel was
-    if (!lone) delete column.short;
-    const room = Math.max(0, height - BAR - SPLIT * (groups.length - (lone ? 0 : 1)) - HEAD * (groups.length - open.length));
-    const space = lone && column.short ? clamp(column.short, Math.min(tallest(groups[0]), room), room) : room;
-    const total = sum(open.map((group) => group.h)) || 1;
-    let left = space;
+    const room = roomOf(column, height);
+    const want = open.map((group) => group.h);
+    // Down to the bottom, the last one takes what the others leave, and gives way first
+    if (column.fill !== false && open.length) want[want.length - 1] = Math.max(tallest(open[open.length - 1]), room - sum(want.slice(0, -1)));
+    const total = sum(want) || 1;
+    const shrink = total > room;
+    let left = room;
     let given = 0;
     let y = top + BAR;
-    groups.forEach((group, index) => {
+    groups.forEach((group) => {
       let h = HEAD;
       if (!group.min) {
+        const wanted = want[given];
         given += 1;
-        h = given === open.length ? left : Math.max(0, Math.round((group.h / total) * space));
+        if (!shrink) h = wanted;
+        else h = given === open.length ? left : Math.max(0, Math.round((wanted / total) * room));
         left -= h;
       }
       plan.push({ group, x, y, w, h, how: "docked" });
       parts.push({ group, y, h, join: HEAD });
       y += h;
-      const next = groups[index + 1];
-      if (next) {
-        addSplit("h", x, y, w, SPLIT, !group.min && !next.min ? heightSplit(column.id, group, next) : null);
-        y += SPLIT;
-      }
+      addSplit("h", x, y, w, SPLIT, group.min ? null : edgeSplit(column.id, group));
+      y += SPLIT;
     });
-    if (lone) addSplit("h", x, y, w, SPLIT, loneSplit(column.id, room));
   };
 
   // Between two sets of widths, the one that fills `room`
@@ -805,6 +843,9 @@
     if (!where) return;
     if (where.column) {
       group.tabs.forEach((id) => remember(id, where, null));
+      // The others stay as they were: no one grows into the room it leaves
+      keepHeights(where.column);
+      where.column.fill = false;
       where.column.groups.splice(where.column.groups.indexOf(where.group), 1);
     } else layout.floats.splice(layout.floats.indexOf(group), 1);
     delete group.x;
@@ -833,12 +874,19 @@
 
   const addColumn = (side, at, group, width) => {
     const list = layout.docks[side];
-    list.splice(clamp(at, 0, list.length), 0, { id: newColumnId(layout), width: clamp(Math.round(width), widest(group), 900), icons: false, groups: [group] });
+    list.splice(clamp(at, 0, list.length), 0, { id: newColumnId(layout), width: clamp(Math.round(width), widest(group), 900), icons: false, fill: false, groups: [group] });
   };
 
+  // A group keeps its height in its new column: the others make it room if there's not enough.
+  // A column full before stays full.
   const insertInto = (column, group, before) => {
+    keepHeights(column);
     const at = before ? column.groups.indexOf(before) : -1;
     column.groups.splice(at < 0 ? column.groups.length : at, 0, group);
+    if (group.min || !tabsOf(group).length) return;
+    const room = seenRoom(column);
+    makeRoom(column, group, room);
+    column.fill = sum(shownIn(column).filter((item) => !item.min).map((item) => item.h)) >= room;
   };
 
   const join = (into, group, before) => {
