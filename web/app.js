@@ -17218,6 +17218,8 @@
   // Photoshop has no key for it: Shift+W, as Shift+P is Perspective's
   const warpTextItem = { label: "Warp Text…", keys: "Shift+W", enabled: () => warpTargets().length > 0, action: () => showWarpText() };
   const searchItem = { label: "Search…", keys: "Cmd+F", anywhere: true, keepsTransform: true, enabled: () => !panelModal(), action: () => openSearch() };
+  // Edit > Clear's keys, as the user set them
+  const clearKeys = () => { const clear = SHORTCUTS.find((one) => one.id === "Edit:Clear"); return (clear && clear.item.keys) || ""; };
   const MENUS = [
     ["File", [
       { label: "New…", keys: DESKTOP ? "Cmd+N" : "Alt+Cmd+N", action: newDocument },
@@ -17287,7 +17289,8 @@
       { label: "New Layer", keys: DESKTOP ? "Shift+Cmd+N" : "Alt+Shift+Cmd+N", alias: DESKTOP ? undefined : "Shift+Cmd+N", enabled: hasDoc, action: () => ops.newLayer(nextLayerName()) },
       { label: "New Group", enabled: hasDoc, action: () => ops.newGroup(T("Group")) },
       { label: "Duplicate Layer", keys: "Cmd+J", enabled: hasLayer, action: duplicateLayer },
-      { label: "Delete Layer", enabled: hasLayer, action: () => ops.deleteLayers() },
+      // Edit > Clear's key deletes the layer when nothing is selected, as in Photoshop: said here
+      { label: "Delete Layer", shownKeys: () => (clearKeys() ? keyLabel(clearKeys()) : ""), shownAccelerator: () => clearKeys().replace(/\bCmd\b/g, "CmdOrCtrl") || undefined, enabled: hasLayer, action: () => ops.deleteLayers() },
       { label: "Group Layers", keys: "Cmd+G", enabled: () => activeLayers().some((layer) => !layer.isBackground), action: () => ops.groupLayers(T("Group")) },
       { label: "Ungroup Layers", keys: "Shift+Cmd+G", enabled: () => activeLayers().some((layer) => layer.kind === "group"), action: () => ops.ungroupLayers() },
       null,
@@ -18411,7 +18414,11 @@
   });
   document.addEventListener("keydown", (event) => {
     if (!contextMenu) return;
-    if (event.key === "Escape") closeContextMenu();
+    if (event.key === "Escape") {
+      // The Escape of the menu: it does nothing else
+      event.preventDefault();
+      closeContextMenu();
+    }
     else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       event.stopPropagation();
