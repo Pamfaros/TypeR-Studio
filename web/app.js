@@ -11978,6 +11978,11 @@
         await window.TypeRStyles.loadFile(file);
         continue;
       }
+      // A Word or a text file is a script: it becomes the panel's
+      if (SCRIPT_FILE.test(file.name)) {
+        await importScriptFile(file);
+        continue;
+      }
       if (!/\.(psd|psb|png|jpe?g|webp)$/i.test(file.name) && !/^image\/(png|jpeg|webp)$/.test(file.type) && !InDesign.isInDesignName(file.name)) {
         toast(fill(T("{name} can't be opened. Use a PSD, an InDesign file, PNG, JPEG or WebP."), { name: file.name }));
         continue;
@@ -20225,6 +20230,17 @@
     storage = storage || Kit.freshStorage(false);
     const tabs = (Array.isArray(storage.tabs) ? storage.tabs : []).filter((tab) => tab && typeof tab === "object");
     let tab = tabs.find((one) => typeof one.text === "string" && lines(one.text).trim() === text.trim());
+    // An empty script in front takes it, rather than staying behind as an empty tab
+    const front = tab ? null : tabs.find((one) => one.id === storage.currentTabId && !String(one.text || "").trim());
+    if (front) {
+      tab = front;
+      tab.text = text;
+      tab.currentLineIndex = 0;
+      if (script.name) {
+        tab.name = script.name;
+        tab.autoName = false;
+      }
+    }
     if (!tab) {
       tab = {
         id: `typer-${Math.random().toString(36).slice(2, 10)}`,
@@ -20253,6 +20269,64 @@
     if (!kept) toast(fill(T("Could not save: {error}"), { error: T("Script") }), true);
   };
   if (window.TypeRDesktop && window.TypeRDesktop.onImportScript) window.TypeRDesktop.onImportScript((script) => { importScript(script).catch((error) => console.error(error)); });
+
+  // A script as a file: plain text, or a Word document, which is what Google Docs and the
+  // others hand over as a copy. One line per paragraph; bold and italic come as the asterisks
+  // the panel reads (**bold**, *italic*), unless its settings say not to read them.
+  const SCRIPT_FILE = /\.(docx|txt)$/i;
+  const WORD = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+  const wordText = async (file, marks) => {
+    const zip = Kit.zipEntries(await file.arrayBuffer());
+    const entry = zip.entries.find((one) => one.name === "word/document.xml");
+    if (!entry) throw new Error("not a Word document");
+    const xml = new DOMParser().parseFromString(new TextDecoder().decode(await zip.read(entry)), "application/xml");
+    const on = (node, name) => {
+      const found = node && Array.from(node.children).find((child) => child.namespaceURI === WORD && child.localName === name);
+      return Boolean(found) && !/^(0|false|off)$/.test(found.getAttributeNS(WORD, "val") || "");
+    };
+    return Array.from(xml.getElementsByTagNameNS(WORD, "p")).map((paragraph) => {
+      // The runs as { text, marks }, those alike joined: Word cuts a sentence into many
+      const runs = [];
+      Array.from(paragraph.getElementsByTagNameNS(WORD, "r")).forEach((run) => {
+        const look = Array.from(run.children).find((child) => child.namespaceURI === WORD && child.localName === "rPr");
+        const text = Array.from(run.children).map((child) => {
+          if (child.namespaceURI !== WORD) return "";
+          if (child.localName === "t") return child.textContent;
+          if (child.localName === "tab") return "\t";
+          if (child.localName === "br" || child.localName === "cr") return "\n";
+          return child.localName === "noBreakHyphen" ? "-" : "";
+        }).join("");
+        if (!text) return;
+        const mark = marks ? "*".repeat(on(look, "b") && on(look, "i") ? 3 : on(look, "b") ? 2 : on(look, "i") ? 1 : 0) : "";
+        const last = runs[runs.length - 1];
+        if (last && last.mark === mark) last.text += text;
+        else runs.push({ text, mark });
+      });
+      // The marks hug the words: a space inside them would stop the panel from reading them
+      return runs.map(({ text, mark }) => {
+        const [, before, words, after] = /^(\s*)([\s\S]*?)(\s*)$/.exec(text);
+        return mark && words ? `${before}${mark}${words}${mark}${after}` : text;
+      }).join("");
+    }).join("\n");
+  };
+  const importScriptFile = async (file) => {
+    const name = file.name.replace(/\.[^.]+$/, "");
+    let text = "";
+    try {
+      const settings = readPanelStorage();
+      text = /\.docx$/i.test(file.name) ? await wordText(file, !settings || settings.interpretMarkdown !== false) : await file.text();
+    } catch (error) {
+      toast(fill(T("{name} can't be read: {error}"), { name: file.name, error: error.message || error }), true);
+      return;
+    }
+    if (!text.trim()) {
+      toast(fill(T("{name} can't be read: {error}"), { name: file.name, error: T("No script") }), true);
+      return;
+    }
+    await importScript({ name, text });
+    // On a touch screen the script is in its own sheet: there it is
+    if (Shell.touch && window.TypeRTouch) window.TypeRTouch.openSheet("script");
+  };
 
   /* ------------------------------ the engine's news ------------------------- */
 
