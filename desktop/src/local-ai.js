@@ -16,12 +16,14 @@ const { spawn, execFile, execFileSync } = require("child_process");
 const { Readable } = require("stream");
 const { app } = require("electron");
 
-const RELEASE = "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1056-9234ad8/";
+const RELEASES = "https://github.com/leejet/stable-diffusion.cpp/releases/download/";
 const ENGINES = {
   // Universal (Apple silicon and Intel), built for macOS 26 and later
-  darwin: { url: `${RELEASE}sd-master-9234ad8-bin-Darwin-macOS-26.7.2-arm64.zip`, sha256: "a7c38d68b8a493fb46e35b353c789de7df406c18628ab72b73e4be0cf19b831d", size: 37890774, server: "sd-server" },
-  // Vulkan: NVIDIA, AMD and Intel graphics cards alike, the processor otherwise
-  win32: { url: `${RELEASE}sd-master-9234ad8-bin-win-vulkan-x64.zip`, sha256: "8474cadaaa16d3ab30503ac0e7c93a77b62aa531e47fc1c190de58e2099c7a48", size: 29940527, server: "sd-server.exe" },
+  darwin: { url: `${RELEASES}master-1056-9234ad8/sd-master-9234ad8-bin-Darwin-macOS-26.7.2-arm64.zip`, sha256: "a7c38d68b8a493fb46e35b353c789de7df406c18628ab72b73e4be0cf19b831d", size: 37890774, server: "sd-server" },
+  // Vulkan: NVIDIA, AMD and Intel graphics cards alike, the processor otherwise. No older than
+  // master-1060: before it, FLUX's large operations went to the processor on Intel and AMD
+  // cards, about six times slower (stable-diffusion.cpp #2291)
+  win32: { url: `${RELEASES}master-1060-0b3b98d/sd-master-0b3b98d-bin-win-vulkan-x64.zip`, sha256: "187644dc23cb391921196502291515d84f2fd8956468268b340410d42bd38265", size: 29941980, server: "sd-server.exe" },
 };
 const HF = "https://huggingface.co/";
 const FILES = {
@@ -51,11 +53,12 @@ const engine = (runsEngine && ENGINES[process.platform]) || null;
 const root = () => process.env.TYPER_LOCAL_AI_DIR || path.join(app.getPath("userData"), "local-ai");
 const engineDir = () => path.join(root(), "engine");
 const filePath = (key) => path.join(root(), "models", FILES[key].name);
-// A file is kept once checked: its mark says so, so it isn't hashed again at every start
+// A file is kept once checked: its mark says so, so it isn't hashed again at every start. The
+// mark names the file it checked: an engine of another version isn't the one expected here.
 const markPath = (target) => `${target}.ok`;
-const isChecked = (target, size) => {
+const isChecked = (target, { size, sha256 }) => {
   try {
-    return fs.statSync(target).size === size && fs.existsSync(markPath(target));
+    return fs.statSync(target).size === size && fs.readFileSync(markPath(target), "utf8").trim() === sha256;
   } catch (error) {
     return false;
   }
@@ -64,12 +67,12 @@ const filesOf = (model) => {
   const one = MODELS[model];
   return one ? [one.diffusion, one.llm, one.vae] : [];
 };
-const engineReady = () => Boolean(engine) && isChecked(path.join(engineDir(), "engine.zip"), engine.size) && fs.existsSync(path.join(engineDir(), engine.server));
-const installed = (model) => engineReady() && filesOf(model).every((key) => isChecked(filePath(key), FILES[key].size));
+const engineReady = () => Boolean(engine) && isChecked(path.join(engineDir(), "engine.zip"), engine) && fs.existsSync(path.join(engineDir(), engine.server));
+const installed = (model) => engineReady() && filesOf(model).every((key) => isChecked(filePath(key), FILES[key]));
 // What is still to download for a model, in bytes
 const missing = (model) => {
   let bytes = engine && !engineReady() ? engine.size : 0;
-  filesOf(model).forEach((key) => { if (!isChecked(filePath(key), FILES[key].size)) bytes += FILES[key].size; });
+  filesOf(model).forEach((key) => { if (!isChecked(filePath(key), FILES[key])) bytes += FILES[key].size; });
   return bytes;
 };
 const status = () => ({
@@ -96,13 +99,18 @@ const hashFile = (target, hash) => new Promise((resolve, reject) => {
 
 // Downloads one file, going on from where a stopped download left it, and checks it
 const download = async ({ url, sha256, size }, target, signal, onBytes) => {
-  if (isChecked(target, size)) {
+  if (isChecked(target, { size, sha256 })) {
     onBytes(size);
     return;
   }
   await fs.promises.mkdir(path.dirname(target), { recursive: true });
   const part = `${target}.part`;
   const hash = crypto.createHash("sha256");
+  // A file checked as another one (the engine before an update of the app) is no start for this one
+  const marked = await fs.promises.readFile(markPath(target), "utf8").catch(() => "");
+  if (marked && marked.trim() !== sha256) {
+    for (const one of [target, markPath(target)]) await fs.promises.rm(one, { force: true });
+  }
   // A file already whole (put there by hand, or a mark lost) only needs checking
   let start = 0;
   for (const candidate of [target, part]) {
