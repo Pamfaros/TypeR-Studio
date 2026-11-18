@@ -1,4 +1,5 @@
 {"notes": [
+  {"id":"190c2e23daa1","at":"2026-11-18T04:09:12+01:00","kind":"feat","text":"Right-click with a brush to set its size and hardness, as in Photoshop","lang":{"fr":"Un clic droit avec un pinceau règle sa taille et sa dureté, comme dans Photoshop"}},
   {"id":"e9b7d5474a37","at":"2026-11-17T20:22:48+01:00","kind":"feat","text":"While TypeR Studio restarts for an update, a small window says so instead of the app just vanishing","lang":{"fr":"Pendant que TypeR Studio redémarre pour une mise à jour, une petite fenêtre le dit, au lieu que l'app disparaisse"}},
   {"id":"2170448f14a3","at":"2026-11-17T20:22:45+01:00","kind":"feat","text":"The desktop app shows how far the download of an update has gone","lang":{"fr":"L'app de bureau montre où en est le téléchargement d'une mise à jour"}},
   {"id":"6f0ed44a3eb6","at":"2026-11-15T23:08:26+01:00","kind":"fix","text":"Text is closer to Photoshop: Sharp anti-aliasing, Faux Bold in Smooth, Crisp and Sharp, letters on a Stroke, and the Opacity of black text","lang":{"fr":"Le texte est plus proche de Photoshop : lissage Nette, Faux gras en Lissée, Précise et Nette, lettres sur un Contour, et Opacité du texte noir"}},
@@ -147,6 +148,5 @@
   {"id":"ffb547b219d7","at":"2026-11-05T09:56:27+01:00","kind":"feat","text":"Generative Fill with Ideogram 4.5 and the cost of each picture","lang":{"fr":"Remplissage génératif avec Ideogram 4.5, et le coût de chaque image"}},
   {"id":"2769abd571e8","at":"2026-11-05T09:02:04+01:00","kind":"feat","text":"Generative Fill, masks, a Photoshop-like Layers panel, keys for clicks and the chapter pager","lang":{"fr":"Remplissage génératif, masques, un panneau Calques comme dans Photoshop, des raccourcis pour les clics et le sélecteur de chapitre"}},
   {"id":"404dd5b6279a","at":"2026-11-05T05:13:49+01:00","kind":"feat","text":"Hyphenate paragraphs whose Hyphenate option is on, as Photoshop","lang":{"fr":"Les paragraphes dont l’option Césure est cochée sont coupés, comme dans Photoshop"}},
-  {"id":"4f64c42fedff","at":"2026-11-05T05:04:41+01:00","kind":"feat","text":"Merge a folder into one layer, alone or with other layers, as in Photoshop","lang":{"fr":"Fusionner un dossier en un seul calque, seul ou avec d’autres calques, comme dans Photoshop"}},
-  {"id":"2e26ea53c847","at":"2026-11-05T05:04:41+01:00","kind":"feat","text":"Save writes over the PSD picked with the panel's Import pages","lang":{"fr":"Enregistrer écrit par-dessus le PSD choisi avec Importer des pages du panneau"}}
+  {"id":"4f64c42fedff","at":"2026-11-05T05:04:41+01:00","kind":"feat","text":"Merge a folder into one layer, alone or with other layers, as in Photoshop","lang":{"fr":"Fusionner un dossier en un seul calque, seul ou avec d’autres calques, comme dans Photoshop"}}
 ]}
