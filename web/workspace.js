@@ -312,8 +312,18 @@
     const group = layout.floats.find((item) => item.tabs.includes(id));
     return group ? { group, column: null, side: null } : null;
   };
-  const widest = (group) => Math.max(0, ...tabsOf(group).map((id) => MIN[id][0]));
-  const tallest = (group) => Math.max(0, ...tabsOf(group).map((id) => MIN[id][1]));
+  // The TypeR panel with parts of it apart needs only the room of what it still shows: it can
+  // be made that small, docked or floating
+  const TYPER_ROOM = { actions: 50, shaper: 90, text: 120, styles: 80 };
+  const minOf = (id) => {
+    if (id !== "typer") return MIN[id];
+    const apart = PART_IDS.filter(isOpen);
+    if (Shell.touch || !apart.length) return MIN.typer;
+    const inside = PART_IDS.filter((key) => !apart.includes(key)).map((key) => TYPER_ROOM[TYPER_PARTS[key].part]);
+    return [200, Math.min(MIN.typer[1], 40 + sum(inside))];
+  };
+  const widest = (group) => Math.max(0, ...tabsOf(group).map((id) => minOf(id)[0]));
+  const tallest = (group) => Math.max(0, ...tabsOf(group).map((id) => minOf(id)[1]));
   const activate = (group, id) => {
     if (group.active === id) return;
     group.back = group.active;
@@ -1022,7 +1032,7 @@
     }
     const startX = event.clientX;
     const startY = event.clientY;
-    const [minW, minH] = MIN[id];
+    const [minW, minH] = minOf(id);
     dragging(event, (next) => {
       const dx = next.clientX - startX;
       const dy = next.clientY - startY;
