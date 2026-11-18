@@ -6912,6 +6912,86 @@
     });
   };
 
+  // A right click with a brush, as in Photoshop: its size and hardness, beside the pointer, and
+  // the brush drawn where the click was. Shift + right click keeps the usual menu.
+  const sizesBrush = (tool) => tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal" || RETOUCH_BRUSHES.has(tool);
+  let brushPicker = null;
+  const closeBrushPicker = () => {
+    if (!brushPicker) return;
+    brushPicker.box.remove();
+    brushPicker = null;
+    hideBrushPreview();
+    renderOptions();
+  };
+  const openBrushPicker = (x, y) => {
+    closeBrushPicker();
+    closeContextMenu();
+    closeMenus();
+    const box = document.createElement("div");
+    box.className = "brush-picker";
+    if (lang === "ar") box.dir = "rtl";
+    const show = () => {
+      showBrushAdjust({ x, y }, { clientX: x, clientY: y, pointerType: "mouse" });
+      hud(null);
+    };
+    const row = (text, key, min, max, sliderMax, unit) => {
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = min;
+      slider.max = sliderMax;
+      slider.value = app.brush[key];
+      showSliderFill(slider);
+      const set = (value, from) => {
+        app.brush[key] = Math.max(min, Math.min(max, Math.round(value) || min));
+        if (from !== slider) {
+          slider.value = app.brush[key];
+          showSliderFill(slider);
+        }
+        if (from !== number) number.value = app.brush[key];
+        show();
+      };
+      const number = numberInput(app.brush[key], min, max, (value) => set(value, null));
+      number.addEventListener("input", () => {
+        if (number.value !== "") set(Number(number.value), number);
+      });
+      slider.addEventListener("input", () => set(Number(slider.value), slider));
+      const name = document.createElement("span");
+      name.textContent = text;
+      const after = document.createElement("span");
+      after.textContent = unit;
+      box.append(name, slider, number, after);
+      return number;
+    };
+    const first = row(T("Size"), "size", 1, 2000, 400, "px");
+    // The Spot Healing Brush blends its edge by itself
+    if (app.tool !== "heal") row(T("Hardness"), "hardness", 0, 100, 100, "%");
+    box.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" && event.key !== "Enter") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeBrushPicker();
+    });
+    box.addEventListener("contextmenu", (event) => event.preventDefault());
+    document.body.appendChild(box);
+    brushPicker = { box };
+    box.style.left = `${Math.max(8, Math.min(x + 8, window.innerWidth - box.offsetWidth - 8))}px`;
+    box.style.top = `${Math.max(8, Math.min(y + 8, window.innerHeight - box.offsetHeight - 8))}px`;
+    show();
+    // Ready for a number typed straight away, then Enter
+    first.focus();
+    first.select();
+  };
+  document.addEventListener("pointerdown", (event) => {
+    if (!brushPicker || brushPicker.box.contains(event.target)) return;
+    closeBrushPicker();
+    // The click that closes it on the page doesn't paint as well, as in Photoshop
+    if (ui.stage.contains(event.target) && event.button === 0) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+  }, true);
+  window.addEventListener("blur", () => closeBrushPicker());
+
   /* ---- the Clone Stamp ---- */
 
   // Alt + click sets the source. Aligned, the first stroke fixes how far the source is from the
@@ -8112,6 +8192,10 @@
     event.preventDefault();
     if (macWandClick) return;
     if (!app.doc || event.altKey || Shell.touch || event.target.closest(".start")) return;
+    if (sizesBrush(app.tool) && !event.shiftKey && !gesture) {
+      openBrushPicker(event.clientX, event.clientY);
+      return;
+    }
     const point = toDoc(event);
     const hit = ops.hitLayer(point[0], point[1]);
     if (hit && !app.doc.state.activeIds.includes(hit.id)) ops.selectLayer(hit.id);

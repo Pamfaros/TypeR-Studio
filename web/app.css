@@ -85,6 +85,11 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .menu__item:hover:not(:disabled), .menu__item:focus-visible { background: rgb(var(--blue-rgb) / 0.3); color: var(--strong); outline: 0; }
 .menu__item:disabled { color: var(--disabled); cursor: default; }
 .menu__list--context { position: fixed; top: auto; left: auto; z-index: 60; max-height: calc(100vh - 16px); overflow-y: auto; }
+/* A right click with a brush: its size and hardness */
+.brush-picker { position: fixed; z-index: 60; display: grid; grid-template-columns: auto 140px 56px auto; align-items: center; gap: 8px 8px; padding: 10px 12px; background: var(--ui-2); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); white-space: nowrap; }
+.brush-picker > span { color: var(--muted); }
+.brush-picker input[type="range"] { width: 140px; }
+.brush-picker input[type="number"] { width: 56px; }
 .menu__item kbd { font: inherit; color: var(--muted); }
 .menu__item:hover:not(:disabled) kbd, .menu__item:focus-visible kbd { color: var(--strong); }
 .menu__item kbd { direction: ltr; unicode-bidi: isolate; }
