@@ -453,9 +453,10 @@
     });
   }, true);
 
-  // The pages given to Import pages are the app's chapter, the one its pager and Page Down /
-  // Page Up go through, script or not. The same button, lit, unlinks them. And the other way
-  // round: a chapter opened in the app is given to this button (pagesFromApp, below).
+  // Import pages is the app's File > Open a Chapter…, in the panel: the same dialog, and the
+  // chapter it opens is the one the pager, Page Down / Page Up and Flow go through, its first
+  // page opened. The app then gives the pages to this button (pagesFromApp, below). The same
+  // button, lit, unlinks them.
   let fromApp = false;
   document.addEventListener("change", (event) => {
     const input = event.target;
@@ -463,7 +464,15 @@
   }, true);
   document.addEventListener("click", (event) => {
     const button = event.target.closest && event.target.closest('[data-tour="import-pages"]');
-    if (!fromApp && button && button.classList.contains("is-active") && window.parent.TypeRApp) window.parent.TypeRApp.setPages(null, true);
+    const app = window.parent.TypeRApp;
+    if (fromApp || !button || !app) return;
+    if (button.classList.contains("is-active")) {
+      app.setPages(null, true);
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    app.openPages();
   }, true);
   // The walkthrough offered by the panel's Help is Photoshop's: here the app's own tutorial
   // (guide.js) takes its place, the Help closing behind it
@@ -478,6 +487,17 @@
     if (close) close.click();
     guide.show();
   }, true);
+  // The panel keeps its pages script by script, and the app has one chapter: the script that
+  // comes in front (another tab, a new one) is linked to the chapter's pages too
+  let scriptInFront = null;
+  new MutationObserver(() => {
+    const tab = document.querySelector(".tab-bar-tab.m-active");
+    const id = tab ? tab.getAttribute("data-tour-tab") : null;
+    if (!id || id === scriptInFront) return;
+    const first = scriptInFront === null;
+    scriptInFront = id;
+    if (!first && window.parent.TypeRApp) window.parent.TypeRApp.linkPages();
+  }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
   const pagesFromApp = {
     // Made again in this window: the panel reads each file's path, which only this window's files have
     importPages(files) {
