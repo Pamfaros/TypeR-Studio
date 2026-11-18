@@ -1,15 +1,109 @@
 {
   "highlights": [
     {
+      "id": "flow-mode",
+      "at": "2026-11-18T12:58:21+01:00",
+      "icon": "pages",
+      "title": {
+        "en": "Flow mode",
+        "fr": "Mode Flow"
+      },
+      "text": {
+        "en": "Every page of the chapter on one surface: zoom out to see them all, glide to the next one and zoom in. The page in the middle of the screen is the one you work on, and the script follows it.",
+        "fr": "Toutes les pages du chapitre sur une même surface : dézoomez pour les voir toutes, glissez jusqu’à la suivante et zoomez. La page au milieu de l’écran est celle sur laquelle vous travaillez, et le script la suit."
+      },
+      "where": {
+        "en": "Settings → Page display",
+        "fr": "Paramètres → Affichage des pages"
+      },
+      "demo": "flow-mode.mp4",
+      "poster": "flow-mode.webp",
+      "covers": [
+        "0fe800213618"
+      ]
+    },
+    {
+      "id": "auto-perspective",
+      "at": "2026-11-18T12:58:21+01:00",
+      "icon": "perspective",
+      "title": {
+        "en": "Auto Perspective",
+        "fr": "Perspective automatique"
+      },
+      "text": {
+        "en": "Drag over a board, a wall or a sign drawn on the page: TypeR finds its perspective, and the texts on it lie flat on the surface, even when you move them.",
+        "fr": "Glissez sur un tableau, un mur ou une enseigne dessinés sur la page : TypeR trouve sa perspective, et les textes posés dessus épousent la surface, même quand vous les déplacez."
+      },
+      "where": {
+        "en": "P",
+        "fr": "P"
+      },
+      "demo": "auto-perspective.mp4",
+      "poster": "auto-perspective.webp",
+      "covers": [
+        "f8f52f19e1e5"
+      ]
+    },
+    {
+      "id": "library",
+      "at": "2026-11-18T12:58:21+01:00",
+      "icon": "brush",
+      "title": {
+        "en": "Clip Studio Paint brushes and materials",
+        "fr": "Pinceaux et matériaux Clip Studio Paint"
+      },
+      "text": {
+        "en": "Import your .sut brushes and .clip materials, alone or in a .zip. Pick a brush and paint with the Brush (B); double-click a bubble or a screentone to place it on the page.",
+        "fr": "Importez vos pinceaux .sut et matériaux .clip, seuls ou dans un .zip. Choisissez un pinceau et peignez avec le Pinceau (B) ; double-cliquez sur une bulle ou une trame pour la poser sur la page."
+      },
+      "where": {
+        "en": "Window → Library",
+        "fr": "Fenêtre → Bibliothèque"
+      },
+      "demo": "library.mp4",
+      "poster": "library.webp",
+      "covers": [
+        "19c0f83e437f"
+      ]
+    },
+    {
+      "id": "bubble-distances",
+      "at": "2026-11-18T12:58:21+01:00",
+      "icon": "distance",
+      "title": {
+        "en": "Show Bubble Distances",
+        "fr": "Distances à la bulle"
+      },
+      "text": {
+        "en": "While you drag a text, a thin line runs from each of its sides to the edge of its bubble, with its length. The lines turn green when the text is centred.",
+        "fr": "Pendant que vous déplacez un texte, une ligne fine part de chacun de ses côtés jusqu’au bord de la bulle, avec sa longueur. Les lignes passent au vert quand le texte est centré."
+      },
+      "where": {
+        "en": "Move tool (V), or View",
+        "fr": "Outil Déplacement (V), ou Affichage"
+      },
+      "demo": "bubble-distances.mp4",
+      "poster": "bubble-distances.webp",
+      "covers": [
+        "5fece4e8fdb0"
+      ]
+    },
+    {
       "id": "text-detection",
       "at": "2026-11-09T12:00:00+01:00",
       "icon": "text",
-      "title": { "en": "Automatic text detection", "fr": "Détection automatique du texte" },
+      "title": {
+        "en": "Automatic text detection",
+        "fr": "Détection automatique du texte"
+      },
       "text": {
         "en": "Detect Text finds every letter on the page in seconds. Remove Text then cleans them all: plain backgrounds at once, the art redrawn by Generative Fill.",
         "fr": "Détecter le texte trouve toutes les lettres de la page en quelques secondes. Effacer le texte les nettoie ensuite : les fonds unis tout de suite, le dessin redessiné par le Remplissage génératif."
       },
-      "where": { "en": "Select → Text", "fr": "Sélection → Texte" },
+      "where": {
+        "en": "Select → Text",
+        "fr": "Sélection → Texte"
+      },
       "credit": {
         "en": "Thanks to Miller for the work and the API behind it.",
         "fr": "Merci à Miller pour le travail et l’API qui la font tourner."
@@ -21,26 +115,40 @@
       "id": "generative-fill-local",
       "at": "2026-11-09T12:00:00+01:00",
       "icon": "sparkles",
-      "title": { "en": "Generative Fill, with or without a key", "fr": "Remplissage génératif, avec ou sans clé" },
+      "title": {
+        "en": "Generative Fill, with or without a key",
+        "fr": "Remplissage génératif, avec ou sans clé"
+      },
       "text": {
         "en": "Select, say what you want, Generate: Nano Banana 2.1 redraws it with your fal.ai or Google key. Without a key, LaMa Manga runs right on your device, and the desktop app adds FLUX.2 Klein 4B and FLUX 3 Klein.",
         "fr": "Sélectionnez, dites ce que vous voulez, Générer : Nano Banana 2.1 le redessine avec votre clé fal.ai ou Google. Sans clé, LaMa Manga tourne directement sur votre appareil, et l’app de bureau ajoute FLUX.2 Klein 4B et FLUX 3 Klein."
       },
-      "where": { "en": "Select, then Generative Fill", "fr": "Sélection, puis Remplissage génératif" },
+      "where": {
+        "en": "Select, then Generative Fill",
+        "fr": "Sélection, puis Remplissage génératif"
+      },
       "demo": "generative-fill.mp4",
       "poster": "generative-fill.webp",
-      "covers": ["2426e6b1a4e8"]
+      "covers": [
+        "2426e6b1a4e8"
+      ]
     },
     {
       "id": "gradient",
       "at": "2026-11-09T12:00:00+01:00",
       "icon": "gradient",
-      "title": { "en": "Gradient", "fr": "Dégradé" },
+      "title": {
+        "en": "Gradient",
+        "fr": "Dégradé"
+      },
       "text": {
         "en": "Drag across a text or an SFX: its letters take the gradient, their stroke keeps its colour and the text stays editable. Its ends can still be dragged until Enter.",
         "fr": "Glissez sur un texte ou un SFX : ses lettres prennent le dégradé, leur contour garde sa couleur et le texte reste modifiable. Ses extrémités se déplacent encore jusqu’à Entrée."
       },
-      "where": { "en": "G", "fr": "G" },
+      "where": {
+        "en": "G",
+        "fr": "G"
+      },
       "demo": "gradient.mp4",
       "poster": "gradient.webp"
     },
@@ -48,50 +156,106 @@
       "id": "photoshop-bridge",
       "at": "2026-11-09T12:00:00+01:00",
       "icon": "swap",
-      "title": { "en": "From TypeR Studio to Photoshop, and back", "fr": "De TypeR Studio à Photoshop, et retour" },
+      "title": {
+        "en": "From TypeR Studio to Photoshop, and back",
+        "fr": "De TypeR Studio à Photoshop, et retour"
+      },
       "text": {
         "en": "Open in Photoshop, in the TypeR panel’s footer, sends your pages there with the script if you like. In Photoshop, TypeR’s Open in TypeR Studio brings them back here.",
         "fr": "Ouvrir dans Photoshop, en bas du panneau TypeR, y envoie vos pages, avec le script si vous voulez. Dans Photoshop, Ouvrir dans TypeR Studio de TypeR les ramène ici."
       },
-      "where": { "en": "Desktop app", "fr": "App de bureau" },
-      "covers": ["ed9568f8a74e", "1c4350031d0c", "1c165f48cd5d"]
+      "where": {
+        "en": "Desktop app",
+        "fr": "App de bureau"
+      },
+      "covers": [
+        "ed9568f8a74e",
+        "1c4350031d0c",
+        "1c165f48cd5d"
+      ]
     }
   ],
   "notes": [
+    {
+      "id": "x-flow-spreads",
+      "at": "2026-11-18T12:58:21+01:00",
+      "kind": "feat",
+      "text": "In Flow, drag a page against another to join them as a spread; Image → Separate Pages splits it again",
+      "lang": {
+        "fr": "Dans Flow, glissez une page contre une autre pour en faire une double page ; Image → Séparer les pages la sépare à nouveau"
+      }
+    },
+    {
+      "id": "x-flow-pick",
+      "at": "2026-11-18T12:58:21+01:00",
+      "kind": "feat",
+      "text": "In Flow, Cmd-click or Shift-click page names to move, save or close several pages at once",
+      "lang": {
+        "fr": "Dans Flow, Cmd+clic ou Maj+clic sur les noms des pages pour en déplacer, enregistrer ou fermer plusieurs à la fois"
+      }
+    },
+    {
+      "id": "x-save-all",
+      "at": "2026-11-18T12:58:21+01:00",
+      "kind": "feat",
+      "text": "File → Save All (Alt+Cmd+S) saves every page with changes; Batch Save gets Alt+Shift+Cmd+S",
+      "lang": {
+        "fr": "Fichier → Tout enregistrer (Alt+Cmd+S) enregistre toutes les pages modifiées ; Enregistrer par lot reçoit Alt+Maj+Cmd+S"
+      }
+    },
+    {
+      "id": "x-open-chapter",
+      "at": "2026-11-18T12:58:21+01:00",
+      "kind": "feat",
+      "text": "Open Pages… is now Open a Chapter… (Shift+Cmd+O)",
+      "lang": {
+        "fr": "Ouvrir des pages… s’appelle désormais Ouvrir un chapitre… (Maj+Cmd+O)"
+      }
+    },
     {
       "id": "x-spot-healing",
       "at": "2026-11-09T12:00:00+01:00",
       "kind": "feat",
       "text": "Spot Healing Brush (Shift+J): paint over a spot or a letter, it is filled with what surrounds it",
-      "lang": { "fr": "Correcteur localisé (Maj+J) : peignez sur une tache ou une lettre, elle est remplie avec ce qui l’entoure" }
+      "lang": {
+        "fr": "Correcteur localisé (Maj+J) : peignez sur une tache ou une lettre, elle est remplie avec ce qui l’entoure"
+      }
     },
     {
       "id": "x-color-range",
       "at": "2026-11-09T12:00:00+01:00",
       "kind": "feat",
       "text": "Select a colour across the page with Select → Color Range…",
-      "lang": { "fr": "Sélectionner une couleur dans toute la page avec Sélection → Plage de couleurs…" }
+      "lang": {
+        "fr": "Sélectionner une couleur dans toute la page avec Sélection → Plage de couleurs…"
+      }
     },
     {
       "id": "x-favourite-fonts",
       "at": "2026-11-09T12:00:00+01:00",
       "kind": "feat",
       "text": "Star your favourite fonts: they come first in the font list, or alone with Show favourites only",
-      "lang": { "fr": "Mettez une étoile à vos polices favorites : elles passent en tête de la liste, ou seules avec Afficher seulement les favoris" }
+      "lang": {
+        "fr": "Mettez une étoile à vos polices favorites : elles passent en tête de la liste, ou seules avec Afficher seulement les favoris"
+      }
     },
     {
       "id": "x-tutorial",
       "at": "2026-11-09T12:00:00+01:00",
       "kind": "feat",
       "text": "Help → TypeR Tutorial teaches TypeR Studio in short lessons, done in the real workspace on a practice chapter",
-      "lang": { "fr": "Aide → Tutoriel de TypeR apprend TypeR Studio en courtes leçons, faites dans le vrai espace de travail sur un chapitre d’entraînement" }
+      "lang": {
+        "fr": "Aide → Tutoriel de TypeR apprend TypeR Studio en courtes leçons, faites dans le vrai espace de travail sur un chapitre d’entraînement"
+      }
     },
     {
       "id": "x-sfx-arabic",
       "at": "2026-11-11T12:00:00+01:00",
       "kind": "feat",
       "text": "Arabic letters in an SFX join as in a word, and Arabic and Hebrew SFX read from the right",
-      "lang": { "fr": "Dans un SFX, les lettres arabes se lient comme dans un mot, et les SFX en arabe et en hébreu se lisent de droite à gauche" }
+      "lang": {
+        "fr": "Dans un SFX, les lettres arabes se lient comme dans un mot, et les SFX en arabe et en hébreu se lisent de droite à gauche"
+      }
     }
   ]
 }

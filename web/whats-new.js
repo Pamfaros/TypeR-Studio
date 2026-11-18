@@ -40,6 +40,14 @@
     gradient: SVG('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15 15 3M3 21 21 3M9 21 21 9"/>'),
     sparkles: SVG('<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/><path d="M5 3v4M3 5h4M19 17v4M17 19h4"/>'),
     swap: SVG('<path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/>'),
+    // Pages side by side (Flow)
+    pages: SVG('<rect x="2" y="5" width="6" height="14" rx="1"/><rect x="9" y="5" width="6" height="14" rx="1"/><rect x="16" y="5" width="6" height="14" rx="1"/>'),
+    // A wall going away (Auto Perspective)
+    perspective: SVG('<path d="M3 4.5 21 8v8L3 19.5Z"/><path d="M3 12h18"/><path d="M9 5.7v12.6"/><path d="M15 6.9v10.2"/>'),
+    // A brush (the Library's)
+    brush: SVG('<path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-3-3Z"/><path d="M9 12c-2.5 0-4 1.6-4 4 0 1.5-1 2.5-2.5 2.5C4 20.5 6 21.5 8 21.5c3 0 5-2 5-4.5Z"/>'),
+    // From a side to a wall (Show Bubble Distances)
+    distance: SVG('<path d="M4 4v16M20 4v16"/><path d="M7 12h10"/><path d="m9.5 9.5-2.5 2.5 2.5 2.5M14.5 9.5l2.5 2.5-2.5 2.5"/>'),
     heart: SVG('<path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7Z"/>'),
     play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5Z" fill="currentColor"/></svg>',
     chevron: SVG('<path d="m9 6 6 6-6 6"/>'),
