@@ -542,17 +542,34 @@
   // The panel's stylesheets in the part's page, in their order, and its theme (the classes and
   // variables of its <html> and <body>), again whenever they change. A sheet already there
   // stays put: moved, a <link> would load again.
+  // The panel's theme is written rule by rule into a <style> (TypeR's themeManager.js), not
+  // as its text: a sheet is read from its rules
+  const sheetText = (node) => {
+    try {
+      if (node.sheet) return Array.prototype.map.call(node.sheet.cssRules, (rule) => rule.cssText).join("\n");
+    } catch (error) {
+      // Not readable: its text
+    }
+    return node.textContent;
+  };
+  const cloneSheet = (doc, node, text) => {
+    if (node.nodeName !== "STYLE") return doc.importNode(node, true);
+    const clone = doc.createElement("style");
+    Array.from(node.attributes).forEach((attribute) => clone.setAttribute(attribute.name, attribute.value));
+    clone.textContent = text;
+    return clone;
+  };
   const mirrorStyles = (doc, own) => {
     const clones = new Map();
-    const signature = (node) => (node.nodeName === "STYLE" ? `s${node.textContent}` : `l${node.href}|${node.media}|${node.disabled}`);
     const sync = () => {
       const wanted = [];
       document.head.querySelectorAll(STYLESHEETS).forEach((node) => {
-        const sign = signature(node);
+        const text = node.nodeName === "STYLE" ? sheetText(node) : "";
+        const sign = node.nodeName === "STYLE" ? `s${text}` : `l${node.href}|${node.media}|${node.disabled}`;
         let entry = clones.get(node);
         if (!entry || entry.sign !== sign) {
           if (entry) entry.clone.remove();
-          entry = { sign, clone: doc.importNode(node, true) };
+          entry = { sign, clone: cloneSheet(doc, node, text) };
           clones.set(node, entry);
         }
         wanted.push(entry.clone);
@@ -574,9 +591,15 @@
     observer.observe(document.head, { childList: true, subtree: true, characterData: true, attributes: true });
     observer.observe(document.documentElement, { attributes: true });
     observer.observe(document.body, { attributes: true });
+    // Rules added that way change no element: read again when the panel may have changed them
+    // (it starts, its theme comes), and whenever the pointer comes into the part
+    const timers = [0, 500, 2000].map((wait) => setTimeout(sync, wait));
+    doc.documentElement.addEventListener("mouseenter", sync);
     sync();
     return () => {
       observer.disconnect();
+      timers.forEach(clearTimeout);
+      doc.documentElement.removeEventListener("mouseenter", sync);
       clones.forEach((entry) => entry.clone.remove());
     };
   };
