@@ -7,7 +7,7 @@
 "use strict";
 
 const CACHE = "typer-web-1";
-// A slow connection gets the copy after this long, and the answer goes in the copy for next time
+// A slow connection gets the copied page after this long, and the answer goes in the copy for next time
 const WAIT = 1500;
 const CORE = ["./", "app.css", "touch.css", "shell.js", "keyclick.js", "fonts.js", "fontfinder.js", "kit.js", "inpaint.js", "outline.js", "textwarp.js", "photoshop.js", "psd.js", "atn.js", "asl.js", "indesign.js", "psd-worker.js", "align-worker.js", "lama-worker.js", "session.js", "recent.js", "workspace.js", "generative.js", "textmask.js", "whats-new.js", "whats-new.json", "whats-new/highlights.json", "feedback.js", "stats.js", "onboarding.js", "app.js", "actions.js", "styles.js", "sfx.js", "retouch.js", "reshape.js", "reshape-tool.js", "sfx-guide.js", "sfx.css", "guide.js", "guide.css", "hyphenation.js", "breaks.js", "touch.js", "bridge.js", "manifest.webmanifest", "vendor/ag-psd.js", "../i18n.js", "panel/index.html"];
 
@@ -81,6 +81,10 @@ self.addEventListener("message", (event) => {
   event.waitUntil(keepAll(urls));
 });
 
+// The pages whose own load came from the copy, after WAIT: their files come from it too. A page
+// takes all its files from one place, never app.js new and photoshop.js old.
+const fromCopy = new Set();
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -93,6 +97,9 @@ self.addEventListener("fetch", (event) => {
     if (!held) return asked;
     // A file gone from the server (an old part of the panel a page still asks for) stays usable
     const answer = asked.then((response) => (response.ok ? response : held)).catch(() => held);
-    return Promise.race([answer, new Promise((resolve) => setTimeout(() => resolve(held), WAIT))]);
+    if (request.mode !== "navigate") return fromCopy.has(event.clientId) ? held : answer;
+    const page = await Promise.race([answer, new Promise((resolve) => setTimeout(() => resolve(held), WAIT))]);
+    if (page === held && event.resultingClientId) fromCopy.add(event.resultingClientId);
+    return page;
   })());
 });
