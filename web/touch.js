@@ -128,15 +128,24 @@
     area.dispatchEvent(new frame.contentWindow.Event("input", { bubbles: true }));
   };
 
+  // Writing: the whole script as one text, with its name, until Done (the script's own view, below)
   let writing = false;
   const setWriting = (on, focus) => {
+    if (writing && !on) keepWriting();
     writing = on;
-    const doc = panel();
-    if (doc) doc.documentElement.classList.toggle("t-writing", on);
-    const area = doc && doc.querySelector(".text-area");
-    if (area && focus) area.focus();
-    if (area && !on) area.blur();
+    editingLine = -1;
+    scriptKey = "";
+    // A text to write takes the whole sheet
+    if (current === "script") {
+      tall = on;
+      dragged = null;
+      layoutSheet();
+    }
+    renderScript();
     renderSheetHead();
+    // The keyboard comes at once for a script to write; for one to correct, where it is touched
+    const area = on && focus ? NATIVE.script.querySelector(".tscript__area") : null;
+    if (area) area.focus();
   };
 
   // The PSDs of a chapter, linked to the script: each "Page 12" line opens its file. The
@@ -245,12 +254,12 @@
 
   const sheet = $("t-sheet");
   const native = (id) => el("section", "tview", { id });
-  const NATIVE = { position: native("t-view-position"), pages: native("t-view-pages"), more: native("t-view-more"), export: native("t-view-export") };
+  const NATIVE = { script: native("t-view-script"), position: native("t-view-position"), pages: native("t-view-pages"), more: native("t-view-more"), export: native("t-view-export") };
   Object.values(NATIVE).forEach((view) => $("app").appendChild(view));
 
   const VIEWS = {
     tools: { title: "Tools", element: () => $("tools"), icon: "wand" },
-    script: { title: "Script", element: () => $("dock-typer"), panel: "script", icon: "script" },
+    script: { title: "Script", element: () => NATIVE.script, icon: "script" },
     styles: { title: "Styles", element: () => $("dock-typer"), panel: "styles", icon: "styles" },
     shapes: { title: "TextShapeR", element: () => $("dock-typer"), panel: "top", follows: true },
     panel: { title: "TypeR", element: () => $("dock-typer"), panel: "all", tall: true },
@@ -260,6 +269,8 @@
     history: { title: "History", element: () => $("pane-history") },
     // Photoshop's Styles panel (styles.js), named apart from TypeR's own text styles
     layerStyles: { title: "Layer Styles", element: () => $("pane-styles") },
+    // Brushes and materials brought in from Clip Studio Paint (library.js)
+    library: { title: "Library", element: () => $("pane-library"), tall: true },
     position: { title: "Position", element: () => NATIVE.position, follows: true },
     pages: { title: "Pages", element: () => NATIVE.pages },
     more: { title: "More", element: () => NATIVE.more, icon: "more", tall: true },
@@ -312,15 +323,19 @@
     // Beside the page, the tab that opened the panel already names it: its buttons get the room
     requestAnimationFrame(() => sheetHead.classList.toggle("has-actions", sheetActions.childElementCount > 0));
     if (current === "script") {
-      sheetActions.append(
-        button("sheet__action", "paste", T("Paste"), pasteScript, true),
-        button(`sheet__action${writing ? " is-on" : ""}`, writing ? null : "pencil", T(writing ? "Done" : "Modify"), () => setWriting(!writing, !writing), true),
-      );
+      const now = scriptNow();
       const linked = pagesLinked();
       shownLinked = linked;
-      const pages = button(`sheet__action${linked ? " is-on" : ""}`, "folder", T("Pages"), () => pressInPanel('[data-tour="import-pages"]'), true);
-      pages.title = panelText(linked ? "footerDesyncRepo" : "footerOpenRepo") || T("Pages");
-      sheetActions.append(pages);
+      if (writing) sheetActions.append(button("sheet__action is-on", null, T("Done"), () => setWriting(false), true));
+      else if (now && now.text.trim()) {
+        // The chapter's files, for a script that says where each page starts
+        if (linked || now.rows.some((row) => row.classList.contains("m-page"))) {
+          const pages = button(`sheet__action${linked ? " is-on" : ""}`, "folder", T("Pages"), () => pressInPanel('[data-tour="import-pages"]'), true);
+          pages.title = panelText(linked ? "footerDesyncRepo" : "footerOpenRepo") || T("Pages");
+          sheetActions.append(pages);
+        }
+        sheetActions.append(button("sheet__action", "pencil", T("Modify"), () => setWriting(true), true));
+      }
     }
     if (SIZED_SHEETS.has(current)) {
       sheetActions.append(sheetSizeGroup);
@@ -346,8 +361,9 @@
     if (RENDER[name]) RENDER[name]();
     syncPanel();
     if (name === "script") {
-      const line = readScript();
-      setWriting(Boolean(line && line.empty) || (writing && previous === "script"));
+      scriptKey = "";
+      scriptSeen = -1;
+      renderScript();
     } else if (writing) setWriting(false);
     renderSheetHead();
     renderNav();
@@ -400,6 +416,235 @@
     sheetHead.addEventListener("pointercancel", up);
   });
 
+  /* -------------------------------- the script -------------------------------- */
+
+  // The script as fingers read it: a row a line, the one in front marked, the page markers as
+  // titles, each script a chip. The panel still holds it and does the work: its own rows are
+  // read here (their numbers, its page markers, the tags it found) and its own buttons pressed,
+  // so the two can't disagree.
+  const scriptTabs = el("div", "tscript__tabs");
+  const scriptBody = el("div", "tscript__body");
+  // No filter: a phone's picker greys out what it doesn't know (see the files, below)
+  const scriptFile = el("input", "", { type: "file", hidden: true });
+  NATIVE.script.append(scriptTabs, scriptBody, scriptFile);
+  scriptFile.addEventListener("change", () => {
+    const files = Array.from(scriptFile.files);
+    scriptFile.value = "";
+    if (files.length) App.openFiles(files);
+  });
+
+  let scriptKey = "";
+  let scriptSeen = -1;
+  let editingLine = -1;
+  let written = null;
+
+  const scriptNow = () => {
+    const doc = panel();
+    const area = doc && doc.querySelector(".text-area");
+    if (!area) return null;
+    return {
+      text: area.value,
+      rows: Array.from(doc.querySelectorAll(".text-line")),
+      tabs: Array.from(doc.querySelectorAll(".tab-bar-tab")).map((tab) => {
+        const name = tab.querySelector(".tab-bar-name");
+        return { id: tab.dataset.tourTab || "", name: name ? name.textContent : "", on: tab.classList.contains("m-active") };
+      }),
+    };
+  };
+
+  // The panel's own target on the row is what it listens to: a drawing, which has no click of its own
+  const pickLine = (index) => {
+    const doc = panel();
+    const target = doc && doc.querySelector(`.text-line[data-line-index="${index}"] .text-line-select svg`);
+    if (target) target.dispatchEvent(new frame.contentWindow.MouseEvent("click", { bubbles: true }));
+  };
+
+  // The panel renames a tab in a field of its own, opened by two taps on the tab
+  const renameScript = (name) => {
+    const doc = panel();
+    const tab = doc && doc.querySelector(".tab-bar-tab.m-active");
+    if (!tab) return;
+    tab.dispatchEvent(new frame.contentWindow.MouseEvent("dblclick", { bubbles: true }));
+    setTimeout(() => {
+      const input = doc.querySelector(".tab-bar-rename-input");
+      if (!input) return;
+      Object.getOwnPropertyDescriptor(frame.contentWindow.HTMLInputElement.prototype, "value").set.call(input, name);
+      input.dispatchEvent(new frame.contentWindow.Event("input", { bubbles: true }));
+      input.dispatchEvent(new frame.contentWindow.KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }));
+      input.blur();
+    }, 60);
+  };
+
+  // What was written is kept when Done is pressed, and when the sheet is left without it
+  function keepWriting() {
+    const kept = written;
+    written = null;
+    if (!kept || !panel()) return;
+    if (kept.area.value !== kept.text) setScript(kept.area.value);
+    const name = kept.name ? kept.name.value.trim() : "";
+    if (name && name !== kept.was) renameScript(name);
+  }
+
+  const scriptChips = (now) => {
+    scriptTabs.textContent = "";
+    now.tabs.forEach((tab) => {
+      const chip = button(`tchip${tab.on ? " is-on" : ""}`, null, tab.name || T("Script"), () => {
+        if (!tab.on) pressInPanel(`.tab-bar-tab[data-tour-tab="${tab.id}"]`);
+      }, true);
+      chip.setAttribute("aria-pressed", String(tab.on));
+      scriptTabs.appendChild(chip);
+    });
+    scriptTabs.appendChild(button("tchip tchip--add", "plus", panelText("tabAdd") || T("Add"), () => pressInPanel(".tab-bar-add")));
+    const on = scriptTabs.querySelector(".tchip.is-on");
+    if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
+
+  // Nothing yet: the three ways a script comes in
+  const scriptEmpty = () => {
+    const box = el("div", "tscript__empty");
+    box.innerHTML = ICON.script;
+    box.append(
+      el("p", "tscript__lead", { textContent: T("Add your script to paste it bubble by bubble.") }),
+      el("p", "tscript__hint", { textContent: T("One line per bubble. A line like “Page 12” starts a new page.") }),
+      button("btn btn--main", "paste", T("Paste"), pasteScript, true),
+      button("btn", "folder", T("Import the script"), () => scriptFile.click(), true),
+      button("btn", "pencil", T("Write"), () => setWriting(true, true), true),
+    );
+    return box;
+  };
+
+  // The whole script as one text, with its name; and its end, when it isn't the only one
+  const scriptWriting = (now) => {
+    const tab = now.tabs.find((one) => one.on);
+    const name = tab ? el("input", "tscript__name", { type: "text", value: tab.name, placeholder: T("Name"), spellcheck: false }) : null;
+    if (name) name.setAttribute("aria-label", T("Name"));
+    const area = el("textarea", "tscript__area", { value: now.text, spellcheck: false, placeholder: T("One line per bubble. A line like “Page 12” starts a new page.") });
+    area.setAttribute("aria-label", T("Script"));
+    written = { area, name, text: now.text, was: tab ? tab.name : "" };
+    // It opens where the work is: at the line in front
+    const front = now.rows.find((row) => row.classList.contains("m-current"));
+    const lines = Math.max(1, now.text.split(/\r?\n/).length);
+    if (front) requestAnimationFrame(() => { area.scrollTop = Math.max(0, (Number(front.dataset.lineIndex) / lines) * area.scrollHeight - 80); });
+    const remove = now.tabs.length > 1 ? button("trow tscript__remove", "trash", panelText("tabClose") || T("Close"), () => {
+      written = null;
+      setWriting(false);
+      pressInPanel(".tab-bar-tab.m-active .tab-bar-close");
+    }, true) : null;
+    return el("div", "tscript__write", null, name, area, remove);
+  };
+
+  // One line changed where it is: the commonest fix before it's pasted
+  const lineEditor = (index, lines) => {
+    const area = el("textarea", "tline__area", { value: lines[index] || "", spellcheck: false, rows: 2 });
+    area.setAttribute("aria-label", T("Modify"));
+    const done = () => {
+      editingLine = -1;
+      scriptKey = "";
+      if (area.value !== lines[index]) {
+        const next = lines.slice();
+        next[index] = area.value;
+        setScript(next.join("\n"));
+      }
+      renderScript();
+    };
+    area.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      done();
+    });
+    const box = el("div", "tline tline--edit", null, area, button("btn btn--main btn--small", null, T("Done"), done, true));
+    // In sight with its button, once the keyboard has taken its room too
+    [0, 350, 700].forEach((wait) => setTimeout(() => {
+      if (!box.isConnected) return;
+      if (!wait) {
+        area.focus();
+        area.setSelectionRange(area.value.length, area.value.length);
+      }
+      box.scrollIntoView({ block: "nearest" });
+    }, wait));
+    return box;
+  };
+
+  const scriptList = (now) => {
+    const list = el("div", "tscript__list");
+    const lines = now.text.split(/\r?\n/);
+    now.rows.forEach((row) => {
+      const words = row.querySelector(".text-line-text");
+      if (!words || !words.textContent.trim()) return;
+      const index = Number(row.dataset.lineIndex);
+      if (index === editingLine) {
+        list.appendChild(lineEditor(index, lines));
+        return;
+      }
+      const page = row.classList.contains("m-page");
+      const number = row.querySelector(".text-line-num");
+      const text = el("span", "tline__text");
+      Array.from(words.childNodes).forEach((node) => text.appendChild(document.importNode(node, true)));
+      // A page's title has no number: the panel names there the file linked to it, shown
+      // after the title
+      const label = number ? number.textContent.trim() : "";
+      const main = el("button", "tline__main", { type: "button" }, el("span", "tline__num", { textContent: page ? "" : label }), text, page && label ? el("span", "tline__file", { textContent: label }) : null);
+      main.addEventListener("click", () => pickLine(index));
+      const edit = button("tline__edit", "pencil", T("Modify"), () => {
+        editingLine = index;
+        scriptKey = "";
+        renderScript();
+      });
+      // A line the panel passes over (a note, a title) is read, not pasted
+      const item = el("div", `tline${page ? " tline--page" : row.classList.contains("m-empty") ? " tline--skip" : ""}`, null, main, edit);
+      item.dataset.index = index;
+      list.appendChild(item);
+    });
+    return list;
+  };
+
+  function renderScript() {
+    if (current !== "script") return;
+    const now = scriptNow();
+    // The panel is still on its way
+    if (!now) {
+      scriptTabs.hidden = true;
+      scriptBody.textContent = "";
+      scriptKey = "";
+      return;
+    }
+    const blank = !now.text.trim();
+    const mode = writing ? "write" : blank ? "empty" : "list";
+    // The files linked to the pages change without the text
+    const files = now.rows.filter((row) => row.classList.contains("m-page")).map((row) => (row.querySelector(".text-line-num") || row).textContent.trim()).join();
+    const key = [mode, editingLine, now.tabs.map((tab) => `${tab.id}:${tab.name}:${tab.on}`).join(), files, now.text].join("\u0001");
+    if (key !== scriptKey) {
+      const head = scriptKey.split("\u0001")[0] !== mode;
+      scriptKey = key;
+      scriptTabs.hidden = writing || (blank && now.tabs.length < 2);
+      if (!scriptTabs.hidden) scriptChips(now);
+      const top = scriptBody.scrollTop;
+      scriptBody.textContent = "";
+      scriptBody.appendChild(mode === "write" ? scriptWriting(now) : mode === "empty" ? scriptEmpty() : scriptList(now));
+      scriptBody.scrollTop = mode === "list" ? top : 0;
+      if (head) renderSheetHead();
+    }
+    if (mode !== "list") return;
+    // The line in front, and those before it, which are behind
+    const front = now.rows.find((row) => row.classList.contains("m-current"));
+    const at = front ? Number(front.dataset.lineIndex) : -1;
+    scriptBody.querySelectorAll(".tline[data-index]").forEach((item) => {
+      const index = Number(item.dataset.index);
+      item.classList.toggle("is-current", index === at);
+      item.classList.toggle("is-done", index < at && !item.classList.contains("tline--page"));
+    });
+    if (at !== scriptSeen) {
+      const first = scriptSeen < 0;
+      scriptSeen = at;
+      const item = scriptBody.querySelector(".tline.is-current");
+      if (item) item.scrollIntoView({ block: first ? "center" : "nearest" });
+    }
+  }
+  RENDER.script = () => {
+    scriptKey = "";
+    renderScript();
+  };
+
   /* ------------------------------- the top bar -------------------------------- */
 
   const bar = $("t-bar");
@@ -414,7 +659,7 @@
   const logo = el("img", "tbar__logo", { src: "../assets/brand/typer-logo.png", width: 26, height: 26, alt: "TypeR" });
   bar.append(logo, pageBack, pagesButton, pageNext, el("span", "tbar__grow"), barUndo, barRedo, button("tbtn tbtn--main", "share", T("Export"), () => toggleSheet("export")));
 
-  // A chapter (Open Pages…, or the pages given to the script) goes page by page, each one opened
+  // A chapter (Open a Chapter…, or the pages given to the script) goes page by page, each one opened
   // when it's reached; otherwise the open documents follow one another
   const stepPage = (direction) => {
     if (App.chapter()) {
@@ -439,6 +684,7 @@
     pageName.textContent = doc ? `${doc.name}${PS.isDirty(doc) ? " •" : ""}` : "TypeR";
     root.classList.toggle("no-doc", !doc);
     barExport().disabled = !doc;
+    barsChanged();
   };
   const barExport = () => bar.querySelector(".tbtn--main");
 
@@ -672,7 +918,40 @@
         }
       }
     });
+    barsChanged();
   }
+
+  /* ------------------- the bars, for an app that draws them itself ------------------ */
+
+  // On an iPhone the app draws the top bar and the tabs as the system's own (mobile.js): it is
+  // told what they show, here, each time it changes, and says what was pressed.
+  function barsChanged() {
+    window.dispatchEvent(new Event("typer-bars"));
+  }
+  const barsState = () => ({
+    title: pageName.textContent,
+    count: pageCount.textContent,
+    pager: !root.classList.contains("few-pages"),
+    back: !pageBack.disabled,
+    forward: !pageNext.disabled,
+    undo: !barUndo.disabled,
+    redo: !barRedo.disabled,
+    export: Boolean(app.doc),
+    tabs: navOf().map((name) => ({ id: name, label: T(NAV_LABEL[name]) })),
+    current: current || "",
+    labels: { pages: T("Pages"), back: T("Previous page"), forward: T("Next page"), undo: T("Undo"), redo: T("Redo"), export: T("Export") },
+  });
+  const barsDo = (what, id) => {
+    if (what === "tab" && VIEWS[id]) {
+      toggleSheet(id);
+      dockClosedByHand = !current;
+    } else if (what === "undo") ops.undo();
+    else if (what === "redo") ops.redo();
+    else if (what === "back") stepPage(-1);
+    else if (what === "forward") stepPage(1);
+    else if (what === "pages") toggleSheet("pages");
+    else if (what === "export" && app.doc) toggleSheet("export");
+  };
 
   /* ----------------------------------- tools ---------------------------------- */
 
@@ -817,7 +1096,9 @@
 
   /* ------------------------------------ more ---------------------------------- */
 
-  const OUT_OF_PLACE = new Set(["Keyboard Shortcuts", "Support the Project"]);
+  // Not in the menus here: a keyboard's, or rows of their own at the top and the bottom of the sheet
+  const OUT_OF_PLACE = new Set(["Keyboard Shortcuts", "Support the Project", "Load Font Files…", "Loaded Fonts…", "Settings…"]);
+  const IN_APP = Boolean(App.setup.IN_APP);
   const openPanelPart = (selector) => {
     openSheet("panel");
     setTimeout(() => pressInPanel(selector), 60);
@@ -830,9 +1111,19 @@
       row(T("Pages"), () => openSheet("pages"), false, "copy"),
       row(T("History"), () => openSheet("history"), false, "undo"),
       row(T("Layer Styles"), () => openSheet("layerStyles"), false, `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>`),
+      row(T("Library"), () => openSheet("library"), false, `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.500 4l4.500 4.500-9 9-5 .500.500-5z"/><path d="M4 20.500h7"/></svg>`),
       row(T("Line Breaks"), () => openSheet("lines"), false, "lines"),
       row(T("Character"), () => openSheet("text"), false, "font"),
       row("TextShapeR", () => openSheet("shapes"), false, "shapes"),
+      // The fonts of a phone come in here: no font of the device can be listed (app.js)
+      row(T("Fonts"), () => {
+        closeSheet();
+        App.manageFonts();
+      }, false, "text"),
+      row(T("Settings"), () => {
+        closeSheet();
+        App.showSettings();
+      }, false, "settings"),
       row(T("TypeR Settings"), () => openPanelPart('[data-tour="settings"]'), false, "tag"),
       row(T("Full TypeR Panel"), () => openSheet("panel"), false, "script"),
     );
@@ -865,14 +1156,16 @@
       window.location.href = url.href;
     });
     view.append(el("label", "tview__field", null, el("span", "", { textContent: T("Language") }), language));
-    if (document.fullscreenEnabled) {
+    // The app already has the whole screen
+    if (document.fullscreenEnabled && !IN_APP) {
       view.append(row(T("Full Screen"), () => {
         const done = document.fullscreenElement ? document.exitFullscreen() : root.requestFullscreen();
         done.catch((error) => console.warn("TypeR web: full screen refused", error));
       }, false, "fullScreen"));
     }
     view.append(row(T("Support the project"), () => window.open(App.KOFI, "_blank", "noopener"), false, "heart"));
-    view.append(row(T("Desktop Interface"), () => Shell.prefer("desktop")));
+    // A computer's interface on a phone's screen is of no use; a tablet with a mouse can want it
+    if (!(IN_APP && Shell.kind === "phone")) view.append(row(T("Desktop Interface"), () => Shell.prefer("desktop")));
   };
 
   /* ------------------------------ the panel's news ---------------------------- */
@@ -905,25 +1198,47 @@
         }
       }
       if (current === "script" && pagesLinked() !== shownLinked) renderSheetHead();
+      scriptChanged();
       const notice = doc.querySelector(".typer-notice__text");
       const said = notice ? notice.textContent.trim() : "";
       if (said && said !== lastNotice && (!current || !VIEWS[current].panel)) toast(said);
       lastNotice = said;
-    }).observe(doc.body, { childList: true, subtree: true });
+    // The classes too: the line in front is a class on its row
+    }).observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
   };
+
+  // Its rows change a moment after its storage: the script's view is drawn again once they have
+  let scriptWaiting = false;
+  function scriptChanged() {
+    if (current !== "script" || scriptWaiting) return;
+    scriptWaiting = true;
+    requestAnimationFrame(() => {
+      scriptWaiting = false;
+      renderScript();
+    });
+  }
 
   frame.addEventListener("load", () => {
     writing = false;
+    written = null;
     syncPanel();
     watchPanel();
     renderCard();
+    scriptChanged();
   });
 
   /* -------------------------------- the whole -------------------------------- */
 
+  // The panel's script is read and written once the panel is up: at the first start it may
+  // still be on its way
+  const panelUp = () => new Promise((done) => {
+    const look = (tries) => (readScript() || tries > 80 ? done() : setTimeout(() => look(tries + 1), 100));
+    look(0);
+  });
   const startPractice = async () => {
     const page = "typer-practice-page.png";
     await ops.loadImage("panel/assets/typer-practice-page.png", page).catch((error) => toast(fill(T("{name} can't be read: {error}"), { name: page, error: error.message })));
+    await panelUp();
     const line = readScript();
     if (!line || !line.empty) return;
     const lines = [];
@@ -1081,6 +1396,7 @@
     requestAnimationFrame(() => {
       cardWaiting = false;
       renderCard();
+      scriptChanged();
     });
   };
 
@@ -1110,5 +1426,6 @@
     return Boolean(line && line.pasteOnTap && !line.empty);
   };
 
-  window.TypeRTouch = { panelChanged, openSheet, closeSheet, chapterChanged, pastesOnTap };
+  window.TypeRTouch = { panelChanged, openSheet, closeSheet, chapterChanged, pastesOnTap, barsState, barsDo };
+  barsChanged();
 })();

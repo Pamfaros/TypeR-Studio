@@ -112,7 +112,7 @@
       body: JSON.stringify({
         rating,
         text,
-        app: desktop ? `Desktop (${desktop.platform === "mac" ? "Mac" : "Windows"})` : touch ? "Web (touch)" : "Web",
+        app: desktop ? `Desktop (${desktop.platform === "mac" ? "Mac" : "Windows"})` : window.TypeRMobile ? `Mobile (${window.TypeRMobile.platform === "ios" ? "iOS" : "Android"})` : touch ? "Web (touch)" : "Web",
         lang: lang(),
         days: state ? state.days : undefined,
         kind: first ? "first" : undefined,

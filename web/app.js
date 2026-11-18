@@ -26,6 +26,14 @@
   const fill = (text, values) => Object.keys(values).reduce((out, key) => out.split(`{${key}}`).join(values[key]), text);
   const IS_MAC = /mac/i.test(navigator.platform || "");
   const Shell = window.TypeRShell;
+  // TypeR Studio on a phone or a tablet, the iOS and Android app (mobile.js): no browser, no
+  // computer, and what is kept is kept in the app
+  const IN_APP = Boolean(window.TypeRMobile);
+  // A font asked for that isn't there, and where to get it: a phone's fonts come in from More → Fonts
+  const noWebpText = () => (IN_APP ? T("WebP can't be written on this device.") : T("This browser can't write WebP."));
+  const keyNotKeptText = () => (IN_APP ? T("The key couldn't be kept on this device: it works until the app is closed.") : T("The key couldn't be kept on this device: it works until the page is closed."));
+  const fontsPlace = () => `${T("More")} → ${T("Fonts")}`;
+  const notLoadedText = () => (Shell.touch ? fill(T("{font} isn't in TypeR yet. Add it in {menu}."), { menu: fontsPlace() }) : T("{font} isn't loaded. Use File > Use Installed Fonts, or load its file."));
   // An error that stopped what the user asked for (an open, a save), counted without what it was
   // about, for Settings › Anonymous usage statistics (stats.js)
   const reportError = (error) => window.TypeRStats && window.TypeRStats.error(error);
@@ -1282,7 +1290,7 @@
       return { range, number, set };
     });
     // Photoshop reads the font's own file to place the warp: without it the shape can be a little off
-    const fontNote = make("p", "modal__hint", body, T("To get exactly Photoshop's shape, TypeR has to read this font's file: use File > Use Installed Fonts…, or load the font file."));
+    const fontNote = make("p", "modal__hint", body, Shell.touch ? fill(T("To get exactly Photoshop's shape, TypeR has to read this font's file: add it in {menu}."), { menu: fontsPlace() }) : T("To get exactly Photoshop's shape, TypeR has to read this font's file: use File > Use Installed Fonts…, or load the font file."));
     const showState = () => {
       const off = style === "none";
       turnInputs.forEach((input) => { input.disabled = off; });
@@ -3489,7 +3497,7 @@
   const setFontFamily = (family) => {
     const face = mainFace(facesOf(family));
     if (!face) {
-      toast(fill(T("{font} isn't loaded. Use File > Use Installed Fonts, or load its file."), { font: family }));
+      toast(fill(notLoadedText(), { font: family }));
       return;
     }
     const patch = { fontPostScriptName: face.postScriptName, fontName: face.family, fontStyleName: face.style };
@@ -3627,8 +3635,8 @@
         const empty = document.createElement("li");
         empty.className = "font-menu__empty";
         empty.textContent = favoriteFonts.only && !favoriteFonts.families.size
-          ? T("No favourite fonts yet: click the star beside a font to add it.")
-          : fill(T("{font} isn't loaded. Use File > Use Installed Fonts, or load its file."), { font: search.value.trim() });
+          ? (Shell.touch ? T("No favourite fonts yet: tap the star beside a font to add it.") : T("No favourite fonts yet: click the star beside a font to add it."))
+          : fill(notLoadedText(), { font: search.value.trim() });
         list.appendChild(empty);
       }
       active = -1;
@@ -3718,10 +3726,10 @@
       const load = document.createElement("button");
       load.type = "button";
       load.className = "font-menu__more";
-      load.textContent = T("Load Font Files…");
+      load.textContent = T("Add Fonts…");
       load.addEventListener("click", () => {
         close(false);
-        chooseFonts();
+        manageFonts();
       });
       menu.appendChild(load);
     }
@@ -4174,7 +4182,7 @@
           { id: "flowPerRow", label: T("Pages per row in Flow"), value: settings.flowPerRow, type: "number", min: 0, max: 500, step: 1, hint: () => T("0: every page on one row.") },
         ] : []),
         { id: "zoomSpeed", label: T("Zoom speed"), value: settings.zoomSpeed, options: [["normal", T("Normal")], ["fast", T("Fast")], ["veryFast", T("Very fast")]], hint: () => T("When dragging sideways with Ctrl + Space or the Zoom tool.") },
-        ...(Stats ? [{ id: "stats", label: T("Anonymous usage statistics"), type: "checkbox", checked: Stats.enabled(), hint: () => T("Once a day, TypeR Studio tells its team it was opened, so they know how many people use it and what to improve: a random number, web or desktop app, the system, the language, how often each tool and command was used and the errors the app ran into. Nothing about you or your files.") }] : []),
+        ...(Stats ? [{ id: "stats", label: T("Anonymous usage statistics"), type: "checkbox", checked: Stats.enabled(), hint: () => (IN_APP ? T("Once a day, TypeR Studio tells its team it was opened, so they know how many people use it and what to improve: a random number, the app and its system, the language, how often each tool and command was used and the errors the app ran into. Nothing about you or your files.") : T("Once a day, TypeR Studio tells its team it was opened, so they know how many people use it and what to improve: a random number, web or desktop app, the system, the language, how often each tool and command was used and the errors the app ran into. Nothing about you or your files.")) }] : []),
         ...(discord ? [{ id: "discord", label: T("Discord activity"), value: settings.discord, options: [["page", T("With the page's name")], ["app", T("Without the page's name")], ["off", T("Off")]], hint: () => T("What your Discord friends see while you work. Discord must be open on this computer.") }] : []),
         { id: "language", label: T("Language of new text"), value: d.language, options: PS.TEXT_LANGUAGES.map(([name, , own]) => [name, own]) },
         { id: "ligature", label: T("Standard ligatures in new text"), type: "checkbox", checked: d.ligature },
@@ -4772,7 +4780,7 @@
         });
       } else if (one && one.free) {
         // Free, after a download: says whether it's done
-        price.textContent = T("Free, without a key: the model runs in this browser and takes no prompt, it redraws the selection from what surrounds it. It downloads once (234 MB), then works offline.");
+        price.textContent = IN_APP ? T("Free, without a key: the model runs on this device and takes no prompt, it redraws the selection from what surrounds it. It downloads once (234 MB), then works offline.") : T("Free, without a key: the model runs in this browser and takes no prompt, it redraws the selection from what surrounds it. It downloads once (234 MB), then works offline.");
         Gen.localReady().then((here) => {
           if (here && price.isConnected && Gen.isLocal(service)) price.textContent += ` ${T("Already downloaded on this device.")}`;
         });
@@ -5053,7 +5061,7 @@
       save: () => {
         Object.keys(keyInputs).forEach((name) => { keys[name] = keyInputs[name].value.trim(); });
         models[service] = modelSelect.value;
-        if (!Gen.save({ service, keys, models, custom, quality, matchTones: tonesSwitch.checked })) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
+        if (!Gen.save({ service, keys, models, custom, quality, matchTones: tonesSwitch.checked })) toast(keyNotKeptText(), true);
       },
     };
   };
@@ -5069,7 +5077,7 @@
       case "adobeauth": return T("Reconnect to Adobe in Generative Fill settings.");
       case "adobeaccess": return T("Adobe refused access to Firefly. Check your plan and account on the Firefly website.") + detail;
       case "download": return fill(T("{model} couldn't be downloaded. Check the connection and try again."), { model: modelName(settings) }) + detail;
-      case "local": return (Gen.isFlux(Gen.modelOf(settings)) ? fill(T("{model} couldn't run on this computer."), { model: modelName(settings) }) : T("LaMa Manga couldn't run in this browser.")) + detail;
+      case "local": return (Gen.isFlux(Gen.modelOf(settings)) ? fill(T("{model} couldn't run on this computer."), { model: modelName(settings) }) : IN_APP ? T("LaMa Manga couldn't run on this device.") : T("LaMa Manga couldn't run in this browser.")) + detail;
       case "key": return fill(T("{service} refused the key. Check it in Generative Fill's settings."), { service }) + detail;
       case "quota": return fill(T("{service} says the quota or the balance is used up."), { service }) + detail;
       case "blocked": return T("The model refused this picture or this prompt.") + detail;
@@ -5544,7 +5552,7 @@
         const now = Gen.load();
         now.service = name;
         now.models[name] = id;
-        if (!Gen.save(now)) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
+        if (!Gen.save(now)) toast(keyNotKeptText(), true);
         taskBarKey = "";
         schedule(false);
       };
@@ -6726,7 +6734,7 @@
     reviewBar.append(count, separator());
     if (page.state === "review") {
       // How to correct it, said on hover: the bar stays short, over as little of the page as can be
-      const hint = T("Draw to add, Alt to take away, click a text to leave it");
+      const hint = Shell.touch ? T("Draw to add, tap a text to leave it") : T("Draw to add, Alt to take away, click a text to leave it");
       const add = iconButton("modeAdd", `${T("Add to selection")} · ${hint}`, app.selectionMode !== "subtract", () => reviewMode("add"));
       const take = iconButton("modeSub", `${T("Subtract from selection")} · ${hint}`, app.selectionMode === "subtract", () => reviewMode("subtract"));
       reviewBar.append(add, take);
@@ -11884,7 +11892,7 @@
   const OPEN_TYPES = [{ description: "Photoshop, InDesign, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "application/vnd.adobe.indesign-idml-package": [".idml"], "application/x-indesign": [".indd", ".indt"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"], "application/octet-stream": [".atn", ".asl", ".sut", ".clip"] } }];
   const InDesign = window.TypeRInDesign;
 
-  const tooLargeText = (width, height) => fill(T("This page is too large for this browser: {width} × {height} px."), { width, height });
+  const tooLargeText = (width, height) => fill(IN_APP ? T("This page is too large for this device: {width} × {height} px.") : T("This page is too large for this browser: {width} × {height} px."), { width, height });
   // Said before making it: past its limit a browser only gives a blank page
   const pageFits = (width, height) => {
     if (PS.canvasFits(width, height)) return true;
@@ -13008,7 +13016,7 @@
     return { pane, save: () => (panelBridge() ? setTheme(chosen) : null) };
   };
 
-  const setPages = (entries, fromPanel) => {
+  const setPages = (entries, fromPanel, back) => {
     const pages = Array.from(entries || [])
       .map((entry) => ({ file: entry.file || entry, handle: entry.handle || null }))
       .filter((page) => PAGE_FILES.test(page.file.name))
@@ -13059,7 +13067,9 @@
     const bridge = !fromPanel && panelBridge();
     if (bridge && !chapter && had) bridge.unlinkPages();
     if (window.TypeRTouch) window.TypeRTouch.chapterChanged();
-    if (!chapter) return;
+    keepChapter();
+    // Back from last time (restoreChapter): nothing was imported
+    if (!chapter || back) return;
     // Without a keyboard, the pages are in the top bar
     const next = !Shell.touch && windowItem("Next Page").keys;
     const previous = !Shell.touch && windowItem("Previous Page").keys;
@@ -13094,6 +13104,7 @@
       paging = false;
       renderStatus();
       if (window.TypeRTouch) window.TypeRTouch.chapterChanged();
+      keepChapter();
     }
   };
   const stepPage = (direction) => {
@@ -13106,6 +13117,67 @@
     const target = at < 0 ? chapter.at : at + direction;
     if (target < 0 || target >= chapter.pages.length) toast(T(direction > 0 ? "This is the last page." : "This is the first page."));
     else goToPage(target);
+  };
+  // The chapter's pages, linked to the panel's script: the one in front, and each one that comes
+  // in front after it (the panel keeps its pages script by script; see bridge.js)
+  const linkPages = () => {
+    const bridge = panelBridge();
+    if (bridge && chapter) bridge.importPages(chapter.pages.map((page) => page.file));
+    keepChapter();
+  };
+  // The chapter comes back at the next start, like the open documents (session.js), wherever
+  // a file can be found again: the phone app, a browser that still lets the page read it.
+  // Kept: each page's handle, beside the default folder. Its pages are read again once the
+  // documents are back (boot), and the script, still linked to them, goes on.
+  let keepingChapter = 0;
+  function keepChapter() {
+    clearTimeout(keepingChapter);
+    keepingChapter = setTimeout(() => {
+      const pages = chapter ? chapter.pages.filter((page) => page.handle && page.handle.kind === "file") : [];
+      folderStore("readwrite", (store) => (pages.length > 1 ? store.put({ pages: pages.map((page) => ({ name: page.file.name, handle: page.handle })) }, "chapter") : store.delete("chapter")))
+        .catch((error) => console.warn("TypeR web: the chapter can't be kept", error));
+    }, 300);
+  }
+  const keptChapter = folderStore("readonly", (store) => store.get("chapter")).catch(() => null);
+  // While the pages come back: a page TypeR asks for meanwhile waits for them (openFile in
+  // photoshop.js)
+  let pagesComing = null;
+  const restoreChapter = async () => {
+    const kept = await keptChapter;
+    if (!kept || !Array.isArray(kept.pages)) return;
+    const entries = [];
+    for (const { handle } of kept.pages) {
+      if (chapter) return;
+      try {
+        // Never asked for here: a browser only asks at a click. A page moved or deleted since
+        // is left out, the others still make the chapter.
+        if (handle.queryPermission && (await handle.queryPermission({ mode: "read" })) !== "granted") continue;
+        entries.push({ file: await handle.getFile(), handle });
+      } catch (error) {
+        console.warn("TypeR web: a page of the chapter is gone", error);
+      }
+    }
+    if (chapter) return;
+    setPages(entries, false, true);
+    if (chapter && pageOf(app.doc) >= 0) chapter.at = pageOf(app.doc);
+  };
+  // TypeR asked for a page that is no longer here (photoshop.js): its script is linked to a
+  // chapter that didn't come back. The script is unlinked, so it asks no more, and it is said
+  // once in plain words; TypeR's own error and its path, if it comes too, is not shown.
+  let lostPage = "";
+  const pageLost = (path) => {
+    if (chapter || pagesComing) return;
+    lostPage = path;
+    setTimeout(() => {
+      const bridge = panelBridge();
+      if (chapter || !bridge) return;
+      bridge.unlinkPages();
+      toast(T("This script's pages are no longer open. Open the chapter again to go on from page to page."), true);
+    }, 0);
+    setTimeout(() => { lostPage = ""; }, 3000);
+  };
+  const panelAlert = (text) => {
+    if (!lostPage || String(text).indexOf(lostPage) < 0) toast(text, true);
   };
   // A folder is a chapter: its pages wait in the pager, the first one opens. What isn't a page
   // (an InDesign file) opens as before.
@@ -14064,7 +14136,7 @@
     if (!doc) return;
     if (!ui.editor.hidden) endEdit();
     if (type === "image/webp" && !canWriteWebp) {
-      toast(T("This browser can't write WebP."), true);
+      toast(noWebpText(), true);
       return;
     }
     const quality = await askQuality(type, T("Export"));
@@ -14090,7 +14162,7 @@
   const exportAllPages = async (type) => {
     if (!ui.editor.hidden) endEdit();
     if (type === "image/webp" && !canWriteWebp) {
-      toast(T("This browser can't write WebP."), true);
+      toast(noWebpText(), true);
       return;
     }
     const extension = IMAGE_EXTENSIONS[type];
@@ -14338,7 +14410,7 @@
       if (format.id === "webp" && !canWriteWebp) {
         main.input.disabled = true;
         card.classList.add("is-off");
-        make("p", "bsave__note", card, T("This browser can't write WebP."));
+        make("p", "bsave__note", card, noWebpText());
         return { format, card, sync: main.sync };
       }
       const options = make("div", "bsave__options", card);
@@ -15080,8 +15152,8 @@
 
   const sayFonts = ({ added, failed, notKept }) => {
     if (failed.length) toast(fill(T("Could not load this font: {error}"), { error: failed.join(", ") }), true);
-    else if (notKept.length) toast(fill(T("{count} font(s) loaded, but this browser couldn't keep them: load them again next time."), { count: added.length }), true);
-    else toast(fill(T("{count} font(s) loaded. They stay in this browser."), { count: added.length }));
+    else if (notKept.length) toast(fill(IN_APP ? T("{count} font(s) added, but the app couldn't keep them: add them again next time.") : T("{count} font(s) loaded, but this browser couldn't keep them: load them again next time."), { count: added.length }), true);
+    else toast(fill(IN_APP ? T("{count} font(s) added. They stay in the app.") : T("{count} font(s) loaded. They stay in this browser."), { count: added.length }));
   };
 
   const chooseFonts = () => $("file-fonts").click();
@@ -15160,9 +15232,9 @@
     };
     if (parsed.length || installed.added.length) {
       line(fill(T("{folders} folder(s), {styles} style(s) and {fonts} font(s) imported."), { folders: stats.folders, styles: stats.styles, fonts: installed.added.length }));
-      line(T("They are kept in this browser for next time."));
+      line(IN_APP ? T("They are kept in the app for next time.") : T("They are kept in this browser for next time."));
     }
-    if (missing.length) bullets(T("These fonts weren't in the file and aren't on this computer:"), missing);
+    if (missing.length) bullets(Shell.touch ? T("These fonts weren't in the file and aren't in TypeR yet:") : T("These fonts weren't in the file and aren't on this computer:"), missing);
     if (installed.failed.length) bullets(T("These font files couldn't be read:"), Array.from(new Set(installed.failed)));
     if (refused.length) bullets(T("These files couldn't be imported:"), refused);
     dialog({ title: T("Import"), body, cancel: false, ok: "OK" });
@@ -15173,16 +15245,19 @@
     importKits(picked);
   });
 
-  const manageFonts = () => {
+  // The fonts kept here, each with its way out. On a phone or a tablet, where no font of the
+  // device can be listed, also the two ways in: Font FindeR's search and the font files. The
+  // setup assistant shows the same (onboarding.js). `stop` when it leaves the screen.
+  const fontsBox = () => {
     const body = document.createElement("div");
     body.className = "fontlist";
+    const intro = document.createElement("p");
+    const rows = document.createElement("ul");
     const render = () => {
-      body.textContent = "";
       const loaded = Fonts.loadedFiles();
-      const intro = document.createElement("p");
-      intro.textContent = loaded.length ? fill(T("{count} font(s) kept in this browser."), { count: loaded.length }) : T("No font file loaded yet.");
-      body.appendChild(intro);
-      const rows = document.createElement("ul");
+      const kept = IN_APP ? T("{count} font(s) kept in the app.") : T("{count} font(s) kept in this browser.");
+      intro.textContent = loaded.length ? fill(kept, { count: loaded.length }) : Shell.touch ? T("No font added yet.") : T("No font file loaded yet.");
+      rows.textContent = "";
       loaded.forEach((font) => {
         const row = document.createElement("li");
         const name = document.createElement("span");
@@ -15193,17 +15268,30 @@
         remove.className = "tab__close";
         remove.textContent = "×";
         remove.setAttribute("aria-label", `${T("Remove")}: ${font.name}`);
-        remove.addEventListener("click", async () => {
-          await Fonts.removeFile(font.postScriptName);
-          render();
-        });
+        remove.addEventListener("click", () => Fonts.removeFile(font.postScriptName).then(render));
         row.append(name, remove);
         rows.appendChild(row);
       });
-      body.appendChild(rows);
     };
+    if (Shell.touch) {
+      body.classList.add("fontlist--ways");
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "btn";
+      add.textContent = T("Add Font Files…");
+      add.addEventListener("click", chooseFonts);
+      body.appendChild(add);
+      FontFinder.available().then((open) => {
+        if (open && body.isConnected) body.insertBefore(fontFinderSearch([], { done: render }, { quiet: true }), add);
+      });
+    }
+    body.append(intro, rows);
     render();
-    dialog({ title: T("Loaded Fonts"), body, cancel: false, ok: T("Close") });
+    return { body, stop: Fonts.onChange(render) };
+  };
+  const manageFonts = () => {
+    const { body, stop } = fontsBox();
+    dialog({ title: Shell.touch ? T("Fonts") : T("Loaded Fonts"), body, cancel: false, ok: T("Close") }).then(stop);
   };
   const useInstalledFonts = async () => {
     if (!Fonts.canListInstalled()) {
@@ -15398,7 +15486,7 @@
       if (visual && navigator.clipboard && window.ClipboardItem) await toClipboard(insideSelection(doc.state.selection, visual.canvas, visual.x, visual.y), doc.state.selection.bounds.left, doc.state.selection.bounds.top);
     } catch (error) {
       console.warn("TypeR web: could not write to the clipboard", error);
-      toast(T("The browser refused the clipboard: nothing was cut."), true);
+      toast(IN_APP ? T("The clipboard was refused: nothing was cut.") : T("The browser refused the clipboard: nothing was cut."), true);
       return;
     }
     ops.fillSelection(null);
@@ -18094,7 +18182,7 @@
       reach.inputs.forEach((input) => { input.disabled = !sampled || !settings.clusters; });
       reach.row.classList.toggle("is-off", !sampled || !settings.clusters);
       droppers.forEach(({ button }) => { button.disabled = !sampled; });
-      hint.textContent = sampled ? T("Click the page or the preview to pick a colour. Shift adds to the sample, Alt takes it away.") : "";
+      hint.textContent = !sampled ? "" : Shell.touch ? T("Tap the page or the preview to pick a colour.") : T("Click the page or the preview to pick a colour. Shift adds to the sample, Alt takes it away.");
     };
 
     const pctx = preview.getContext("2d");
@@ -18437,15 +18525,19 @@
       ...(DESKTOP ? [] : [{ label: "Touch Interface", action: () => Shell.prefer("touch") }]),
     ]],
     ["Help", [
-      { label: "TypeR Tutorial", action: () => (window.TypeRGuide && !Shell.touch ? window.TypeRGuide.show() : startPanel({ tour: true })) },
+      // The tutorials are a computer's, mouse and keys: fingers get the practice page (touch.js)
+      Shell.touch
+        ? { label: "Practice Page", action: () => $("start-practice").click() }
+        : { label: "TypeR Tutorial", action: () => (window.TypeRGuide ? window.TypeRGuide.show() : startPanel({ tour: true })) },
       { label: "Setup Assistant…", action: () => setupAgain() },
       { label: "What's New", action: () => window.TypeRWhatsNew && window.TypeRWhatsNew.show() },
       { label: "Keyboard Shortcuts", action: () => showShortcuts() },
       ...(Shell.touch ? [] : [{ label: "SFX Guide", action: () => window.TypeRSFXGuide && window.TypeRSFXGuide.show() }]),
       null,
-      DESKTOP
+      // Nothing to download from the phone app: the computer's apps and the plugin are a computer's
+      ...(IN_APP ? [] : [DESKTOP
         ? { label: "Download the Photoshop Plugin", action: () => window.open(EXTENSION_ZIP, "_blank", "noopener") }
-        : { label: "Download…", action: () => showDownloads() },
+        : { label: "Download…", action: () => showDownloads() }]),
       { label: "Send Feedback…", action: () => window.TypeRFeedback && window.TypeRFeedback.show() },
       { label: "Report a Problem", action: () => window.open("https://github.com/ScanR/TypeR/issues/new", "_blank", "noopener") },
       // The desktop app's log, to send with a problem (an app too old to keep one doesn't offer it)
@@ -18455,7 +18547,7 @@
       // The desktop app looks for a new version now (desktop.js); an app too old to do it doesn't offer it
       ...(DESKTOP && window.TypeRDesktop.checkForUpdates ? [{ label: "Check for Updates…", action: () => window.TypeRStudio.checkForUpdates() }] : []),
       { label: "About TypeR Studio…", action: () => showAbout() },
-      ...(DESKTOP ? [] : [{ label: "Back to the Site", action: () => { window.location.href = "../"; } }]),
+      ...(DESKTOP || IN_APP ? [] : [{ label: "Back to the Site", action: () => { window.location.href = "../"; } }]),
     ]],
   ];
 
@@ -20189,7 +20281,8 @@
     if (type === "render" || type === "history" || type === "active") refreshAfterChange();
     else if (type === "selection") showSelection(detail);
     else if (type === "options") renderOptions();
-    else if (type === "alert") toast(detail.text, true);
+    else if (type === "alert") panelAlert(detail.text);
+    else if (type === "page-lost") pageLost(detail.path);
     else if (type === "confirm") {
       dialog({ title: "TypeR", body: detail.text }).then((answer) => detail.answer(Boolean(answer)));
     } else if (type === "document") {
@@ -20218,9 +20311,9 @@
       renderStatus();
       renderMenusState();
     } else if (type === "layer-locked") toast(T("This layer is locked."));
-    else if (type === "storage-low") toast(T("This browser's storage is nearly full: save your documents, or close the ones you're done with."), true);
-    else if (type === "storage-full") toast(T("The browser's storage is full: your last TypeR settings couldn't be kept."), true);
-    else if (type === "documents-not-kept") toast(T("Your open documents couldn't be kept in this browser (its storage may be full). Save them before reloading the page."), true);
+    else if (type === "storage-low") toast(IN_APP ? T("The app's storage is nearly full: save your documents, or close the ones you're done with.") : T("This browser's storage is nearly full: save your documents, or close the ones you're done with."), true);
+    else if (type === "storage-full") toast(IN_APP ? T("The app's storage is full: your last changes couldn't be kept. Save your documents.") : T("The browser's storage is full: your last TypeR settings couldn't be kept."), true);
+    else if (type === "documents-not-kept") toast(IN_APP ? T("The app's storage is full: your last changes couldn't be kept. Save your documents.") : T("Your open documents couldn't be kept in this browser (its storage may be full). Save them before reloading the page."), true);
     else if (type === "workspace") {
       renderMenusState();
       placeUnder();
@@ -20289,26 +20382,36 @@
     return button;
   };
 
-  // A family's name in its own letters, once its file is there
+  // A family's name in its own letters, once its file is there. The file is read as the
+  // search's answers are, then handed to the page: a phone's web view doesn't always load a font
+  // it is only given the address of. Read once per family, however many searches show it.
+  const ffPreviews = new Map();
   const ffPreview = (family, element) => {
     const font = (family.fonts || []).find((item) => item.id === family.default_font_id) || (family.fonts || [])[0];
     if (!font || !font.preview_url) return;
     const css = `ff-preview-${family.id}`;
-    new FontFace(css, `url(${font.preview_url})`).load().then((face) => {
-      document.fonts.add(face);
-      element.style.fontFamily = `"${css}", sans-serif`;
-    }, () => {});
+    if (!ffPreviews.has(css)) {
+      const loaded = fetch(font.preview_url)
+        .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(new Error(`Font FindeR: ${response.status}`))))
+        .then((bytes) => new FontFace(css, bytes).load())
+        .then((face) => { document.fonts.add(face); });
+      ffPreviews.set(css, loaded);
+      loaded.catch(() => ffPreviews.delete(css));
+    }
+    element.classList.add("is-loading");
+    ffPreviews.get(css).then(() => { element.style.fontFamily = `"${css}", sans-serif`; }, () => {}).then(() => element.classList.remove("is-loading"));
   };
 
-  // The search a font gets when Font FindeR didn't find it on its own
-  const fontFinderSearch = (names, row) => {
+  // The search a font gets when Font FindeR didn't find it on its own, and the one that brings
+  // any font on a phone (`names` empty). `quiet`: it waits for a tap before asking for the keyboard.
+  const fontFinderSearch = (names, row, { quiet = false } = {}) => {
     const box = document.createElement("div");
     box.className = "ff-search";
     const input = document.createElement("input");
     input.type = "search";
     input.placeholder = T("Search Font FindeR");
     input.setAttribute("aria-label", T("Search Font FindeR"));
-    input.value = FontFinder.searchText(names[0]);
+    input.value = names.length ? FontFinder.searchText(names[0]) : "";
     const results = document.createElement("div");
     results.className = "ff-results";
     box.append(input, results);
@@ -20346,12 +20449,16 @@
         const count = document.createElement("span");
         count.className = "ff-result__count";
         count.textContent = fill(T("{count} style(s)"), { count: (family.fonts || []).length });
+        // On a phone the name in its own letters is the preview, large; under it the name again
+        // in plain letters, for a font that isn't read easily (touch.css)
+        if (quiet) count.textContent = `${family.family} · ${count.textContent}`;
         const install = ffButton(T("Install"), "ff-btn--main", async (button) => {
           button.disabled = true;
           button.textContent = T("Installing…");
           try {
             const added = await installFromFontFinder(family);
             await useFontFinderFaces(names, added);
+            button.textContent = "✓";
             row.done(family);
           } catch (error) {
             button.disabled = false;
@@ -20376,7 +20483,7 @@
       run();
     });
     run();
-    setTimeout(() => input.focus(), 0);
+    if (!quiet) setTimeout(() => input.focus(), 0);
     return box;
   };
 
@@ -20573,7 +20680,8 @@
   $("support-text").textContent = T("Support the project");
   $("support").title = T("Support the project");
   $("support").setAttribute("aria-label", T("Support the project"));
-  $("start-text").textContent = T("Open or drop a PSD, a PNG or a JPEG.");
+  // Fingers have nothing to drop
+  $("start-text").textContent = Shell.touch ? T("Open a PSD, a PNG or a JPEG.") : T("Open or drop a PSD, a PNG or a JPEG.");
   $("start-open").textContent = T("Open a file");
   $("start-new").textContent = T("New document");
   $("start-open").addEventListener("click", openDialog);
@@ -20702,12 +20810,16 @@
   const setupAgain = async () => {
     if (!window.TypeROnboarding || ui.modal.open) return;
     const plan = await window.TypeROnboarding.run({ again: true });
-    if (!plan || !(plan.photoshop || (plan.kits && plan.kits.length) || plan.paste || plan.tour)) return;
-    await closePanel();
-    await applySetup(plan);
-    const guide = plan.tour && window.TypeRGuide && !Shell.touch;
-    startPanel({ tour: plan.tour && !guide });
-    if (guide) window.TypeRGuide.show();
+    if (!plan) return;
+    if (plan.photoshop || (plan.kits && plan.kits.length) || plan.paste || plan.tour) {
+      await closePanel();
+      await applySetup(plan);
+      const guide = plan.tour && window.TypeRGuide && !Shell.touch;
+      startPanel({ tour: plan.tour && !guide });
+      if (guide) window.TypeRGuide.show();
+    }
+    // Chosen at its end on a touch screen (touch.js)
+    if (plan.practice) $("start-practice").click();
   };
 
   const boot = async () => {
@@ -20717,7 +20829,9 @@
     initFontBar();
     // One thing at a time: the panel's tutorial starts once these are read. What's new comes
     // first, since it says nothing on the very first start, when the beta is said.
-    if (window.TypeRWhatsNew) await window.TypeRWhatsNew.atStart().catch((error) => console.warn("TypeR web: what's new", error));
+    // Not in the phone app: these notes and their demos show a computer's screen, mouse and
+    // keys. They stay in Help.
+    if (window.TypeRWhatsNew && !IN_APP) await window.TypeRWhatsNew.atStart().catch((error) => console.warn("TypeR web: what's new", error));
     // Someone new is walked through the choices that matter (onboarding.js): it says the beta
     // and offers TypeR for Photoshop's settings itself
     const Onboarding = window.TypeROnboarding;
@@ -20730,23 +20844,28 @@
     }
     const guide = Boolean(plan && plan.tour && window.TypeRGuide && !Shell.touch);
     startPanel({ tour: Boolean(plan && plan.tour) && !guide });
-    await window.TypeRSession.restore({
+    const documents = window.TypeRSession.restore({
       progress: (name) => working(name ? fill(T("Opening {name}…"), { name }) : null),
       failed: (name, error) => toast(fill(T("{name} can't be read: {error}"), { name, error: error.message || error }), true),
       elsewhere: () => toast(T("Some of your documents are open in another tab. Close that tab, then reload this page to get them here."), true),
     });
+    // The chapter's pages after them: the documents that are its pages are found again
+    pagesComing = documents.catch(() => null).then(restoreChapter).catch((error) => console.warn("TypeR web: the chapter", error)).finally(() => { pagesComing = null; });
+    await documents;
     renderStartRecent();
     registerWorker();
     window.TypeRApp.booted = true;
     window.dispatchEvent(new Event("typer-booted"));
     if (guide) window.TypeRGuide.show();
+    // Chosen at the end of the setup assistant on a touch screen (touch.js)
+    if (plan && plan.practice && !app.doc) $("start-practice").click();
   };
 
   // sw.js keeps a copy of the app to work offline. It starts once all is on screen, and is
   // told what this first visit already fetched before it was there.
   const registerWorker = () => {
-    // The desktop app keeps its own copy (desktop/src/content.js)
-    if (!("serviceWorker" in navigator) || !window.isSecureContext || window.TypeRDesktop) return;
+    // The apps keep their own copy (desktop/src/content.js, mobile/scripts/build-content.js)
+    if (!("serviceWorker" in navigator) || !window.isSecureContext || window.TypeRDesktop || window.TypeRMobile) return;
     setTimeout(async () => {
       try {
         await navigator.serviceWorker.register("sw.js");
@@ -20792,9 +20911,12 @@
       LANGUAGES,
       IS_MAC,
       DESKTOP,
+      IN_APP,
       DISCORD,
       wheelGesture,
       useInstalledFonts,
+      fontsBox,
+      keyNotKeptText,
       serviceName,
       money,
       sizeText,
@@ -20847,6 +20969,8 @@
     openDialog,
     openFiles,
     setPages,
+    linkPages,
+    pagesComing: () => pagesComing,
     openChapter,
     openPages,
     goToPage,
@@ -20855,6 +20979,9 @@
     // and each page's name and open document, if it is open
     chapter: () => (chapter ? { at: pageOf(app.doc), last: chapter.at, pages: chapter.pages.map((page) => ({ name: page.file.name, doc: app.docs.find((doc) => doc.path === pageKey(page)) || null })) } : null),
     importKits,
+    importScript,
+    manageFonts,
+    showSettings: () => showSettings(),
     save,
     saveAs,
     exportImage,

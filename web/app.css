@@ -1264,7 +1264,8 @@ body.is-dragging-tool, body.is-dragging-tool * { cursor: grabbing !important; }
 .downloads__option p { color: var(--muted); line-height: 1.4; }
 .downloads__links { display: flex; flex-wrap: wrap; gap: 6px; }
 .downloads__links .btn { text-decoration: none; }
-.modal__foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; background: var(--ui-dark); }
+/* Three buttons with long names are wider than the dialog, in French or on a phone: they go on a second row rather than out of it */
+.modal__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 10px 14px; background: var(--ui-dark); }
 /* The setup assistant (onboarding.js) */
 .onboard { display: flex; flex-direction: column; width: min(600px, calc(100vw - 32px)); max-height: min(720px, calc(100vh - 32px)); }
 .onboard:not([open]) { display: none; }

@@ -691,7 +691,7 @@
     name.setAttribute("aria-label", T("Name"));
     const save = make("button", "btn", saveRow, T("Save as Preset"));
     save.type = "button";
-    make("p", "grad-editor__hint", el, T("Click under the bar to add a color, drag one down off it to remove it. Alt + click on the page gives the selected color the page's color."));
+    make("p", "grad-editor__hint", el, window.TypeRShell.touch ? T("Tap under the bar to add a color, drag one down off it to remove it.") : T("Click under the bar to add a color, drag one down off it to remove it. Alt + click on the page gives the selected color the page's color."));
 
     const defaultName = () => {
       const taken = new Set(readPresets().map((item) => item.name));

@@ -787,6 +787,15 @@
   const HIDDEN_TITLES = ["profilesTitle", "profilesManageTitle", "profilesCreateTitle", "settingsLanguageLabel", "settingsCheckUpdatesLabel", "settingsAutoUpdateLabel", "settingsCheckUpdatesButton"];
   const withoutHiddenTitles = (text) => text.replace(new RegExp(`^(${HIDDEN_TITLES.join("|")})=.*$`, "gm"), "");
 
+  // Under fingers a click is a tap, and the Magic Wand is already in hand: the paste mode says
+  // so, in the app's own words (touch.js)
+  const touchText = () => {
+    if (!shell.touch) return {};
+    const T = window.parent.TypeRApp.T;
+    const tap = T("Paste on tap");
+    return { settingsPasteOnClickLabel: tap, footerPasteOnClick: tap, settingsPasteOnClickHelp: T("A tap on a bubble now pastes the line."), footerPasteOnClickTitle: T("A tap on a bubble now pastes the line."), pasteOnClickEnabled: T("A tap on a bubble now pastes the line."), pasteOnClickDisabled: T("A tap on a bubble now only selects it.") };
+  };
+
   Promise.all([
     load("locale/messages.properties"),
     appLocale === "en_US" ? "" : load(EXTRA_LOCALES.includes(appLocale) ? `../panel-locale/${appLocale}/messages.properties` : `locale/${appLocale}/messages.properties`),
@@ -796,7 +805,7 @@
     const local = withoutHiddenTitles(fullLocal);
     files[ROOT + "/locale/messages.properties"] = base;
     if (local) files[`${ROOT}/locale/${appLocale}/messages.properties`] = local;
-    bundle = Object.assign({}, parseProperties(base), webText.en_US, parseProperties(local), webText[appLocale]);
+    bundle = Object.assign({}, parseProperties(base), webText.en_US, parseProperties(local), webText[appLocale], touchText());
     watchFontRules();
     const script = document.createElement("script");
     script.src = "modern.index.js";

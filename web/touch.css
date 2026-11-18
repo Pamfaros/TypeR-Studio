@@ -432,3 +432,84 @@ html.touch .fx-open__dots i { width: 10px; height: 10px; }
 }
 html.touch .fontlist .tab__close, html.touch .fontlist li { min-height: 40px; }
 html.touch .fontlist .tab__close { width: 40px; height: 40px; line-height: 40px; font-size: 20px; }
+
+/* The setup assistant on a touch screen (onboarding.js): on a phone one card per row, its
+   picture beside its words; what fingers do on the page, as a list */
+html[data-shell="phone"] .onboard__choices--row { grid-template-columns: 1fr; }
+html[data-shell="phone"] .onboard__choices--row .onboard__words:has(> .onboard__example) { grid-template-columns: 104px minmax(0, 1fr); column-gap: 12px; align-content: start; }
+html[data-shell="phone"] .onboard__choices--row .onboard__words:has(> .onboard__example) > * { grid-column: 2; }
+html[data-shell="phone"] .onboard__choices--row .onboard__words > .onboard__example { grid-column: 1; grid-row: 1 / span 4; align-self: start; margin: 0; }
+.onboard__gestures { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.onboard__gestures li { display: flex; align-items: center; gap: 12px; padding: 9px 12px; background: var(--ui-dark); border-radius: 6px; line-height: 1.35; }
+.onboard__gestures svg { flex: none; width: 22px; height: 22px; fill: none; stroke: var(--blue); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The Fonts window of a touch screen (app.js): Font FindeR's search, the font files, then what is kept */
+html.touch .fontlist--ways { gap: 12px; }
+html.touch .fontlist--ways .ff-search { margin: 0; }
+html.touch .fontlist--ways .ff-search input { width: 100%; height: 44px; padding: 0 12px; background: var(--ui-dark); border: 1px solid var(--line); border-radius: 6px; color: var(--text); font-size: 16px; }
+html.touch .fontlist--ways .ff-results { max-height: 232px; }
+html.touch .fontlist--ways .ff-result { padding: 6px 2px 6px 6px; }
+html.touch .fontlist--ways .ff-btn { height: 36px; padding: 0 14px; border-radius: 6px; font-size: 14px; }
+html.touch .fontlist--ways .ff-note { margin: 0; color: var(--muted); font-size: 13px; }
+html.touch .fontlist--ways ul { max-height: 30vh; }
+html[data-shell="phone"] .onboard__count { white-space: nowrap; }
+html[data-shell="phone"] .onboard__progress span { width: 13px; }
+/* each font found, large in its own letters, its name and styles under it */
+html.touch .fontlist--ways .ff-results { max-height: 300px; }
+html.touch .fontlist--ways .ff-result { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name button" "count button"; gap: 0 10px; padding: 8px 2px 8px 6px; }
+html.touch .fontlist--ways .ff-result__name { grid-area: name; font-size: 24px; line-height: 1.3; transition: opacity 0.2s; }
+html.touch .fontlist--ways .ff-result__name.is-loading { opacity: 0.35; }
+html.touch .fontlist--ways .ff-result__count { grid-area: count; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+html.touch .fontlist--ways .ff-btn { grid-area: button; align-self: center; }
+
+/* the script (touch.js): its scripts as chips, then a row a line, the one in front marked */
+html.touch #t-view-script { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.tscript__tabs { flex: none; display: flex; gap: 6px; padding: 8px 10px; overflow-x: auto; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.tscript__tabs::-webkit-scrollbar { display: none; }
+.tscript__tabs[hidden] { display: none; }
+.tchip { flex: none; display: inline-flex; align-items: center; justify-content: center; max-width: 62vw; height: 34px; padding: 0 14px; background: var(--ui-dark); border: 1px solid var(--line); border-radius: 17px; color: var(--muted); font-size: 14px; white-space: nowrap; }
+.tchip span { overflow: hidden; text-overflow: ellipsis; }
+.tchip.is-on { background: var(--ui-3); border-color: transparent; color: var(--text); font-weight: 600; }
+.tchip--add { width: 34px; padding: 0; }
+.tchip svg, .tline__edit svg, .tscript__empty svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tchip svg { width: 18px; height: 18px; }
+.tscript__body { flex: 1; min-height: 0; padding-bottom: calc(10px + var(--safe-b)); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.tline { position: relative; display: flex; align-items: stretch; }
+.tline + .tline { border-top: 1px solid var(--line); }
+.tline__main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; min-height: 48px; padding: 11px 12px 11px 10px; color: var(--text); font-size: 16px; line-height: 1.4; text-align: left; }
+.tline__num { flex: none; width: 26px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.tline__text { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.tline__text .text-line-style-prefix { margin-right: 4px; padding: 1px 6px; border-radius: 4px; color: #1b1b1b; font-size: 13px; font-weight: 600; }
+.tline.is-done .tline__text { color: var(--muted); }
+.tline.is-current { background: color-mix(in srgb, var(--blue) 16%, transparent); }
+.tline.is-current::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--blue); }
+.tline.is-current .tline__num { color: var(--blue); font-weight: 700; }
+.tline__edit { display: none; flex: none; align-items: center; justify-content: center; width: 48px; color: var(--muted); }
+.tline.is-current .tline__edit { display: flex; }
+.tline__edit svg { width: 20px; height: 20px; }
+/* where a page starts: a title that stays in sight while its lines go by */
+.tline--page { position: sticky; top: 0; z-index: 1; background: var(--ui-dark); }
+.tline--page .tline__main { min-height: 34px; padding-top: 9px; padding-bottom: 7px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.tline--page.is-current .tline__main { color: var(--text); }
+.tline--page .tline__num { display: none; }
+.tline--page .tline__text { flex: none; max-width: 60%; }
+.tline__file { flex: 1; min-width: 0; overflow: hidden; font-weight: 500; letter-spacing: 0; text-align: right; text-overflow: ellipsis; text-transform: none; white-space: nowrap; opacity: 0.75; }
+.tline--skip .tline__text { color: var(--muted); font-style: italic; }
+.tline--edit { flex-direction: column; align-items: flex-end; gap: 8px; padding: 10px 12px; background: var(--ui-dark); }
+.tline__area, .tscript__area { width: 100%; padding: 10px 12px; background: var(--ui-darker); border: 1px solid var(--line); border-radius: 8px; color: var(--text); font-family: inherit; font-size: 16px; line-height: 1.45; resize: none; }
+.tline__area { min-height: 72px; border-color: var(--blue); }
+.tline__area:focus, .tscript__area:focus { outline: none; border-color: var(--blue); }
+/* nothing yet: the ways a script comes in */
+.tscript__empty { display: grid; gap: 10px; max-width: 420px; margin: 0 auto; padding: 20px 18px; text-align: center; }
+.tscript__empty > svg { justify-self: center; width: 38px; height: 38px; stroke: var(--muted); stroke-width: 1.3; }
+.tscript__lead { margin: 2px 0 0; font-size: 16px; font-weight: 600; line-height: 1.35; }
+.tscript__hint { margin: 0 0 6px; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.tscript__empty .btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.tscript__empty .btn svg { width: 20px; height: 20px; }
+/* the whole script as one text */
+.tscript__write { display: flex; flex-direction: column; gap: 8px; height: 100%; padding: 10px 12px 0; }
+.tscript__name { flex: none; width: 100%; font-weight: 600; }
+.tscript__area { flex: 1; min-height: 110px; }
+.tscript__remove { flex: none; width: auto; align-self: flex-start; color: #e8747c; }
+.tscript__remove svg { color: inherit; }
+.tline__text .text-line-ignore-prefix { opacity: 0.7; }

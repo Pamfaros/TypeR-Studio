@@ -10,8 +10,16 @@
   const App = () => window.TypeRApp;
   const T = (text) => App().T(text);
   const fill = (text, values) => App().fill(text, values);
+  // TypeR Studio as an app, on a computer or on a phone: not the web version in a browser
+  const INSTALLED = Boolean(window.TypeRDesktop || window.TypeRMobile);
+  // A phone or a tablet: no Photoshop beside the app, no mouse, and the menus are in the More sheet
+  const touch = () => window.TypeRShell.touch;
+  const inMore = (item) => `${T("More")} → ${item}`;
   // Where an item of the Help menu is, as the menu bar says it
-  const menu = (item) => `${T("Help")} → ${T(item).replace(/…$/, "")}`;
+  const menu = (item) => {
+    const place = `${T("Help")} → ${T(item).replace(/…$/, "")}`;
+    return touch() ? inMore(place) : place;
+  };
 
   const read = (key) => {
     try {
@@ -39,8 +47,8 @@
     const known = Kit.storedPaths().some((path) => Kit.keeps(path))
       || read("typer.web.settings") !== null
       || (window.TypeRStudio && read(window.TypeRStudio.OFFERED) !== null)
-      // The desktop app marks the beta as said for everyone (desktop.js)
-      || (!window.TypeRDesktop && read("typer.web.betaNotice") !== null);
+      // The apps mark the beta as said for everyone (desktop.js, mobile.js)
+      || (!INSTALLED && read("typer.web.betaNotice") !== null);
     if (known) write("done");
     return !known;
   };
@@ -231,7 +239,7 @@
     {
       id: "welcome",
       when: () => true,
-      title: () => (window.TypeRDesktop ? T("Welcome to TypeR Studio") : T("Welcome to TypeR Studio for Web")),
+      title: () => (INSTALLED ? T("Welcome to TypeR Studio") : T("Welcome to TypeR Studio for Web")),
       build(pane, state) {
         const setup = App().setup;
         el("p", "onboard__lead", pane, T("A few choices to get started. Everything can be changed later in Settings."));
@@ -242,7 +250,7 @@
         field(pane, T("Language of new text"), textLanguage, T("Used to hyphenate and check the spelling of the text you place."));
         // Chosen by the interface's language until picked here
         const textAtStart = textLanguage.value;
-        if (!window.TypeRDesktop && !state.again) {
+        if (!INSTALLED && !state.again) {
           const beta = el("p", "onboard__note", pane, `${T("The web version of TypeR is still in beta, so some bugs can happen. If you run into one, you can report it on the Discord server.")} `);
           const link = el("a", null, beta, T("Open Discord"));
           link.href = setup.DISCORD;
@@ -284,7 +292,8 @@
         }
         const input = document.createElement("input");
         input.type = "file";
-        input.accept = ".zip,.json,application/zip,application/json";
+        // A phone's picker greys out what it doesn't know: no filter there (touch.js)
+        if (!touch()) input.accept = ".zip,.json,application/zip,application/json";
         input.multiple = true;
         input.hidden = true;
         pane.appendChild(input);
@@ -292,8 +301,13 @@
         list.push({
           id: "kit",
           // Found on the computer, Photoshop's styles have their own card: this one is any kit
-          title: state.photoshop ? T("Import a style kit (.zip)") : T("Import my TypeR styles from Photoshop"),
-          text: state.photoshop ? T("A file exported from TypeR, in Photoshop or here, with its fonts.") : T("In Photoshop, open the gear at the bottom of the TypeR panel, then the Data tab and “Export styles or settings”. Choose that file here."),
+          // On a phone the file comes from a computer, where TypeR's styles were made
+          title: state.photoshop ? T("Import a style kit (.zip)") : touch() ? T("Import my TypeR styles") : T("Import my TypeR styles from Photoshop"),
+          text: state.photoshop
+            ? T("A file exported from TypeR, in Photoshop or here, with its fonts.")
+            : touch()
+              ? T("A style file exported from TypeR on a computer, with its fonts. Send it to this device, then choose it here.")
+              : T("In Photoshop, open the gear at the bottom of the TypeR panel, then the Data tab and “Export styles or settings”. Choose that file here."),
           extra: (words) => {
             const row = el("div", "onboard__row", words);
             button(T("Choose a File…"), "btn btn--small", row, () => input.click());
@@ -306,12 +320,13 @@
               if (state.kits) cards.pick("kit", false);
             });
             show();
+            if (touch() && !state.photoshop) el("p", "onboard__meta", words, T("On the computer: the gear at the bottom of the TypeR panel, then the Data tab and “Export styles or settings”."));
           },
         });
         // Run again, with styles already made: nothing is taken away
         list.push(state.ownStyles
           ? { id: "fresh", title: T("Keep my styles"), text: T("Your current styles and settings stay as they are.") }
-          : { id: "fresh", title: T("Start fresh"), text: T("Make your styles as you go, in the TypeR panel.") });
+          : { id: "fresh", title: T("Start fresh"), text: touch() ? fill(T("A “{name}” style is ready to use. Make your own as you go, in Styles."), { name: T("Dialogue") }) : T("Make your styles as you go, in the TypeR panel.") });
         let choice = state.styles || (state.photoshop && !state.photoshop.replaces ? "photoshop" : "fresh");
         cards = choices(pane, list, choice, (id) => { choice = id; });
         return {
@@ -523,7 +538,9 @@
         cards.box.classList.add("onboard__choices--row");
         smallest.addEventListener("input", () => { if (way !== "shrink") cards.pick("shrink", false); });
         smallest.addEventListener("change", () => { smallest.value = String(percent()); });
-        el("p", "onboard__meta", pane, fill(T("You can change this at any time in the settings of the TypeR panel (the gear at its bottom), under “{name}”."), { name: T("Smart Paste") }));
+        el("p", "onboard__meta", pane, touch()
+          ? fill(T("You can change this at any time in {menu}, under “{name}”."), { menu: inMore(T("TypeR Settings")), name: T("Smart Paste") })
+          : fill(T("You can change this at any time in the settings of the TypeR panel (the gear at its bottom), under “{name}”."), { name: T("Smart Paste") }));
         return {
           leave: () => {
             const min = way === "keep" ? 1 : way === "shrink" ? percent() / 100 : was.min;
@@ -543,6 +560,15 @@
       build(pane) {
         const Fonts = window.TypeRFonts;
         const canList = Fonts.canListInstalled();
+        // A phone lists no font of its own: the fonts come in from Font FindeR or as files, and
+        // stay with TypeR (the app's Fonts window, here)
+        if (touch() && !canList) {
+          el("p", "onboard__lead", pane, T("Add the fonts you letter with. TypeR keeps them for next time."));
+          const fonts = App().setup.fontsBox();
+          pane.appendChild(fonts.body);
+          el("p", "onboard__meta", pane, `${T("Fonts that come with a style kit are added with it.")} ${fill(T("More fonts can be added at any time in {menu}."), { menu: inMore(T("Fonts")) })}`);
+          return { leave: () => true, gone: fonts.stop };
+        }
         el("p", "onboard__lead", pane, canList
           ? T("TypeR can use the fonts installed on this computer. The browser asks for your permission once.")
           : T("This browser can't list your fonts: load their files instead (Chrome and Edge can)."));
@@ -696,7 +722,7 @@
             Object.keys(keys).forEach((service) => { now.keys[service] = keys[service].value.trim(); });
             if (locals[choice]) now.models[choice] = locals[choice].value;
             if (choice !== "later") now.service = choice;
-            if (!Gen.save(now)) App().toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
+            if (!Gen.save(now)) App().toast(setup.keyNotKeptText(), true);
             return true;
           },
         };
@@ -707,11 +733,28 @@
       when: () => true,
       title: () => T("You're all set"),
       build(pane, state) {
-        const touch = window.TypeRShell.touch;
         const later = fill(T("Everything can be changed later in Settings, and this assistant comes back from {menu}."), { menu: menu("Setup Assistant…") });
-        if (touch) {
-          el("p", "onboard__lead", pane, later);
-          return { leave: () => true };
+        // Fingers: what they do on the page, then a page to try them on
+        if (touch()) {
+          el("p", "onboard__lead", pane, T("On the page, your fingers do the work:"));
+          const gestures = el("ul", "onboard__gestures", pane);
+          [["tap", T("Tap a bubble: the line of the script goes in.")], ["zoom", T("Two fingers: zoom and move the page.")], ["undo", T("Tap with two fingers to undo, with three to redo.")]].forEach(([icon, text]) => {
+            const item = el("li", null, gestures);
+            item.innerHTML = App().ICON[icon];
+            el("span", null, item, text);
+          });
+          let start = state.again ? "work" : "practice";
+          choices(pane, [
+            { id: "practice", title: T("Try it on a practice page"), text: T("A page of empty bubbles and a short script, to paste your first lines.") },
+            { id: "work", title: T("Start working"), text: T("Open a page or a chapter from your files.") },
+          ], start, (id) => { start = id; });
+          el("p", "onboard__meta", pane, later);
+          return {
+            leave: () => {
+              state.practice = start === "practice";
+              return true;
+            },
+          };
         }
         el("p", "onboard__lead", pane, T("How would you like to start?"));
         let choice = state.again ? "start" : "tour";
@@ -734,7 +777,7 @@
 
   let running = null;
 
-  // Resolves with what is left to do: { photoshop, kits, paste, tour }, or null if nothing
+  // Resolves with what is left to do: { photoshop, kits, paste, tour, practice }, or null if nothing
   const run = ({ again = false } = {}) => {
     if (running) return running;
     running = (async () => {
@@ -744,7 +787,7 @@
       } catch (error) {
         resume = null;
       }
-      const state = { again: Boolean(again || (resume && resume.again)), photoshop: null, kits: null, styles: null, paste: null, tour: false };
+      const state = { again: Boolean(again || (resume && resume.again)), photoshop: null, kits: null, styles: null, paste: null, tour: false, practice: false };
       // In the app, the plugin's settings are found on the computer and offered even over styles
       // made here (saying so); on the web, its export is imported instead
       if (window.TypeRStudio) state.photoshop = await window.TypeRStudio.findPhotoshopSettings({ overOwn: true }).catch(() => null);
@@ -776,6 +819,7 @@
       let current = null;
 
       const finish = (completed) => {
+        if (current && current.gone) current.gone();
         write("done");
         modal.close();
         modal.remove();
@@ -787,6 +831,8 @@
           // The panel's Smart paste settings, when changed here
           paste: state.paste || null,
           tour: completed && state.tour,
+          // A touch screen's first page: the practice one (touch.js)
+          practice: Boolean(completed && state.practice),
         };
         if (state.styles === "fresh" && window.TypeRStudio) {
           try {
@@ -801,6 +847,7 @@
       return new Promise((resolve) => {
         const show = () => {
           const step = steps[at];
+          if (current && current.gone) current.gone();
           pane.textContent = "";
           title.textContent = step.title();
           count.textContent = fill(T("Step {step} of {count}"), { step: at + 1, count: steps.length });
@@ -814,7 +861,9 @@
           current = step.build(pane, state);
           if (!state.again) write(JSON.stringify({ resume: step.id }));
           const first = pane.querySelector(".onboard__choice.is-on") || pane.querySelector("select, input:not([hidden]), button");
-          (first || next).focus();
+          // In the phone app a focused list opens and a focused field brings the keyboard up
+          const quiet = window.TypeRMobile && first && /^(SELECT|INPUT)$/.test(first.tagName);
+          ((!quiet && first) || next).focus();
         };
         next.addEventListener("click", () => {
           if (current.leave() === false) return;

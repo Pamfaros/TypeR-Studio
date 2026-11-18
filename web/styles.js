@@ -823,7 +823,7 @@
     if (view === "list") make("span", "styles__name", none, T("No Style"));
     itemOf.set(none, null);
     fillIn(null, list);
-    if (!styles.length && !groups.length) make("p", "styles__empty", list, T("No styles yet. Give a layer a Layer Style, then click New Style to keep it here."));
+    if (!styles.length && !groups.length) make("p", "styles__empty", list, Shell.touch ? T("No styles yet. Give a layer a Layer Style, then tap New Style to keep it here.") : T("No styles yet. Give a layer a Layer Style, then click New Style to keep it here."));
     // One of them can be reached with Tab: the one chosen, else the first
     const items = itemsOf();
     const focusable = items.find((item) => item.classList.contains("is-on")) || items[0];
