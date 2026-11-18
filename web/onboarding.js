@@ -281,7 +281,7 @@
       id: "wheel",
       // Fingers have no wheel
       when: () => !window.TypeRShell.touch,
-      title: () => T("Mouse wheel"),
+      title: () => T("Navigation mode"),
       build(pane) {
         const setup = App().setup;
         el("p", "onboard__lead", pane, T("Pick what the wheel does, then try it on the page below."));
@@ -291,7 +291,7 @@
           zoom: T("The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch."),
           auto: T("A mouse's wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers scroll and a pinch zooms."),
         };
-        const list = [{ id: "pan", title: T("Like Photoshop") }, { id: "zoom", title: T("The wheel zooms") }];
+        const list = [{ id: "pan", title: T("Like Photoshop") }, { id: "zoom", title: T("Wheel zooms, wheel click moves") }];
         if (!setup.IS_MAC) list.push({ id: "auto", title: T("Mouse zooms, trackpad scrolls") });
         const hint = el("p", "onboard__meta");
         choices(pane, list, way, (id) => {
