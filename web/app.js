@@ -11842,19 +11842,59 @@
       console.warn("TypeR web: the default folder can't be kept", error);
     }
   };
+  // A file or folder window opens only right after a click or a key, and each try uses it up.
+  // One asked too late (from the Mac's menu bar, or after a try in a folder gone since) waits
+  // for one more click, in a dialog of its own: the page's may be open, Batch Save's for one.
+  const clickToPick = () => new Promise((resolve) => {
+    const box = document.createElement("dialog");
+    box.className = "modal";
+    const body = document.createElement("div");
+    body.className = "modal__body";
+    const text = document.createElement("p");
+    text.textContent = T("Click Continue to open the window.");
+    body.appendChild(text);
+    const foot = document.createElement("div");
+    foot.className = "modal__foot";
+    const done = (yes) => {
+      box.close();
+      box.remove();
+      resolve(yes);
+    };
+    const no = document.createElement("button");
+    no.type = "button";
+    no.className = "btn";
+    no.textContent = T("Cancel");
+    no.addEventListener("click", () => done(false));
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "btn btn--main";
+    go.textContent = T("Continue");
+    go.addEventListener("click", () => done(true));
+    foot.append(no, go);
+    box.append(body, foot);
+    box.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      done(false);
+    });
+    document.body.appendChild(box);
+    box.showModal();
+    go.focus();
+  });
+  const clickedJustNow = () => !navigator.userActivation || navigator.userActivation.isActive;
   // A file or folder picker (`kind`: showOpenFilePicker…) opened in the page's own folder
   // (`near`, a handle), else in the default folder, else where it did last. A folder moved or
   // deleted since doesn't stop it.
   const pickIn = async (kind, options, near) => {
-    for (const start of [near, defaultFolder]) {
-      if (!start) continue;
+    const starts = [near, defaultFolder].filter(Boolean);
+    for (;;) {
+      if (!clickedJustNow() && !(await clickToPick())) throw new DOMException("The user aborted a request.", "AbortError");
+      const start = starts.shift();
       try {
-        return await window[kind](Object.assign({ startIn: start }, options));
+        return await window[kind](start ? Object.assign({ startIn: start }, options) : options);
       } catch (error) {
-        if (error.name === "AbortError") throw error;
+        if (error.name === "AbortError" || !start) throw error;
       }
     }
-    return window[kind](options);
   };
 
   const openDialog = async () => {

@@ -402,7 +402,7 @@
       window.TypeRPhotoshop.on(syncSoon);
       // TypeR's modes, switched in its panel
       window.addEventListener("typer-modes", syncSoon);
-      Desktop.onMenuAction((id) => {
+      const menuAction = (id) => {
         const [m, n] = id.split(":").map(Number);
         const item = App.MENUS[m][1][n];
         // As with the page's own menus, a dialog on screen comes first
@@ -410,7 +410,11 @@
         App.renderMenusState();
         if (item && item.row && !item.row.disabled) item.row.click();
         syncSoon();
-      });
+      };
+      // main.js runs it as a click, so a file window can open from the menu bar; older ones
+      // send it as a message
+      window.TypeRDesktopMenu = menuAction;
+      Desktop.onMenuAction(menuAction);
       // A key the page left alone: only a text field has a use for it, Undo in it is the field's
       Desktop.onMenuKey((command) => {
         if (typingNow()) Desktop.textEdit(command);
