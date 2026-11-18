@@ -41,12 +41,17 @@ html.t-touch .text-area, html.t-touch .text-area-overlay, html.t-touch .text-row
 html.t-touch .text-line-num { font-size: 13px; line-height: 30px; }
 html.t-touch .text-line-select > svg, html.t-touch .text-line-insert > svg { top: 2px; }
 html.t-touch .text-message > div { font-size: 16px; }
+/* The script is shown by the app's own list, which reads the rows here (touch.js). From 200
+   lines on, the panel only keeps the rows in sight: a block tall enough has them all in sight */
+html.t-touch .text-block { flex: none !important; height: 1000000px !important; }
 /* The panel takes a short window for a small one; here it's a short sheet with all its room */
 html.t-touch .preview-bottom { display: flex !important; }
 html.t-touch .style-btn-list { display: flex !important; }
 html[data-view="all"] .top-block { height: auto !important; }
 html[data-view="all"] .preview-bottom { min-height: 110px; }
 html.t-touch .global-tooltip { display: none !important; }
+/* No keyboard under fingers: its shortcuts have no tab */
+html.t-touch .settings-tab[data-tour="settings-shortcuts"] { display: none !important; }
 /* Fingers */
 html.t-touch button, html.t-touch input, html.t-touch select { touch-action: manipulation; }
 html.t-touch .tab-bar-tab { min-height: 40px; padding: 0 14px; font-size: 14px; }
