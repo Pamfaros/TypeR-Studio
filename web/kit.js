@@ -324,15 +324,17 @@
     } catch (error) {
       console.warn("TypeR web: localStorage is full", error);
     }
+    const put = (db) => new Promise((done) => {
+      const tx = db.transaction("files", "readwrite");
+      tx.objectStore("files").put({ path, text, time });
+      tx.oncomplete = () => done(true);
+      tx.onerror = () => done(false);
+      tx.onabort = () => done(false);
+    });
     const db = await window.TypeRFonts.openStore().catch(() => null);
     if (db) {
-      const saved = await new Promise((done) => {
-        const tx = db.transaction("files", "readwrite");
-        tx.objectStore("files").put({ path, text, time });
-        tx.oncomplete = () => done(true);
-        tx.onerror = () => done(false);
-        tx.onabort = () => done(false);
-      });
+      // A connection the browser closed meanwhile: once more on a new one
+      const saved = await put(db).catch(() => window.TypeRFonts.openStore(true).then(put)).catch(() => false);
       if (saved) copies++;
     }
     if (!copies && window.TypeRPhotoshop) window.TypeRPhotoshop.warnStorage();
@@ -348,7 +350,14 @@
       console.warn("TypeR web: localStorage is not available", error);
     }
     const db = await window.TypeRFonts.openStore().catch(() => null);
-    if (db) db.transaction("files", "readwrite").objectStore("files").delete(path);
+    const remove = (from) => from.transaction("files", "readwrite").objectStore("files").delete(path);
+    if (db) {
+      try {
+        remove(db);
+      } catch (error) {
+        await window.TypeRFonts.openStore(true).then(remove).catch(() => {});
+      }
+    }
   };
 
   // What TypeR starts from; a user who imports their styles first skips the tutorial

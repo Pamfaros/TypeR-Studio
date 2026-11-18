@@ -497,19 +497,33 @@
   // The browser's database: font files here, TypeR's own files in kit.js
   const STORE = "fonts";
   let opening = null;
-  const openStore = () => {
+  // `again`: the one kept turned out closed, a new one is opened
+  const openStore = (again) => {
+    if (again) opening = null;
     if (!opening) {
-      opening = new Promise((done, fail) => {
+      const mine = new Promise((done, fail) => {
         const request = indexedDB.open("typer-web", 2);
         request.onupgradeneeded = () => {
           const db = request.result;
           if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "ps" });
           if (!db.objectStoreNames.contains("files")) db.createObjectStore("files", { keyPath: "path" });
         };
-        request.onsuccess = () => done(request.result);
+        request.onsuccess = () => {
+          const db = request.result;
+          // Closed by the browser (its data cleared, a disk error), or wanted newer by another
+          // tab: the next call opens it again
+          const drop = () => { if (opening === mine) opening = null; };
+          db.onclose = drop;
+          db.onversionchange = () => {
+            db.close();
+            drop();
+          };
+          done(db);
+        };
         request.onerror = () => fail(request.error);
       });
-      opening.catch(() => { opening = null; });
+      opening = mine;
+      mine.catch(() => { if (opening === mine) opening = null; });
     }
     return opening;
   };
