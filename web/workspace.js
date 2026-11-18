@@ -33,12 +33,12 @@
     "typer-buttons": { part: "actions", title: "Paste and Center", min: [200, 60], w: 340, h: 80 },
   };
   const PART_IDS = Object.keys(TYPER_PARTS);
-  const ELEMENTS = { tools: "tools", typer: "dock-typer", layers: "pane-layers", character: "pane-character", sfx: "pane-sfx", breaks: "breaks", history: "pane-history", actions: "pane-actions", styles: "pane-styles" };
-  const PANELS = ["typer", "layers", "character", "sfx", "breaks", "history", "actions", "styles"].concat(PART_IDS);
-  const SIDE = ["layers", "character", "sfx", "breaks", "history", "actions", "styles"];
+  const ELEMENTS = { tools: "tools", typer: "dock-typer", layers: "pane-layers", character: "pane-character", sfx: "pane-sfx", breaks: "breaks", history: "pane-history", actions: "pane-actions", styles: "pane-styles", library: "pane-library" };
+  const PANELS = ["typer", "layers", "character", "sfx", "breaks", "history", "actions", "styles", "library"].concat(PART_IDS);
+  const SIDE = ["layers", "character", "sfx", "breaks", "history", "actions", "styles", "library"];
   const SIDES = ["left", "right"];
-  const MIN = { tools: [42, 42], typer: [200, 200], layers: [170, 90], character: [210, 130], sfx: [230, 160], breaks: [210, 120], history: [150, 80], actions: [190, 110], styles: [150, 90] };
-  const HEIGHTS = { typer: 600, layers: 290, character: 240, sfx: 420, breaks: 290, history: 180, actions: 260, styles: 220 };
+  const MIN = { tools: [42, 42], typer: [200, 200], layers: [170, 90], character: [210, 130], sfx: [230, 160], breaks: [210, 120], history: [150, 80], actions: [190, 110], styles: [150, 90], library: [170, 120] };
+  const HEIGHTS = { typer: 600, layers: 290, character: 240, sfx: 420, breaks: 290, history: 180, actions: 260, styles: 220, library: 320 };
   PART_IDS.forEach((id) => {
     ELEMENTS[id] = `pane-${id}`;
     MIN[id] = TYPER_PARTS[id].min;
@@ -120,11 +120,12 @@
         left: [],
         right: [
           { id: "middle", width: 360, icons: false, groups: [single("typer")] },
-          { id: "right", width: 250, icons: false, groups: [single("layers"), single("character"), single("sfx"), single("breaks"), makeGroup(["history", "actions"], 220), single("styles")] },
+          { id: "right", width: 250, icons: false, groups: [makeGroup(["layers", "library"], HEIGHTS.layers), single("character"), single("sfx"), single("breaks"), makeGroup(["history", "actions"], 220), single("styles")] },
         ],
       },
-      // The SFX panel comes with the SFX tool; History, Actions and Styles wait to be asked for
-      hidden: { history: true, sfx: true, actions: true, styles: true },
+      // The SFX panel comes with the SFX tool; History, Actions, Styles and the Library (a tab
+      // beside Layers, where it has room) wait to be asked for
+      hidden: { history: true, sfx: true, actions: true, styles: true, library: true },
       floats: [],
       // Where each panel was docked last: { column, side, at, before, width, with }
       dockOf: {},
@@ -238,8 +239,14 @@
     PANELS.forEach((id) => {
       if (seen.has(id) || TYPER_PARTS[id]) return;
       // A panel this layout never had goes to the column at the far right; the SFX one waits
-      // for its tool, the Actions and Styles ones to be asked for (Window menu)
-      if (id === "sfx" || id === "actions" || id === "styles") out.hidden[id] = true;
+      // for its tool, the Actions, Styles and Library ones to be asked for (Window menu)
+      if (id === "sfx" || id === "actions" || id === "styles" || id === "library") out.hidden[id] = true;
+      // The Library, a tab beside Layers when they are docked: there it has room
+      const layers = id === "library" ? allColumns(out).flatMap((column) => column.groups).find((group) => group.tabs.includes("layers")) : null;
+      if (layers) {
+        layers.tabs.push(id);
+        return;
+      }
       const right = out.docks.right;
       const single = makeGroup([id], HEIGHTS[id]);
       if (right.length) right[right.length - 1].groups.push(single);
@@ -390,6 +397,7 @@
     history: '<path d="M2.500 3.500h11M2.500 7h5M2.500 10.500h5"/><path d="M13.500 9.500a3 3 0 1 1-1-2.200"/><path d="M12.700 5.600v1.900h-1.900"/>',
     actions: '<path d="M5 3l8 5-8 5z"/>',
     styles: '<rect x="2.500" y="2.500" width="11" height="11" rx="1"/><path d="M2.500 13.500l11-11"/>',
+    library: '<path d="M10.500 2.500l3 3-6 6-3.500.500.500-3.500z"/><path d="M2.500 13.500h5"/>',
   };
   const svg = (paths) => `<svg viewBox="0 0 16 16" aria-hidden="true">${paths}</svg>`;
   // Toward the page or toward the window's edge

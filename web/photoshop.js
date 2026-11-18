@@ -2994,6 +2994,296 @@
     commitState(doc, name, { layers: replaceLayer(doc, layer, { paint }) }, undefined, strokeEnd(doc, layer, live));
   };
 
+  /* ---- the brushes of the library ---- */
+
+  // A brush of the library (a Clip Studio sub tool, see csp.js) is drawn by brush-engine.js as a
+  // picture of its own, the stroke so far; here it is laid on what the layer held before the
+  // stroke, read in tiles the first time the stroke reaches them, by the brush's blending mode.
+  // Chance has a part in most of these brushes, so a stroke is not drawn again from its points:
+  // it ends, as the retouching tools' do, as the pixels it changed (a "pixels" paint step).
+  // `fields.preset`: { brush, size, opacity, color, sub (the colours as [r, g, b]) }; on a mask
+  // `fields.target`, in `fields.gray`.
+  const PT_TILE = 128;
+  const PT_KEY = 65536;
+  // Photoshop's blending modes, one channel at a time: what is there (b) and what is painted
+  // (s), 0 to 1
+  const PT_BLENDS = {
+    multiply: (b, s) => b * s,
+    screen: (b, s) => b + s - b * s,
+    overlay: (b, s) => (b <= 0.5 ? 2 * b * s : 1 - 2 * (1 - b) * (1 - s)),
+    darken: (b, s) => Math.min(b, s),
+    lighten: (b, s) => Math.max(b, s),
+    "color dodge": (b, s) => (b <= 0 ? 0 : s >= 1 ? 1 : Math.min(1, b / (1 - s))),
+    "color burn": (b, s) => (b >= 1 ? 1 : s <= 0 ? 0 : 1 - Math.min(1, (1 - b) / s)),
+    "linear dodge": (b, s) => Math.min(1, b + s),
+    "linear burn": (b, s) => Math.max(0, b + s - 1),
+    subtract: (b, s) => Math.max(0, b - s),
+    "hard light": (b, s) => (s <= 0.5 ? 2 * b * s : 1 - 2 * (1 - b) * (1 - s)),
+    difference: (b, s) => Math.abs(b - s),
+    exclusion: (b, s) => b + s - 2 * b * s,
+  };
+  const beginPreset = (doc, layerId, fields) => {
+    const Engine = window.TypeRBrushEngine;
+    const { brush, size, opacity, color, sub } = fields.preset;
+    if (!Engine || !brush) return false;
+    const pt = { doc, layerId, target: fields.target || null, tiles: new Map(), blend: brush.settings.blend || "normal" };
+    const live = { preset: pt, box: null };
+    if (pt.target) {
+      const holder = maskHolder(doc, pt.target, layerId);
+      if (!holder) return false;
+      if (holder.locked) {
+        emit("layer-locked");
+        return false;
+      }
+      const [ox, oy] = maskOrigin(holder);
+      Object.assign(pt, { gray: Math.max(0, Math.min(255, Number(fields.gray) || 0)), masked: true, ox, oy });
+      Object.assign(live, { layerId, holderId: holder.id, target: pt.target, dx: ox, dy: oy });
+      pt.entry = maskEntry(holder, doc);
+    } else {
+      const layer = doc.state.layers.find((item) => item.id === layerId && item.kind === "raster" && !item.adjustment);
+      if (!layer) return false;
+      if (lockOf(layer, "pixels")) {
+        emit("layer-locked");
+        return false;
+      }
+      Object.assign(pt, { ox: layer.dx || 0, oy: layer.dy || 0, lock: lockOf(layer, "transparency") });
+      Object.assign(live, { layerId: layer.id, dx: pt.ox, dy: pt.oy });
+      pt.entry = rasterEntry(layer, doc);
+      visualBoxes.delete(layer);
+    }
+    const selection = doc.state.selection;
+    if (selection) {
+      const b = selection.bounds;
+      pt.sel = selection.mask ? { mask: selection.mask, left: Math.round(b.left), top: Math.round(b.top) } : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+    }
+    pt.opacity = opacity === undefined ? brush.settings.opacity : opacity;
+    pt.stroke = Engine.begin(brush, { size, opacity: pt.opacity, color, sub });
+    doc.liveStroke = live;
+    return true;
+  };
+  // The canvas the stroke shows on, and where the page's corner is on it
+  const ptEntry = (pt) => {
+    const doc = pt.doc;
+    if (pt.masked) {
+      const holder = maskHolder(doc, pt.target, pt.layerId);
+      if (!holder) return null;
+      const entry = maskEntry(holder, doc);
+      return { entry, x0: entry.x0, y0: entry.y0 };
+    }
+    const layer = doc.state.layers.find((item) => item.id === pt.layerId);
+    if (!layer) return null;
+    const entry = rasterEntry(layer, doc);
+    return { entry, x0: entry.cx0, y0: entry.cy0 };
+  };
+  // What the layer held before the stroke, over the tiles a rectangle of the page needs
+  const ptEnsure = (pt, found, left, top, right, bottom) => {
+    const doc = pt.doc;
+    for (let ty = Math.floor(top / PT_TILE); ty * PT_TILE < bottom; ty++) {
+      for (let tx = Math.floor(left / PT_TILE); tx * PT_TILE < right; tx++) {
+        const key = ty * PT_KEY + tx;
+        if (pt.tiles.has(key)) continue;
+        const x0 = tx * PT_TILE;
+        const y0 = ty * PT_TILE;
+        const w = Math.min(PT_TILE, doc.width - x0);
+        const h = Math.min(PT_TILE, doc.height - y0);
+        pt.tiles.set(key, { data: found.entry.ctx.getImageData(x0 - pt.ox - found.x0, y0 - pt.oy - found.y0, w, h).data, width: w });
+      }
+    }
+  };
+  // How much of the stroke a pixel of the page takes: all of it, or none outside the selection
+  const ptSelected = (sel, px, py) => {
+    if (!sel) return true;
+    if (sel.mask) {
+      const mx = px - sel.left;
+      const my = py - sel.top;
+      return mx >= 0 && my >= 0 && mx < sel.mask.width && my < sel.mask.height && sel.mask.data[my * sel.mask.width + mx] > 0;
+    }
+    return px + 0.5 > sel.left && px + 0.5 < sel.right && py + 0.5 > sel.top && py + 0.5 < sel.bottom;
+  };
+  // A rectangle of the page as the stroke leaves it: what was there and the stroke over it
+  const ptImage = (pt, left, top, width, height) => {
+    const image = new ImageData(width, height);
+    const out = image.data;
+    const n = width * height * 4;
+    if (!pt.buffer || pt.buffer.length < n) pt.buffer = new Float32Array(n);
+    // In place of what is there, a stroke is read without its opacity: it is how much is replaced
+    const replace = pt.blend === "replace";
+    const paint = pt.stroke.read(left, top, width, height, pt.buffer, replace);
+    const mix = PT_BLENDS[pt.blend] || null;
+    const { sel, opacity } = pt;
+    for (let y = 0; y < height; y++) {
+      const py = top + y;
+      const ty = Math.floor(py / PT_TILE);
+      for (let x = 0; x < width; x++) {
+        const px = left + x;
+        const tx = Math.floor(px / PT_TILE);
+        const tile = pt.tiles.get(ty * PT_KEY + tx);
+        const t = ((py - ty * PT_TILE) * tile.width + (px - tx * PT_TILE)) * 4;
+        const o = (y * width + x) * 4;
+        const d = tile.data;
+        let a = paint[o + 3];
+        if (!(a > 0) || !ptSelected(sel, px, py)) {
+          out[o] = d[t];
+          out[o + 1] = d[t + 1];
+          out[o + 2] = d[t + 2];
+          out[o + 3] = d[t + 3];
+          continue;
+        }
+        if (pt.masked) {
+          // A mask keeps its grey as alpha: the stroke brings it toward the grey painted
+          const to = pt.blend === "erase" ? 255 - pt.gray : pt.gray;
+          out[o + 3] = d[t + 3] + (to - d[t + 3]) * (replace ? a * opacity : a);
+          continue;
+        }
+        const da = d[t + 3] / 255;
+        let r = paint[o];
+        let g = paint[o + 1];
+        let b = paint[o + 2];
+        if (pt.blend === "erase") {
+          out[o] = d[t];
+          out[o + 1] = d[t + 1];
+          out[o + 2] = d[t + 2];
+          out[o + 3] = pt.lock ? d[t + 3] : d[t + 3] * (1 - a);
+          continue;
+        }
+        if (pt.lock) {
+          // Transparent pixels locked: the colour changes, not how much there is
+          out[o] = d[t] + (r - d[t]) * a;
+          out[o + 1] = d[t + 1] + (g - d[t + 1]) * a;
+          out[o + 2] = d[t + 2] + (b - d[t + 2]) * a;
+          out[o + 3] = d[t + 3];
+          continue;
+        }
+        if (pt.blend === "compare") {
+          // The denser of the two stays (how dark, and how much of it): strokes of a screentone
+          // that cross don't build up, and on white paper the stroke is all there is
+          const there = da * (1 - (0.299 * d[t] + 0.587 * d[t + 1] + 0.114 * d[t + 2]) / 255);
+          if (a * (1 - (0.299 * r + 0.587 * g + 0.114 * b) / 255) <= there && a <= da) {
+            out[o] = d[t];
+            out[o + 1] = d[t + 1];
+            out[o + 2] = d[t + 2];
+            out[o + 3] = d[t + 3];
+            continue;
+          }
+        } else if (replace && da <= opacity * 1.001) {
+          // In place of what is there: a marker's strokes don't build up where they cross
+          const sa = opacity * a;
+          const keep = da * (1 - a);
+          const total = sa + keep;
+          out[o] = total > 0 ? (r * sa + d[t] * keep) / total : 0;
+          out[o + 1] = total > 0 ? (g * sa + d[t + 1] * keep) / total : 0;
+          out[o + 2] = total > 0 ? (b * sa + d[t + 2] * keep) / total : 0;
+          out[o + 3] = total * 255;
+          continue;
+        } else if (replace) {
+          // Over something more opaque than the marker, it is laid on it: nothing is taken away
+          a *= opacity;
+        }
+        if (mix && da > 0) {
+          r = (1 - da) * r + da * 255 * mix(d[t] / 255, r / 255);
+          g = (1 - da) * g + da * 255 * mix(d[t + 1] / 255, g / 255);
+          b = (1 - da) * b + da * 255 * mix(d[t + 2] / 255, b / 255);
+        }
+        const keep = da * (1 - a);
+        const total = a + keep;
+        out[o] = (r * a + d[t] * keep) / total;
+        out[o + 1] = (g * a + d[t + 1] * keep) / total;
+        out[o + 2] = (b * a + d[t + 2] * keep) / total;
+        out[o + 3] = total * 255;
+      }
+    }
+    return image;
+  };
+  // What a move of the pen changed (a rectangle of the page, from the engine), onto the canvas
+  // and the screen
+  const ptShow = (pt, live, rect) => {
+    if (!rect) return;
+    const doc = pt.doc;
+    const area = { left: Math.max(0, Math.floor(rect.left)), top: Math.max(0, Math.floor(rect.top)), right: Math.min(doc.width, Math.ceil(rect.right)), bottom: Math.min(doc.height, Math.ceil(rect.bottom)) };
+    if (area.right <= area.left || area.bottom <= area.top) return;
+    const found = ptEntry(pt);
+    if (!found) return;
+    const { entry } = found;
+    ptEnsure(pt, found, area.left, area.top, area.right, area.bottom);
+    const image = ptImage(pt, area.left, area.top, area.right - area.left, area.bottom - area.top);
+    const x = area.left - pt.ox - found.x0;
+    const y = area.top - pt.oy - found.y0;
+    entry.ctx.putImageData(image, x, y);
+    entry.version++;
+    touched(entry.canvas, entry.version - 1, entry.version, { left: x, top: y, right: x + image.width, bottom: y + image.height });
+    live.box = unionOf(live.box, area);
+    emit("render", pageRect(doc, area.left, area.top, area.right, area.bottom));
+  };
+  const extendPreset = (live, x, y, pen) => {
+    const pt = live.preset;
+    ptShow(pt, live, pt.stroke.add(x, y, pen && pen.pressure > 0 ? pen.pressure : 1, pen && pen.time ? pen.time : performance.now(), pen && pen.tilt ? pen.tilt : null));
+  };
+  // The stroke's end (which may draw it all again: see brush-engine.js), then one step of
+  // history: the tiles it reached, row by row, as the layer's pixels there
+  const endPreset = (doc, live) => {
+    const pt = live.preset;
+    ptShow(pt, live, pt.stroke.end());
+    const box = live.box;
+    const found = box ? ptEntry(pt) : null;
+    const pieces = [];
+    if (found) {
+      const keys = Array.from(pt.tiles.keys()).sort((a, b) => a - b);
+      let run = null;
+      const piece = () => {
+        if (!run) return;
+        const left = Math.max(box.left, run.from * PT_TILE);
+        const top = Math.max(box.top, run.ty * PT_TILE);
+        const right = Math.min(box.right, (run.to + 1) * PT_TILE);
+        const bottom = Math.min(box.bottom, (run.ty + 1) * PT_TILE);
+        run = null;
+        if (right <= left || bottom <= top) return;
+        const canvas = newCanvas(right - left, bottom - top);
+        canvas.getContext("2d").putImageData(found.entry.ctx.getImageData(left - pt.ox - found.x0, top - pt.oy - found.y0, right - left, bottom - top), 0, 0);
+        pieces.push({ canvas, x: left - pt.ox, y: top - pt.oy });
+      };
+      keys.forEach((key) => {
+        const tx = key % PT_KEY;
+        const ty = Math.floor(key / PT_KEY);
+        if (run && run.ty === ty && run.to === tx - 1) run.to = tx;
+        else {
+          piece();
+          run = { ty, from: tx, to: tx };
+        }
+      });
+      piece();
+    }
+    pt.tiles.clear();
+    pt.buffer = null;
+    if (!pieces.length) {
+      emit("render");
+      return;
+    }
+    const op = { t: "pixels", pieces };
+    const name = pt.blend === "erase" ? "Eraser" : "Brush";
+    if (pt.masked) {
+      const holder = maskHolder(doc, pt.target, pt.layerId);
+      if (!holder) return;
+      const paint = (holder.mask.paint || NONE).concat([op]);
+      const entry = maskCache.get(holder.id);
+      if (entry === pt.entry) entry.paint = paint;
+      else if (entry) maskCache.delete(holder.id);
+      const mask = Object.assign({}, holder.mask, { paint });
+      if (pt.target === "quick") commitState(doc, "Quick Mask", { quickMask: mask }, undefined, strokeEnd(doc, holder, live));
+      else commitState(doc, name, { layers: replaceLayer(doc, holder, { mask }) }, undefined, strokeEnd(doc, holder, live));
+      return;
+    }
+    const layer = doc.state.layers.find((item) => item.id === pt.layerId);
+    if (!layer) return;
+    const paint = (layer.paint || NONE).concat([op]);
+    const entry = rasterCache.get(layer.id);
+    if (entry === pt.entry) {
+      entry.paint = paint;
+      if (paint.length % MARK_EVERY === 0) markRaster(entry, paint);
+    } else if (entry) forgetRaster(layer.id, entry);
+    if (effectsOn(layer) && !rasterStrokeOf(layer)) settleEffects(doc, layer.id);
+    commitState(doc, name, { layers: replaceLayer(doc, layer, { paint }) }, undefined, strokeEnd(doc, layer, live));
+  };
+
   // Photoshop's anti-aliasing methods. In all of them a pixel of a text layer is as opaque as
   // the share of it the letters cover, which is what the browser draws from their outlines:
   // Smooth and Crisp draw the outline itself, Strong draws it 0.145 px further out on every
@@ -11571,9 +11861,11 @@
     /* ---- painting ---- */
     // `fields.target`: "mask" paints the layer's mask, "quick" the Quick Mask, in `fields.gray`
     // `fields.retouch`: the Smudge, Blur or Sharpen tool (see beginRetouch)
+    // `fields.preset`: a brush of the library (see beginPreset)
     beginStroke(layerId, fields) {
       const doc = app.doc;
       if (doc && fields.retouch) return beginRetouch(doc, layerId, fields);
+      if (doc && fields.preset) return beginPreset(doc, layerId, fields);
       if (doc && fields.target) {
         const holder = maskHolder(doc, fields.target, layerId);
         if (!holder) return false;
@@ -11621,12 +11913,18 @@
       visualBoxes.delete(layer);
       return true;
     },
-    extendStroke(x, y) {
+    // `pen`: { pressure (0 to 1), tilt (0 upright to 1 flat; 0 too when it isn't known), time
+    // (ms) }, for the brushes of the library
+    extendStroke(x, y, pen) {
       const doc = app.doc;
       const live = doc && doc.liveStroke;
       if (!live) return;
       if (live.retouch) {
         extendRetouch(live, x, y);
+        return;
+      }
+      if (live.preset) {
+        extendPreset(live, x, y, pen);
         return;
       }
       const point = [x - live.dx, y - live.dy];
@@ -11664,6 +11962,10 @@
       doc.liveStroke = null;
       if (live.retouch) {
         endRetouch(doc, live);
+        return;
+      }
+      if (live.preset) {
+        endPreset(doc, live);
         return;
       }
       if (live.target) {

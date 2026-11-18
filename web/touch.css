@@ -258,6 +258,13 @@ html.touch .styles { --tile: 52px; gap: 8px; padding: 10px; }
 html.touch .styles--large { --tile: 76px; }
 html.touch .styles--list { --tile: 40px; gap: 0; padding: 0; }
 html.touch .styles--list .styles__item { min-height: 52px; padding: 5px 14px; font-size: 15px; }
+/* the library: rows and tiles a finger can hit */
+html.touch .library__tab { padding: 10px 8px; font-size: 14px; }
+html.touch .library__brush { padding: 6px 12px 8px; }
+html.touch .library__stroke { height: 48px; }
+html.touch .library__name { font-size: 13px; }
+html.touch .library__grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; padding: 8px 10px 10px; }
+html.touch .library__ghead { padding: 10px 12px; font-size: 14px; }
 html.touch .styles__item { padding: 3px; }
 
 /* character */

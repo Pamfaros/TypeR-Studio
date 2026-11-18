@@ -6969,7 +6969,8 @@
       });
       previewWhileHeld(hardness);
       // The Spot Healing Brush blends its edge by itself
-      if (tool === "heal") bar.append(labelled(T("Size"), size), number);
+      // A brush of the library has its own edge: no hardness to set
+      if (tool === "heal" || (tool === "brush" && window.TypeRLibrary && window.TypeRLibrary.chosen())) bar.append(labelled(T("Size"), size), number);
       else bar.append(labelled(T("Size"), size), number, labelled(T("Hardness"), hardness), percent);
       if (tool === "stamp") {
         bar.appendChild(checkbox(T("Aligned"), stamp.aligned, (on) => {
@@ -6994,6 +6995,7 @@
       }
     }
     if ((tool === "heal" || tool === "gradient" || RETOUCH_BRUSHES.has(tool)) && window.TypeRRetouch) window.TypeRRetouch.options(bar);
+    if (tool === "brush" && window.TypeRLibrary) window.TypeRLibrary.options(bar);
     if (tool === "text") {
       const c = textControls(bar, true);
       bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns, hiddenCharsButton());
@@ -7084,6 +7086,12 @@
     // On a mask, in grey: the brush paints the foreground's, the eraser the background's
     const painting = maskPainting();
     if (RETOUCH_BRUSHES.has(tool)) return { size, hardness, target: painting ? painting.target : null, retouch: window.TypeRRetouch.brush(tool, alt) };
+    // A brush of the library (library.js) paints in place of the round one, in the Brush's colours
+    const chosen = tool === "brush" && window.TypeRLibrary ? window.TypeRLibrary.preset() : null;
+    if (chosen) {
+      const preset = Object.assign({ color: window.TypeRLibrary.rgbOf(toRgb(app.fg)), sub: window.TypeRLibrary.rgbOf(toRgb(app.bg)) }, chosen);
+      return painting ? { size, target: painting.target, gray: PS.grayOf(toRgb(app.fg)), preset } : { size, preset };
+    }
     if (painting && tool !== "stamp") return { size, hardness, target: painting.target, gray: PS.grayOf(toRgb(tool === "eraser" ? app.bg : app.fg)), erase: tool === "eraser" };
     if (tool === "stamp") return { size, hardness, color: { red: 0, green: 0, blue: 0 }, clone: { ox: stamp.offset[0], oy: stamp.offset[1], sample: stamp.sample } };
     return tool === "eraser" ? { size, hardness, erase: true } : { size, hardness, color: toRgb(app.fg) };
@@ -7549,14 +7557,20 @@
   // in the same document. Shift held while painting: straight across or straight down from
   // where Shift was pressed, whichever way the pointer goes first.
   let lastStrokeEnd = null;
-  const strokeTo = (current, point) => {
-    ops.extendStroke(point[0], point[1]);
+  // `event`: the pointer's, for what a pen says of itself (a mouse presses fully)
+  const penOf = (event) => {
+    if (!event || event.pointerType !== "pen") return undefined;
+    const tilt = Math.min(1, Math.hypot(event.tiltX || 0, event.tiltY || 0) / 90);
+    return { pressure: event.pressure > 0 ? event.pressure : 0.01, tilt, time: event.timeStamp };
+  };
+  const strokeTo = (current, point, event) => {
+    ops.extendStroke(point[0], point[1], penOf(event));
     current.drawn = point;
   };
-  const beginStrokeAt = (current, point, shift) => {
+  const beginStrokeAt = (current, point, shift, event) => {
     const from = shift && lastStrokeEnd && lastStrokeEnd.doc === app.doc ? lastStrokeEnd.point : null;
-    if (from) strokeTo(current, from);
-    strokeTo(current, point);
+    if (from) strokeTo(current, from, event);
+    strokeTo(current, point, event);
     if (shift) current.axis = { from: point, along: null };
   };
   const straightStroke = (current, point, shift) => {
@@ -7987,7 +8001,7 @@
       if (!ok) return;
       gesture = Object.assign(base, { kind: "stroke" });
       // Its first dab redraws the part of the page it touched, not the whole page
-      beginStrokeAt(gesture, point, event.shiftKey);
+      beginStrokeAt(gesture, point, event.shiftKey, event);
       ui.stage.setPointerCapture(event.pointerId);
       return;
     }
@@ -8308,7 +8322,7 @@
       hud(`${Math.round(x1 - x0)} × ${Math.round(y1 - y0)} px`, event);
     } else if (current.kind === "stroke") {
       const events = event.getCoalescedEvents ? event.getCoalescedEvents() : [event];
-      (events.length ? events : [event]).forEach((item) => strokeTo(current, straightStroke(current, toDoc(item), event.shiftKey)));
+      (events.length ? events : [event]).forEach((item) => strokeTo(current, straightStroke(current, toDoc(item), event.shiftKey), item));
     } else if (current.kind === "moveSelection") {
       const dx = point[0] - current.start[0];
       const dy = point[1] - current.start[1];
@@ -11820,7 +11834,7 @@
   /* -------------------------------- files --------------------------------- */
 
   const canPickFiles = typeof window.showOpenFilePicker === "function";
-  const OPEN_TYPES = [{ description: "Photoshop, InDesign, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "application/vnd.adobe.indesign-idml-package": [".idml"], "application/x-indesign": [".indd", ".indt"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"], "application/octet-stream": [".atn", ".asl"] } }];
+  const OPEN_TYPES = [{ description: "Photoshop, InDesign, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "application/vnd.adobe.indesign-idml-package": [".idml"], "application/x-indesign": [".indd", ".indt"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"], "application/octet-stream": [".atn", ".asl", ".sut", ".clip"] } }];
   const InDesign = window.TypeRInDesign;
 
   const tooLargeText = (width, height) => fill(T("This page is too large for this browser: {width} × {height} px."), { width, height });
@@ -11891,10 +11905,15 @@
     const inOrder = Array.from(entries).sort((a, b) => NATURAL_ORDER.compare((a.file || a).name, (b.file || b).name));
     const opened = [];
     const unreadable = [];
+    // Clip Studio Paint's brushes and materials, and the archives they come in, go to the
+    // Library panel (library.js), all at once
+    const forLibrary = window.TypeRLibrary ? inOrder.filter((entry) => window.TypeRLibrary.takes((entry.file || entry).name)) : [];
+    if (forLibrary.length) window.TypeRLibrary.importFiles(forLibrary);
     openingFiles++;
     for (const entry of inOrder) {
       const file = entry.file || entry;
       const handle = entry.handle || null;
+      if (forLibrary.includes(entry)) continue;
       // Photoshop's actions go to the Actions panel, its styles to the Styles panel
       if (/\.atn$/i.test(file.name) && window.TypeRActions) {
         await window.TypeRActions.loadFile(file);
@@ -18213,6 +18232,9 @@
       null,
       { label: "Canvas Size…", keys: "Alt+Cmd+C", enabled: hasDoc, action: askCanvasSize },
       { label: "Image Size…", keys: "Alt+Cmd+I", enabled: hasDoc, action: askImageSize },
+      null,
+      // A spread joined in Flow, back to its two pages (also on its name, in Flow)
+      { label: "Separate Pages", enabled: () => Boolean(app.doc && maybeSpread({ doc: app.doc })), action: () => separatePages({ doc: app.doc }) },
     ]],
     ["Layer", [
       // Photoshop's Shift+Cmd+N opens a private window from a browser tab: it only arrives in the installed app or full screen
@@ -18357,6 +18379,8 @@
       { label: "Actions", keys: "Alt+F9", check: () => Workspace().isVisible("actions"), action: () => Workspace().toggle("actions") },
       // Photoshop's Styles: layer styles kept, a click away (styles.js)
       { label: "Styles", check: () => Workspace().isVisible("styles"), action: () => Workspace().toggle("styles") },
+      // Brushes and materials brought in from Clip Studio Paint (library.js)
+      { label: "Library", check: () => Workspace().isVisible("library"), action: () => Workspace().toggle("library") },
       { label: "Line Breaks", keys: "Shift+L", check: () => Workspace().isVisible("breaks"), action: () => Workspace().toggle("breaks") },
       ...(Shell.touch ? [] : [{ label: "Contextual Task Bar", check: () => settings.taskBar, action: () => setTaskBar(!settings.taskBar) }]),
       null,

@@ -833,6 +833,51 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .styles__empty { grid-column: 1 / -1; justify-self: stretch; margin: 6px 4px; color: var(--muted); }
 .styles__foot { justify-content: flex-start; }
 .styles__grow { flex: 1; }
+
+/* the Library panel (library.js): the brushes, each a stroke of it, and the materials, a grid
+   of pictures. Both sit on the light grey of the Styles panel: black ink and white paint show. */
+.pane--library { flex: 0 1 34%; }
+.library__tabs { flex: none; display: flex; gap: 1px; padding: 4px 6px 0; background: var(--ui-dark); }
+.library__tab { flex: 1; min-width: 0; padding: 4px 6px; overflow: hidden; border-radius: 3px 3px 0 0; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.library__tab:hover { color: var(--text); }
+.library__tab.is-on { background: var(--ui); color: var(--strong); }
+.library { flex: 1; min-height: 40px; display: flex; flex-direction: column; overflow-y: auto; background: var(--ui-dark); outline: 0; }
+.pane--library.is-drop .library { box-shadow: inset 0 0 0 2px var(--blue); }
+.library__body { display: flex; flex-direction: column; }
+.library__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 4px; padding: 4px 6px 6px; }
+.library__brush { flex: none; display: flex; flex-direction: column; align-items: stretch; gap: 1px; width: 100%; min-width: 0; padding: 3px 6px 4px; border-bottom: 1px solid rgb(0 0 0 / 0.12); color: var(--text); text-align: start; }
+.library__brush:hover { background: var(--ui-2); }
+.library__brush.is-on { background: rgb(var(--blue-rgb) / 0.24); box-shadow: inset 2px 0 0 var(--blue); color: var(--strong); }
+.library__brush:focus-visible, .library__tile:focus-visible, .library__ghead:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.library__stroke { display: block; height: 36px; overflow: hidden; background: #c9c9c9; border-radius: 2px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.2); }
+.library__stroke img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.library__stroke--round { position: relative; }
+.library__stroke--round::after { content: ""; position: absolute; left: 8%; right: 8%; top: 50%; height: 6px; margin-top: -3px; background: #000; border-radius: 3px; }
+.library__name { min-width: 0; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.library__tile { position: relative; display: block; aspect-ratio: 1; min-width: 0; padding: 3px; overflow: hidden; background: #c9c9c9; border-radius: 2px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.2); }
+.library__tile img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.library__tile.is-pattern { padding: 0; }
+.library__tile.is-pattern img { object-fit: cover; }
+.library__tile:hover { box-shadow: inset 0 0 0 1px var(--blue); }
+.library__tile.is-on { box-shadow: inset 0 0 0 2px var(--blue); }
+.library__ghead { flex: none; display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; padding: 5px 8px; border-bottom: 1px solid rgb(0 0 0 / 0.12); color: var(--text); font-size: 12px; text-align: start; }
+.library__ghead:hover { background: var(--ui-2); }
+.library__ghead svg { display: block; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.library__arrow { flex: none; color: var(--muted); transition: transform 0.12s ease; }
+.library__ghead[aria-expanded="false"] .library__arrow { transform: rotate(-90deg); }
+[dir="rtl"] .library__ghead[aria-expanded="false"] .library__arrow { transform: rotate(90deg); }
+.library__gname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library__gcount { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.library__empty { margin: 10px 10px 12px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.library__empty p { margin: 0 0 8px; }
+.library__foot { justify-content: flex-start; align-items: center; }
+.library__foot .icon-btn svg { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.library__grow { flex: 1; }
+.library__scale { display: inline-flex; align-items: center; gap: 4px; margin-inline-start: 4px; color: var(--muted); font-size: 11px; }
+.library__scale[hidden] { display: none; }
+.library__scale input { width: 46px; }
+.obar__preset { max-width: 180px; padding: 2px 8px; overflow: hidden; background: var(--ui-3); border-radius: 3px; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.obar__preset:hover { background: var(--ui-4); }
 .fxdlg__foot .fxdlg__newstyle { margin-right: auto; }
 [dir="rtl"] .fxdlg__foot .fxdlg__newstyle { margin-right: 0; margin-left: auto; }
 
