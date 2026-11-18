@@ -231,7 +231,9 @@
         if (!groups.length) return;
         const id = typeof column.id === "string" && column.id && !ids.has(column.id) ? column.id : "";
         ids.add(id);
-        out.docks[side].push({ id, width: size(column.width, 250), icons: column.icons === true, groups });
+        const kept = { id, width: size(column.width, 250), icons: column.icons === true, groups };
+        if (groups.length === 1 && Number.isFinite(column.short) && column.short > 0) kept.short = Math.round(column.short);
+        out.docks[side].push(kept);
       });
     });
     allColumns(out).forEach((column) => { if (!column.id) column.id = newColumnId(out); });
@@ -527,21 +529,40 @@
     }, save);
   };
 
+  // A panel alone in its column fills it, unless it was made shorter from its bottom edge: the
+  // room below stays empty. Dragged back to the bottom, it fills the column again.
+  const loneSplit = (id, room) => (event) => {
+    const start = event.clientY;
+    const column = findColumn(id);
+    const from = geometry.columns[id].parts[0].h;
+    const least = Math.min(tallest(shownIn(column)[0]), room);
+    dragging(event, (next) => {
+      const h = clamp(from + next.clientY - start, least, room);
+      if (h >= room - 8) delete column.short;
+      else column.short = Math.round(h);
+      apply();
+    }, save);
+  };
+
   // The groups of a column, one under the other, below its bar. A group shrunk to its title bar
   // keeps only that; the others share the rest.
   const stack = (column, x, w, top, height, plan, parts) => {
     const groups = shownIn(column);
     const open = groups.filter((group) => !group.min);
-    const room = Math.max(0, height - BAR - SPLIT * (groups.length - 1) - HEAD * (groups.length - open.length));
+    const lone = groups.length === 1 && open.length === 1;
+    // A column that no longer has one panel only forgets how short that panel was
+    if (!lone) delete column.short;
+    const room = Math.max(0, height - BAR - SPLIT * (groups.length - (lone ? 0 : 1)) - HEAD * (groups.length - open.length));
+    const space = lone && column.short ? clamp(column.short, Math.min(tallest(groups[0]), room), room) : room;
     const total = sum(open.map((group) => group.h)) || 1;
-    let left = room;
+    let left = space;
     let given = 0;
     let y = top + BAR;
     groups.forEach((group, index) => {
       let h = HEAD;
       if (!group.min) {
         given += 1;
-        h = given === open.length ? left : Math.max(0, Math.round((group.h / total) * room));
+        h = given === open.length ? left : Math.max(0, Math.round((group.h / total) * space));
         left -= h;
       }
       plan.push({ group, x, y, w, h, how: "docked" });
@@ -553,6 +574,7 @@
         y += SPLIT;
       }
     });
+    if (lone) addSplit("h", x, y, w, SPLIT, loneSplit(column.id, room));
   };
 
   // Between two sets of widths, the one that fills `room`
