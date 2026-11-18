@@ -371,6 +371,14 @@
     const split = addPart("div", `ws-split ws-split--${kind}`, x, y, w, h);
     if (onDown) split.addEventListener("pointerdown", onDown);
     else split.classList.add("is-fixed");
+    return split;
+  };
+  // A column's splitter, beside its panels, then over the page where they leave room below
+  const addColumnSplit = (column, x, onDown) => {
+    const seen = geometry.columns[column.id];
+    const end = seen && seen.end < geometry.bottom ? seen.end : geometry.bottom;
+    addSplit("v", x, geometry.top, SPLIT, end - geometry.top, onDown);
+    if (end < geometry.bottom) addSplit("v", x, end, SPLIT, geometry.bottom - end, onDown).classList.add("is-clear");
   };
 
   const ICON_PATHS = {
@@ -613,6 +621,7 @@
       addSplit("h", x, y, w, SPLIT, group.min ? null : edgeSplit(column.id, group));
       y += SPLIT;
     });
+    return y;
   };
 
   // Between two sets of widths, the one that fills `room`
@@ -688,7 +697,7 @@
     }
     const W = work.clientWidth;
     const H = work.clientHeight;
-    geometry = { columns: {}, seams: [], loose: [], docs: null, width: W, height: H };
+    geometry = { columns: {}, seams: [], loose: [], docs: null, clear: [], width: W, height: H };
 
     let from = 0;
     let to = W;
@@ -729,12 +738,15 @@
     const plan = [];
     const lay = (column, side, x, w) => {
       const parts = [];
+      let end = bottom;
       if (column.icons) addStrip(column, side, x, top, tall, parts);
       else {
         addBar(column, side, x, top, w);
-        stack(column, x, w, top, tall, plan, parts);
+        end = stack(column, x, w, top, tall, plan, parts);
       }
-      geometry.columns[column.id] = { id: column.id, x, w, icons: column.icons, parts, top, bottom };
+      geometry.columns[column.id] = { id: column.id, x, w, icons: column.icons, parts, top, bottom, end };
+      // Below its panels, with its splitter on the page's side: the page shows through
+      if (end < bottom) geometry.clear.push({ x: side === "right" ? x - SPLIT : x, y: end, w: w + SPLIT, h: bottom - end });
       const open = parts.find((part) => part.group === flyout);
       if (!open) return;
       const fw = Math.round(clamp(column.width, widest(flyout), Math.max(widest(flyout), W - ICONS - 8)));
@@ -751,7 +763,7 @@
     lefts.forEach((column, index) => {
       const w = widths[index];
       lay(column, "left", x, w);
-      addSplit("v", x + w, top, SPLIT, tall, column.icons ? null : widthSplit(column.id, 1));
+      addColumnSplit(column, x + w, column.icons ? null : widthSplit(column.id, 1));
       blocks.push({ kind: "column", id: column.id, x0: x, x1: x + w });
       x += w + SPLIT;
     });
@@ -762,7 +774,7 @@
       const column = rights[index];
       const w = widths[lefts.length + index];
       lay(column, "right", x - w, w);
-      addSplit("v", x - w - SPLIT, top, SPLIT, tall, column.icons ? null : widthSplit(column.id, -1));
+      addColumnSplit(column, x - w - SPLIT, column.icons ? null : widthSplit(column.id, -1));
       placed.unshift({ kind: "column", id: column.id, x0: x - w, x1: x });
       x -= w + SPLIT;
     }
@@ -1391,5 +1403,12 @@
     return id ? element(id).querySelector("iframe") : null;
   };
 
-  window.TypeRWorkspace = { init, apply, isVisible, toggle, setVisible, sideVisible, toggleSide, toolsVisible, setTools, toggleFloat, reset, typerParts, typerPartFrame, openTypeRPart, typerDialog };
+  // Where the columns leave room below their panels, on the screen: the page shows there
+  const clearAreas = () => {
+    if (Shell.touch || !geometry.clear) return [];
+    const box = work.getBoundingClientRect();
+    return geometry.clear.map((rect) => ({ x: box.left + rect.x, y: box.top + rect.y, w: rect.w, h: rect.h }));
+  };
+
+  window.TypeRWorkspace = { init, apply, clearAreas, isVisible, toggle, setVisible, sideVisible, toggleSide, toolsVisible, setTools, toggleFloat, reset, typerParts, typerPartFrame, openTypeRPart, typerDialog };
 })();

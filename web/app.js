@@ -765,10 +765,10 @@
   const partOnScreen = (doc, x, y, zoom) => {
     const pad = Math.ceil(4 / Math.min(1, zoom));
     const edge = (value, size, up) => Math.max(0, Math.min(size, (up ? Math.ceil(value / 64) : Math.floor(value / 64)) * 64));
-    const left = edge(-x / zoom - pad, doc.width, false);
-    const top = edge(-y / zoom - pad, doc.height, false);
-    const width = edge((stageW - x) / zoom + pad, doc.width, true) - left;
-    const height = edge((stageH - y) / zoom + pad, doc.height, true) - top;
+    const left = edge((-under.l - x) / zoom - pad, doc.width, false);
+    const top = edge((-under.t - y) / zoom - pad, doc.height, false);
+    const width = edge((stageW + under.r - x) / zoom + pad, doc.width, true) - left;
+    const height = edge((stageH + under.b - y) / zoom + pad, doc.height, true) - top;
     if (width <= 0 || height <= 0) return { width: 0, height: 0 };
     if (width * height > 8e6) return null;
     if (!onScreen || onScreen.width < width || onScreen.height < height) {
@@ -782,18 +782,54 @@
     c.drawImage(docCanvas, left, top, width, height, 0, 0, width, height);
     return { canvas: onScreen, left, top, width, height };
   };
+  // Where the columns leave room below their panels, the page shows through: the canvas and the
+  // marks over it reach there, past the stage's edges. Fitting and centring keep to the stage.
+  let under = { l: 0, t: 0, r: 0, b: 0 };
+  let underKey = "";
+  const placeUnder = () => {
+    const areas = window.TypeRWorkspace && window.TypeRWorkspace.clearAreas ? window.TypeRWorkspace.clearAreas() : [];
+    const box = ui.stage.getBoundingClientRect();
+    const rects = areas.map((area) => ({ x: area.x - box.left, y: area.y - box.top, w: area.w, h: area.h })).filter((rect) => rect.w > 0 && rect.h > 0);
+    const key = JSON.stringify([rects, stageW, stageH]);
+    if (key === underKey) return;
+    underKey = key;
+    const on = rects.length > 0;
+    const l = Math.round(Math.max(0, ...rects.map((rect) => -rect.x)));
+    const t = Math.round(Math.max(0, ...rects.map((rect) => -rect.y)));
+    const r = Math.round(Math.max(0, ...rects.map((rect) => rect.x + rect.w - stageW)));
+    const b = Math.round(Math.max(0, ...rects.map((rect) => rect.y + rect.h - stageH)));
+    under = { l, t, r, b };
+    const W = stageW + l + r;
+    const H = stageH + t + b;
+    const shape = (x, y, w, h) => `M${x + l} ${y + t}h${w}v${h}h${-w}Z`;
+    const clip = on ? `path("${[shape(0, 0, stageW, stageH)].concat(rects.map((rect) => shape(rect.x, rect.y, rect.w, rect.h))).join("")}")` : "";
+    ui.stage.classList.toggle("is-under", on);
+    [ui.canvas, ui.over].forEach((el) => {
+      el.style.left = on ? `${-l}px` : "";
+      el.style.top = on ? `${-t}px` : "";
+      el.style.width = on ? `${W}px` : "";
+      el.style.height = on ? `${H}px` : "";
+      el.style.clipPath = clip;
+    });
+    ui.over.setAttribute("width", W);
+    ui.over.setAttribute("height", H);
+    if (on) ui.over.setAttribute("viewBox", `${-l} ${-t} ${W} ${H}`);
+    else ui.over.removeAttribute("viewBox");
+    schedule(false);
+  };
+
   // The picture on screen is drawn at the size it shows: small pages stay sharp
   const blit = () => {
     const ratio = dpr();
-    const w = Math.round(stageW * ratio);
-    const h = Math.round(stageH * ratio);
+    const w = Math.round((stageW + under.l + under.r) * ratio);
+    const h = Math.round((stageH + under.t + under.b) * ratio);
     if (ui.canvas.width !== w || ui.canvas.height !== h) {
       ui.canvas.width = w;
       ui.canvas.height = h;
     }
     const ctx = ui.canvas.getContext("2d");
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.clearRect(0, 0, stageW, stageH);
+    ctx.setTransform(ratio, 0, 0, ratio, under.l * ratio, under.t * ratio);
+    ctx.clearRect(-under.l, -under.t, stageW + under.l + under.r, stageH + under.t + under.b);
     const doc = app.doc;
     if (!doc) {
       onScreen = null;
@@ -18926,6 +18962,7 @@
     stageH = rect.height;
     ui.over.setAttribute("width", stageW);
     ui.over.setAttribute("height", stageH);
+    placeUnder();
     if (app.doc && app.doc.view.fitted) fitView();
     else schedule(false);
   };
@@ -19059,7 +19096,10 @@
     else if (type === "storage-low") toast(T("This browser's storage is nearly full: save your documents, or close the ones you're done with."), true);
     else if (type === "storage-full") toast(T("The browser's storage is full: your last TypeR settings couldn't be kept."), true);
     else if (type === "documents-not-kept") toast(T("Your open documents couldn't be kept in this browser (its storage may be full). Save them before reloading the page."), true);
-    else if (type === "workspace") renderMenusState();
+    else if (type === "workspace") {
+      renderMenusState();
+      placeUnder();
+    }
     else if (type === "saved") renderTabs();
     else if (type === "psd-opened") {
       const { doc, missing, notes } = detail;
