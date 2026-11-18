@@ -1329,6 +1329,11 @@ body.is-dragging-tool, body.is-dragging-tool * { cursor: grabbing !important; }
 .onboard__ex-tab.is-on { fill: #fff; }
 .onboard__ex-box { fill: none; stroke: var(--blue); stroke-width: 1px; stroke-dasharray: 3 2; }
 .onboard__row--tight { flex-wrap: nowrap; gap: 6px; }
+/* Flow offered to those working in Solo: the setup assistant's two cards, in a dialog */
+.modal.modal--flow-offer { width: min(580px, calc(100vw - 32px)); }
+.flow-offer { display: grid; gap: 10px; }
+.flow-offer p { margin: 0; line-height: 1.45; }
+.flow-offer .onboard__row select { min-width: 0; width: 100%; }
 .onboard__row input.onboard__percent { width: 52px; height: 24px; }
 .onboard__foot .btn[hidden] { display: none; }
 @media (max-width: 520px) { .onboard__field { grid-template-columns: 1fr; gap: 4px; } .onboard__fieldhint { margin-left: 0; } }

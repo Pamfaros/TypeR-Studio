@@ -3910,11 +3910,87 @@
       },
     });
   }
+  // Flow offered once to whoever works in Solo without having chosen it: those who used TypeR
+  // before Flow, whom the setup assistant doesn't ask. `mark` keeps it as offered.
+  const FLOW_OFFERED = "typer.web.flowOffered";
+  const flowOffered = (mark) => {
+    try {
+      if (mark) window.localStorage.setItem(FLOW_OFFERED, "1");
+      return window.localStorage.getItem(FLOW_OFFERED) !== null;
+    } catch (error) {
+      // Without storage, never: it would come back on every opening
+      return true;
+    }
+  };
+  // At a start that isn't the setup assistant's, or once a chapter's pages are open: the two
+  // pictures of the setup assistant, and the way the pages go. `atStart`: with or without pages.
+  const offerFlow = (atStart) => {
+    const Setup = window.TypeROnboarding;
+    // A chapter in Solo has one page open at a time
+    const several = atStart === true || app.docs.length > 1 || (chapter && chapter.pages.length > 1);
+    if (!Flow || Shell.touch || flowOn() || !several || !Setup || !Setup.workspaceChoice || flowOffered()) return;
+    // After what the opening has to say (missing fonts), and not over another dialog
+    if (openingFiles || ui.modal.open || document.querySelector("dialog[open]")) {
+      setTimeout(() => offerFlow(atStart), 600);
+      return;
+    }
+    flowOffered(true);
+    const body = document.createElement("div");
+    body.className = "flow-offer";
+    const lead = document.createElement("p");
+    lead.textContent = T("TypeR can now show every page of a chapter side by side on one surface. Try Flow?");
+    body.appendChild(lead);
+    const direction = document.createElement("select");
+    FLOW_DIRECTIONS.forEach(([id, name]) => {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = T(name);
+      direction.appendChild(option);
+    });
+    direction.value = settings.flowDirection;
+    direction.setAttribute("aria-label", T("Pages in Flow"));
+    let mode = "flow";
+    // The main button says what it does with the card picked
+    const label = () => {
+      const yes = ui.modal.querySelector(".modal__foot .btn--main");
+      if (yes) yes.textContent = T(mode === "flow" ? "Try Flow" : "Stay in Solo");
+    };
+    const cards = Setup.workspaceChoice(body, mode, settings.flowDirection, (id) => {
+      mode = id;
+      label();
+    }, (words) => {
+      const row = document.createElement("div");
+      row.className = "onboard__row onboard__row--tight";
+      row.appendChild(direction);
+      words.appendChild(row);
+    });
+    cards.box.setAttribute("aria-label", T("Page display"));
+    direction.addEventListener("change", () => {
+      cards.show(direction.value);
+      if (mode !== "flow") cards.pick("flow", false);
+    });
+    const keys = keyLabel(setupKeysOf("Flow Mode"));
+    const meta = document.createElement("p");
+    meta.className = "onboard__meta";
+    meta.textContent = fill(T("You can switch at any time with {menu}."), { menu: `${T("View")} → ${T("Flow Mode")}${keys ? ` (${keys})` : ""}` });
+    body.appendChild(meta);
+    const answer = dialog({ title: T("Flow mode"), body, ok: T("Try Flow"), cancel: false });
+    ui.modal.classList.add("modal--flow-offer");
+    label();
+    answer.then((values) => {
+      // Escape leaves the pages as they are
+      if (!values || mode !== "flow") return;
+      setFlowLayout({ direction: direction.value });
+      setWorkspace("flow");
+    });
+  };
   // Solo or Flow, from View, its shortcut, Settings or the setup assistant. Back in Solo, each
   // page is shown whole again: where it stood on the surface means nothing there.
   const setWorkspace = (mode, silent) => {
     const next = mode === "flow" ? "flow" : "solo";
     if (settings.workspace === next) return;
+    // Switched, here or anywhere: nothing left to offer
+    flowOffered(true);
     settings.workspace = next;
     keepSettings();
     if (Flow) Flow.changed();
@@ -12012,6 +12088,7 @@
     if (opened.length > 1 && app.doc !== opened[0]) PS.setActiveDoc(opened[0]);
     Recent.add(inOrder.map((entry) => entry.handle).filter(Boolean)).then(renderStartRecent);
     showOpenNotices();
+    if (opened.length) offerFlow();
   };
   const nextPaint = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 
@@ -20931,6 +21008,9 @@
     window.TypeRApp.booted = true;
     window.dispatchEvent(new Event("typer-booted"));
     if (guide) window.TypeRGuide.show();
+    // Those who went through the setup assistant before Flow: asked here, once. Not right after
+    // the assistant, which asks it itself.
+    if (!plan) offerFlow(true);
     // Chosen at the end of the setup assistant on a touch screen (touch.js)
     if (plan && plan.practice && !app.doc) $("start-practice").click();
   };
@@ -21007,7 +21087,11 @@
       setPreferences({ wheel, textLanguage, transformControls, workspace, flowDirection }) {
         if (wheel) settings.wheel = wheel;
         if (flowDirection) setFlowLayout({ direction: flowDirection });
-        if (workspace) setWorkspace(workspace, true);
+        // Asked here: not offered again
+        if (workspace) {
+          flowOffered(true);
+          setWorkspace(workspace, true);
+        }
         // Text with no language of its own is drawn again in the new one
         if (textLanguage && textLanguage !== app.textDefaults.language) {
           app.textDefaults.language = textLanguage;
