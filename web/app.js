@@ -278,13 +278,17 @@
         middle.appendChild(hint);
       }
     });
-    if (ready) ready(inputs, middle);
     const foot = document.createElement("div");
     foot.className = "modal__foot";
+    // Once only: a late call mustn't close the dialog shown after this one
+    let closed = false;
     const done = (value) => {
+      if (closed) return;
+      closed = true;
       modal.close();
       resolve(value);
     };
+    if (ready) ready(inputs, middle, done);
     if (cancel !== false) {
       const no = document.createElement("button");
       no.type = "button";
@@ -19324,7 +19328,7 @@
   };
 
   // The missing fonts as a list, each with what Font FindeR has for it
-  const missingFontList = (missing) => {
+  const missingFontList = (missing, allInstalled) => {
     const wrap = document.createElement("div");
     wrap.className = "ff-list";
     const banner = document.createElement("div");
@@ -19359,6 +19363,7 @@
         const search = item.querySelector(".ff-search");
         if (search) search.remove();
         updateBanner();
+        if (allInstalled && rows.length === missing.length && rows.every((other) => other.installed)) allInstalled();
       };
       row.notFound = (reason) => {
         const searchButton = ffButton(T("Search on Font FindeR"), "", () => {
@@ -19462,14 +19467,17 @@
     if (missing.length) {
       const body = document.createElement("div");
       const intro = document.createElement("p");
-      intro.textContent = T("These fonts aren't on this computer. Their text keeps Photoshop's pixels until you edit it. Load the files to edit it with the right font.");
-      body.append(intro, missingFontList(missing));
+      intro.textContent = Shell.touch ? T("These fonts aren't in TypeR yet. Their text keeps Photoshop's pixels until you edit it. Add them to edit it with the right font.") : T("These fonts aren't on this computer. Their text keeps Photoshop's pixels until you edit it. Load the files to edit it with the right font.");
+      // Nothing left to load once Font FindeR has installed them all: the ✓ shows, then the dialog goes
+      let close = null;
+      body.append(intro, missingFontList(missing, () => setTimeout(() => close && close(null), 900)));
       parts.forEach((part) => {
         const p = document.createElement("p");
         p.textContent = part;
         body.appendChild(p);
       });
-      dialog({ title: T("Missing fonts"), body, ok: T("Load Font Files…"), also: T("Replace Missing Fonts…"), cancel: T("Later") }).then((answer) => {
+      const ready = (inputs, middle, done) => { close = done; };
+      dialog({ title: T("Missing fonts"), body, ok: Shell.touch ? T("Add Font Files…") : T("Load Font Files…"), also: T("Replace Missing Fonts…"), cancel: T("Later"), ready }).then((answer) => {
         if (answer && answer.also) replaceMissingFonts();
         else if (answer) chooseFonts();
       });
