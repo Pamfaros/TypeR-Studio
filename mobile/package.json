@@ -1,0 +1,26 @@
+{
+  "name": "typer-studio-mobile",
+  "productName": "TypeR Studio",
+  "version": "0.1.0",
+  "minContentShell": "0.1.0",
+  "description": "TypeR Studio for iPhone, iPad and Android: the same app as the web version, in a real app.",
+  "homepage": "https://typer.hayasaku.fr",
+  "author": "ScanR",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "content": "node scripts/build-content.js",
+    "sync": "npm run content && cap sync",
+    "ios": "npm run sync && cap open ios",
+    "android": "npm run sync && cap open android",
+    "icons": "swift scripts/make-icons.swift"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/core": "8.6.2",
+    "@capacitor/ios": "8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2"
+  }
+}

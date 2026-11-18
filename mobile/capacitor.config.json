@@ -1,0 +1,11 @@
+{
+  "appId": "fr.scanr.typerstudio",
+  "appName": "TypeR Studio",
+  "webDir": "www",
+  "backgroundColor": "#232121",
+  "server": {
+    "hostname": "typer.hayasaku.fr",
+    "androidScheme": "https",
+    "appStartPath": "/web/index.html"
+  }
+}

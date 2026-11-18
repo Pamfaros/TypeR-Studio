@@ -1,0 +1,13 @@
+/* TypeR Studio on a phone or a tablet, the iOS and Android app. Only that app loads this file
+   (index.html). */
+
+/* The Photoshop plugin has no use on a phone, and the logo leads nowhere: the app is the page */
+.mobile-app #get-plugin { display: none; }
+.mobile-app .mbar__logo { pointer-events: none; }
+
+/* On an iPhone held upright the top bar and the tabs are the system's own (mobile.js): the
+   page's own keep their place, unseen, and take the measures of the system's */
+html.touch.native-bars { --bars-t: calc(44px + var(--safe-t)); --bars-b: calc(49px + var(--safe-b)); --top: var(--bars-t); }
+html.touch.native-bars:not(.is-editing):not(.kb-open) { --nav: var(--bars-b); }
+html.touch.native-bars .tbar, html.touch.native-bars .tnav { visibility: hidden; pointer-events: none; }
+html.touch.native-bars .tnav { padding: 0; }

@@ -36,6 +36,8 @@
   <script src="shell.js"></script>
   <!-- The interface for fingers: a computer loads it only if it ever needs it -->
   <script>if (window.TypeRShell.touch) document.write('<link rel="stylesheet" href="touch.css">')</script>
+  <!-- TypeR Studio on a phone or a tablet, the iOS and Android app: only that app loads these -->
+  <script>if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) document.write('<script src="mobile.js"><\/script><link rel="stylesheet" href="mobile.css">')</script>
   <script>window.TYPER_SUPPORTED = ["en", "fr", "es", "it", "de", "pt", "ru", "uk", "pl", "nl", "tr", "ar", "vi", "id", "th", "ja", "ko", "zh"]</script>
   <!-- The query keeps browsers from reusing the i18n.js of the former site, which had the same address. -->
   <script src="../i18n.js?v=3"></script>
