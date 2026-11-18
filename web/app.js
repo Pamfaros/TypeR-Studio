@@ -815,6 +815,24 @@
     ui.over.setAttribute("height", H);
     if (on) ui.over.setAttribute("viewBox", `${-l} ${-t} ${W} ${H}`);
     else ui.over.removeAttribute("viewBox");
+    // The status bar goes on below the page as far as the room reaches the window's bottom, with
+    // no panel in between
+    const status = $("status");
+    const low = stageH + status.offsetHeight - 1;
+    const reach = (from, step) => {
+      let edge = from;
+      rects.filter((rect) => rect.y + rect.h >= low).sort((a, b) => step * (a.x - b.x)).forEach((rect) => {
+        if (step > 0 && rect.x <= edge + 1) edge = Math.max(edge, rect.x + rect.w);
+        if (step < 0 && rect.x + rect.w >= edge - 1) edge = Math.min(edge, rect.x);
+      });
+      return Math.abs(edge - from);
+    };
+    const right = Math.round(reach(stageW, 1));
+    const left = Math.round(reach(0, -1));
+    status.classList.toggle("is-under", Boolean(left || right));
+    status.style.marginRight = right ? `${-right}px` : "";
+    status.style.marginLeft = left ? `${-left}px` : "";
+    status.style.paddingLeft = left ? `${8 + left}px` : "";
     schedule(false);
   };
 

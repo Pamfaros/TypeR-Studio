@@ -250,6 +250,7 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 /* the page also shows below the columns' panels, where they leave room (see placeUnder) */
 .stage.is-under { overflow: visible; }
 .stage.is-under .stage__canvas { background: var(--stage); }
+.status.is-under { position: relative; z-index: 1; }
 /* Two fingers zooming on a touch screen: the page alone, to see the text as it will be */
 .stage.is-pinching #over-screen { visibility: hidden; }
 .stage[data-tool="wand"], .stage[data-tool="magicEraser"], .stage[data-tool="clean"], .stage[data-tool="rectangle"], .stage[data-tool="ellipse"], .stage[data-tool="lasso"], .stage[data-tool="polygon"], .stage[data-tool="crop"] { cursor: crosshair; }
