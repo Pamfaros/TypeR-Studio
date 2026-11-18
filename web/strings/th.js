@@ -1310,6 +1310,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "TypeR Styles (.json)": "สไตล์ TypeR (.json)",
     "Photoshop Styles (.asl)": "สไตล์ Photoshop (.asl)",
     "TypeR Styles": "สไตล์ TypeR",
+    "Paste and Center": "วางและจัดกึ่งกลาง",
     "Photoshop Styles": "สไตล์ Photoshop",
     "Select a layer first: its style becomes the new style.": "เลือกเลเยอร์ก่อน: สไตล์ของเลเยอร์นั้นจะกลายเป็นสไตล์ใหม่",
     "New Style": "สไตล์ใหม่",

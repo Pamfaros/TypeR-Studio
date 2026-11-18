@@ -1310,6 +1310,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "TypeR Styles (.json)": "Стили TypeR (.json)",
     "Photoshop Styles (.asl)": "Стили Photoshop (.asl)",
     "TypeR Styles": "Стили TypeR",
+    "Paste and Center": "Вставка и центрирование",
     "Photoshop Styles": "Стили Photoshop",
     "Select a layer first: its style becomes the new style.": "Сначала выберите слой: его стиль станет новым стилем.",
     "New Style": "Новый стиль",

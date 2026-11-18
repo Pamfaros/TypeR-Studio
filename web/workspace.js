@@ -22,12 +22,28 @@
   const ICONS = 36;
   const ICON = 30;
   const MIN_DOCS = 320;
+  // Parts of TypeR's panel, each in a panel of its own when asked for (Window menu): the
+  // script, the styles, TextShapeR, the Paste and Center buttons. They leave the TypeR panel
+  // while they're open, and the panel draws them in their frames (bridge.js). `w` and `h`: their
+  // size the first time they open, floating beside TypeR's column.
+  const TYPER_PARTS = {
+    "typer-script": { part: "text", title: "Script", min: [200, 120], w: 320, h: 420 },
+    "typer-styles": { part: "styles", title: "TypeR Styles", min: [190, 100], w: 300, h: 320 },
+    "typer-shaper": { part: "shaper", title: "TextShapeR", min: [220, 100], w: 340, h: 200 },
+    "typer-buttons": { part: "actions", title: "Paste and Center", min: [200, 60], w: 340, h: 80 },
+  };
+  const PART_IDS = Object.keys(TYPER_PARTS);
   const ELEMENTS = { tools: "tools", typer: "dock-typer", layers: "pane-layers", character: "pane-character", sfx: "pane-sfx", breaks: "breaks", history: "pane-history", actions: "pane-actions", styles: "pane-styles" };
-  const PANELS = ["typer", "layers", "character", "sfx", "breaks", "history", "actions", "styles"];
+  const PANELS = ["typer", "layers", "character", "sfx", "breaks", "history", "actions", "styles"].concat(PART_IDS);
   const SIDE = ["layers", "character", "sfx", "breaks", "history", "actions", "styles"];
   const SIDES = ["left", "right"];
   const MIN = { tools: [42, 42], typer: [280, 260], layers: [170, 90], character: [210, 130], sfx: [230, 160], breaks: [210, 120], history: [150, 80], actions: [190, 110], styles: [150, 90] };
   const HEIGHTS = { typer: 600, layers: 290, character: 240, sfx: 420, breaks: 290, history: 180, actions: 260, styles: 220 };
+  PART_IDS.forEach((id) => {
+    ELEMENTS[id] = `pane-${id}`;
+    MIN[id] = TYPER_PARTS[id].min;
+    HEIGHTS[id] = TYPER_PARTS[id].h;
+  });
   // How far a drop that makes a new column reaches into what lies on either side of the line:
   // only a sliver of a column, so the rest of it still stacks or floats, more of the page,
   // which is easier to aim at
@@ -39,6 +55,25 @@
   const work = $("work");
   const docs = work.querySelector(".docs");
   const element = (id) => $(ELEMENTS[id]);
+
+  // Their panels: a title bar and the frame the panel draws in. Out of a phone's or a
+  // tablet's arrangement (touch.js), where the TypeR panel shows one part at a time already.
+  PART_IDS.forEach((id) => {
+    const pane = document.createElement("section");
+    pane.className = "pane pane--typer-part";
+    pane.id = ELEMENTS[id];
+    pane.dataset.typerPart = TYPER_PARTS[id].part;
+    pane.hidden = true;
+    const head = document.createElement("div");
+    head.className = "dock__head";
+    head.appendChild(document.createElement("span"));
+    const frame = document.createElement("iframe");
+    frame.title = TYPER_PARTS[id].title;
+    // An empty page of this origin: the panel brings its stylesheets and its part (bridge.js)
+    frame.srcdoc = '<!doctype html><html><head><meta charset="utf-8"></head><body><div id="app"></div></body></html>';
+    pane.append(head, frame);
+    $("dock-side").appendChild(pane);
+  });
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
   const sum = (list) => list.reduce((total, value) => total + value, 0);
 
@@ -48,6 +83,28 @@
   // height (a share of its column when docked), `min` when shrunk to its title bar. A floating
   // group also has x, y and w.
   const makeGroup = (tabs, h) => ({ tabs, active: tabs[0], h, min: false });
+
+  // A part of TypeR first opened floats beside TypeR's column, each a little lower than the
+  // last, and docks into that column
+  const partFloat = (id) => {
+    const spec = TYPER_PARTS[id];
+    const index = PART_IDS.indexOf(id);
+    const right = work.clientWidth || window.innerWidth;
+    return Object.assign(makeGroup([id], spec.h), { x: Math.max(60, right - 640 - spec.w - index * 24), y: 40 + index * 36, w: spec.w });
+  };
+  const typerSpot = (from) => {
+    let spot = null;
+    SIDES.forEach((side) => from.docks[side].forEach((column, at) => {
+      if (!spot && column.groups.some((group) => group.tabs.includes("typer"))) spot = { column: column.id, side, at, before: null, width: column.width, with: null };
+    }));
+    return spot;
+  };
+  const addParts = (to, ids) => ids.forEach((id) => {
+    to.hidden[id] = true;
+    to.floats.push(partFloat(id));
+    const spot = typerSpot(to);
+    if (spot && !to.dockOf[id]) to.dockOf[id] = spot;
+  });
 
   // The columns stand on either side of the page, each side listed from left to right: `left`
   // from the window's edge to the page, `right` from the page to the window's edge. A column is
@@ -73,6 +130,11 @@
       dockOf: {},
       sideShown: null,
     };
+  };
+  const freshWithParts = () => {
+    const out = fresh();
+    addParts(out, PART_IDS);
+    return out;
   };
 
   const allColumns = (from) => from.docks.left.concat(from.docks.right);
@@ -174,7 +236,7 @@
     });
     allColumns(out).forEach((column) => { if (!column.id) column.id = newColumnId(out); });
     PANELS.forEach((id) => {
-      if (seen.has(id)) return;
+      if (seen.has(id) || TYPER_PARTS[id]) return;
       // A panel this layout never had goes to the column at the far right; the SFX one waits
       // for its tool, the Actions and Styles ones to be asked for (Window menu)
       if (id === "sfx" || id === "actions" || id === "styles") out.hidden[id] = true;
@@ -183,6 +245,7 @@
       if (right.length) right[right.length - 1].groups.push(single);
       else right.push({ id: newColumnId(out), width: 250, icons: false, groups: [single] });
     });
+    addParts(out, PART_IDS.filter((id) => !seen.has(id)));
     const dockOf = record(saved.dockOf);
     Object.keys(dockOf).forEach((id) => {
       const spot = dockOf[id];
@@ -202,13 +265,13 @@
   const load = () => {
     try {
       let saved = JSON.parse(window.localStorage.getItem(STORE));
-      if (!saved || typeof saved !== "object") return fresh();
+      if (!saved || typeof saved !== "object") return freshWithParts();
       if (saved.version === 1) saved = fromVersion1(saved);
       if (saved.version === 2) saved = fromVersion2(saved);
-      if (saved.version !== 3) return fresh();
+      if (saved.version !== 3) return freshWithParts();
       return normalize(saved);
     } catch (error) {
-      return fresh();
+      return freshWithParts();
     }
   };
 
@@ -539,7 +602,7 @@
     if (touch) {
       PANELS.forEach((id) => {
         const el = element(id);
-        el.hidden = false;
+        el.hidden = Boolean(TYPER_PARTS[id]);
         el.classList.remove("is-flyout", "is-min");
         const head = el.querySelector(".dock__head");
         if (head) head.classList.remove("is-tabbed");
@@ -1071,7 +1134,7 @@
   };
 
   const reset = () => {
-    layout = fresh();
+    layout = freshWithParts();
     flyout = null;
     try {
       window.localStorage.removeItem(STORE);
@@ -1091,6 +1154,9 @@
 
   const init = (translate) => {
     T = translate;
+    PART_IDS.forEach((id) => {
+      element(id).querySelector(".dock__head > span").textContent = T(TYPER_PARTS[id].title);
+    });
     work.appendChild(hintBox);
     // Two presses on the same title bar, close together: the group shrinks to it, or opens again
     let pressed = { group: null, at: 0 };
@@ -1201,5 +1267,48 @@
     apply();
   };
 
-  window.TypeRWorkspace = { init, apply, isVisible, toggle, setVisible, sideVisible, toggleSide, toolsVisible, setTools, toggleFloat, reset };
+  // A part torn off the TypeR panel (its button, bridge.js) opens just where it stood, a little
+  // lifted: floating, unless it was docked when last closed, where it goes back
+  const openTypeRPart = (part, rect) => {
+    const id = PART_IDS.find((key) => TYPER_PARTS[key].part === part);
+    if (!id || Shell.touch) return;
+    const where = locate(id);
+    if (rect && where && !where.column && where.group.tabs.length === 1) {
+      const area = work.getBoundingClientRect();
+      const [minW, minH] = MIN[id];
+      const w = Math.max(minW, Math.round(rect.w));
+      const h = Math.max(minH, Math.round(rect.h) + HEAD);
+      Object.assign(where.group, {
+        x: clamp(rect.x - area.left + 12, 0, Math.max(0, area.width - w)),
+        y: clamp(rect.y - area.top - HEAD + 12, 0, Math.max(0, area.height - h)),
+        w,
+        h,
+        min: false,
+      });
+      raise(where.group);
+    }
+    setVisible(id, true);
+  };
+
+  // A window of TypeR's (its settings, a style being made) opens over the TypeR panel. While
+  // parts of it are open apart, the panel can be closed or left too small for one: it then
+  // comes forward in the middle of the window, as long as the window is open (bridge.js)
+  const typerDialog = (on) => {
+    const el = element("typer");
+    if (!on || Shell.touch || !PART_IDS.some(isOpen)) {
+      el.classList.remove("is-dialog");
+      return;
+    }
+    const box = el.getBoundingClientRect();
+    el.classList.toggle("is-dialog", !inView("typer") || box.width < 300 || box.height < 420);
+  };
+
+  // The parts of TypeR open in panels of their own, by the panel's name for each (bridge.js)
+  const typerParts = () => (Shell.touch ? [] : PART_IDS.filter(isOpen).map((id) => TYPER_PARTS[id].part));
+  const typerPartFrame = (part) => {
+    const id = PART_IDS.find((key) => TYPER_PARTS[key].part === part);
+    return id ? element(id).querySelector("iframe") : null;
+  };
+
+  window.TypeRWorkspace = { init, apply, isVisible, toggle, setVisible, sideVisible, toggleSide, toolsVisible, setTools, toggleFloat, reset, typerParts, typerPartFrame, openTypeRPart, typerDialog };
 })();

@@ -11970,7 +11970,10 @@
     const bridge = panelBridge();
     return (bridge && bridge.text && bridge.text(key)) || english;
   };
+  // Wherever it is shown: in the panel, or in the panel of its own a part of it is in
   const panelButton = (selector) => {
+    const bridge = panelBridge();
+    if (bridge && bridge.query) return bridge.query(selector);
     const doc = panelDoc();
     return doc ? doc.querySelector(selector) : null;
   };
@@ -17281,6 +17284,13 @@
       null,
       { label: "Show or Hide All Panels", keys: "Tab", action: toggleAllPanels },
       { label: "TypeR", check: () => Workspace().isVisible("typer"), action: () => Workspace().toggle("typer") },
+      // Parts of TypeR in panels of their own, out of the TypeR panel while they're open (workspace.js)
+      ...(Shell.touch ? [] : [
+        { label: "Script", check: () => Workspace().isVisible("typer-script"), action: () => Workspace().toggle("typer-script") },
+        { label: "TypeR Styles", check: () => Workspace().isVisible("typer-styles"), action: () => Workspace().toggle("typer-styles") },
+        { label: "TextShapeR", check: () => Workspace().isVisible("typer-shaper"), action: () => Workspace().toggle("typer-shaper") },
+        { label: "Paste and Center", check: () => Workspace().isVisible("typer-buttons"), action: () => Workspace().toggle("typer-buttons") },
+      ]),
       // Shift+Tab, as in Photoshop: the panels alone, TypeR's script kept beside the page
       { label: "Side Panels", keys: "Shift+Tab", check: () => Workspace().sideVisible(), action: () => { Workspace().toggleSide(); renderMenusState(); } },
       null,

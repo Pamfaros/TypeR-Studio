@@ -352,13 +352,20 @@
     });
     touched.forEach(rewriteFontRules);
   };
-  const watchFontRules = () => {
-    const scan = () => Array.prototype.forEach.call(document.querySelectorAll("style"), rewriteFontRules);
-    new MutationObserver(rewriteTouchedRules).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  // In the panel, and in the windows its parts are shown in (below)
+  const watchFontRules = (doc = document) => {
+    const scan = () => Array.prototype.forEach.call(doc.querySelectorAll("style"), rewriteFontRules);
+    const observer = new MutationObserver(rewriteTouchedRules);
+    observer.observe(doc.documentElement, { childList: true, subtree: true, characterData: true });
     // A kept font is read when it's first asked for: its rule waits for it
-    const stop = window.parent.TypeRFonts.onChange(scan);
-    window.addEventListener("pagehide", stop);
+    const stopFonts = window.parent.TypeRFonts.onChange(scan);
+    const stop = () => {
+      observer.disconnect();
+      stopFonts();
+    };
+    if (doc === document) window.addEventListener("pagehide", stop);
     scan();
+    return stop;
   };
 
   // Help's illustrations are optional (the panel hides one that doesn't load) and none ship
@@ -513,6 +520,193 @@
   window.addEventListener("blur", () => photoshop.clearKeys());
   if (window.parent.TypeRApp) window.parent.TypeRApp.watchChoices(document);
 
+  /* ---------------- the panel's parts in panels of their own ---------------- */
+
+  // The Window menu opens the script, the styles, TextShapeR or the Paste and Center buttons as
+  // panels of their own (workspace.js), each a frame of the app with an empty page. The page
+  // gets the panel's stylesheets, theme and keys here, and the panel draws its part in it
+  // (panelParts.js in TypeR): still one panel, with one state. Closed, the part comes back.
+  const shownParts = {};
+  const PART_CSS = "html, body { height: 100%; margin: 0; overflow: hidden; } #app { height: 100%; }";
+  const STYLESHEETS = 'style, link[rel="stylesheet"]';
+
+  const copyAttributes = (from, to) => {
+    Array.from(to.attributes).forEach((attribute) => {
+      if (!from.hasAttribute(attribute.name)) to.removeAttribute(attribute.name);
+    });
+    Array.from(from.attributes).forEach((attribute) => {
+      if (to.getAttribute(attribute.name) !== attribute.value) to.setAttribute(attribute.name, attribute.value);
+    });
+  };
+
+  // The panel's stylesheets in the part's page, in their order, and its theme (the classes and
+  // variables of its <html> and <body>), again whenever they change. A sheet already there
+  // stays put: moved, a <link> would load again.
+  const mirrorStyles = (doc, own) => {
+    const clones = new Map();
+    const signature = (node) => (node.nodeName === "STYLE" ? `s${node.textContent}` : `l${node.href}|${node.media}|${node.disabled}`);
+    const sync = () => {
+      const wanted = [];
+      document.head.querySelectorAll(STYLESHEETS).forEach((node) => {
+        const sign = signature(node);
+        let entry = clones.get(node);
+        if (!entry || entry.sign !== sign) {
+          if (entry) entry.clone.remove();
+          entry = { sign, clone: doc.importNode(node, true) };
+          clones.set(node, entry);
+        }
+        wanted.push(entry.clone);
+      });
+      clones.forEach((entry, node) => {
+        if (wanted.includes(entry.clone)) return;
+        entry.clone.remove();
+        clones.delete(node);
+      });
+      let next = own;
+      for (let index = wanted.length - 1; index >= 0; index--) {
+        if (wanted[index].nextSibling !== next || wanted[index].parentNode !== doc.head) doc.head.insertBefore(wanted[index], next);
+        next = wanted[index];
+      }
+      copyAttributes(document.documentElement, doc.documentElement);
+      copyAttributes(document.body, doc.body);
+    };
+    const observer = new MutationObserver(sync);
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true, attributes: true });
+    observer.observe(document.documentElement, { attributes: true });
+    observer.observe(document.body, { attributes: true });
+    sync();
+    return () => {
+      observer.disconnect();
+      clones.forEach((entry) => entry.clone.remove());
+    };
+  };
+
+  // The part's page as the panel's own: its sheets, its fonts, its keys
+  const setUpPart = (doc) => {
+    const win = doc.defaultView;
+    const base = doc.querySelector("base") || doc.head.insertBefore(doc.createElement("base"), doc.head.firstChild);
+    base.href = document.baseURI;
+    const own = doc.getElementById("typer-part-css") || doc.head.appendChild(doc.createElement("style"));
+    own.id = "typer-part-css";
+    own.textContent = PART_CSS;
+    const stopStyles = mirrorStyles(doc, own);
+    const stopFonts = watchFontRules(doc);
+    const handleKey = (event) => {
+      if (window.parent && window.parent.TypeRApp) window.parent.TypeRApp.handleKey(event, true);
+    };
+    const clearKeys = () => photoshop.clearKeys();
+    win.addEventListener("keydown", track, true);
+    win.addEventListener("keyup", track, true);
+    win.addEventListener("keydown", handleKey);
+    win.addEventListener("blur", clearKeys);
+    // Listeners of the app's own, kept for the page's life (the mouse's keys are keyclick.js's)
+    if (!doc.__typerChoices && window.parent.TypeRApp) {
+      doc.__typerChoices = true;
+      window.parent.TypeRApp.watchChoices(doc);
+    }
+    return () => {
+      stopStyles();
+      stopFonts();
+      win.removeEventListener("keydown", track, true);
+      win.removeEventListener("keyup", track, true);
+      win.removeEventListener("keydown", handleKey);
+      win.removeEventListener("blur", clearKeys);
+    };
+  };
+
+  const showPart = (part, frame) => {
+    const entry = { frame, stop: null };
+    const ready = () => {
+      if (shownParts[part] !== entry || entry.stop) return;
+      const doc = frame.contentDocument;
+      const host = doc && doc.getElementById("app");
+      if (!host) return;
+      frame.removeEventListener("load", ready);
+      entry.stop = setUpPart(doc);
+      window.__typerParts.attach(part, host);
+    };
+    entry.cancel = () => frame.removeEventListener("load", ready);
+    shownParts[part] = entry;
+    frame.addEventListener("load", ready);
+    ready();
+  };
+
+  const hidePart = (part) => {
+    const entry = shownParts[part];
+    delete shownParts[part];
+    entry.cancel();
+    window.__typerParts.release(part);
+    if (entry.stop) entry.stop();
+  };
+
+  // The parts the workspace has open, once the panel can draw them
+  const syncParts = () => {
+    const parts = window.__typerParts;
+    const Workspace = window.parent && window.parent.TypeRWorkspace;
+    if (!parts || !Workspace || !Workspace.typerParts) return;
+    const open = Workspace.typerParts();
+    parts.parts.forEach((part) => {
+      const frame = open.includes(part) ? Workspace.typerPartFrame(part) : null;
+      const entry = shownParts[part];
+      if (entry && entry.frame !== frame) hidePart(part);
+      if (frame && !shownParts[part]) showPart(part, frame);
+    });
+  };
+  // The panel's own button on each part opens it apart, where it stood
+  const offerDetach = () => {
+    const parts = window.__typerParts;
+    const app = window.parent;
+    if (!parts || !parts.setDetacher || !app.TypeRWorkspace || !app.TypeRWorkspace.openTypeRPart || app.TypeRShell.touch) return;
+    parts.setDetacher({
+      label: app.TypeRApp ? app.TypeRApp.T("Detach") : "Detach",
+      detach: (part, rect) => {
+        const frame = window.frameElement;
+        const box = frame ? frame.getBoundingClientRect() : { left: 0, top: 0 };
+        const zoom = parseFloat(document.documentElement.style.zoom) || 1;
+        app.TypeRWorkspace.openTypeRPart(part, rect && { x: box.left + rect.x * zoom, y: box.top + rect.y * zoom, w: rect.w * zoom, h: rect.h * zoom });
+      },
+    });
+  };
+  // One of the panel's windows open: the panel stays in sight for it (workspace.js)
+  let dialogShown = false;
+  const followModal = () => {
+    const open = document.body.classList.contains("typer-modal-open");
+    if (open === dialogShown) return;
+    dialogShown = open;
+    const Workspace = window.parent && window.parent.TypeRWorkspace;
+    if (Workspace && Workspace.typerDialog) Workspace.typerDialog(open);
+  };
+  new MutationObserver(followModal).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  window.addEventListener("typer-parts-ready", offerDetach);
+  window.addEventListener("typer-parts-ready", syncParts);
+  const stopParts = photoshop.on((type) => {
+    if (type === "workspace") syncParts();
+  });
+  // The panel starts again (a new theme): what it drew in the parts' pages goes with it
+  window.addEventListener("pagehide", () => {
+    stopParts();
+    if (dialogShown && window.parent && window.parent.TypeRWorkspace) window.parent.TypeRWorkspace.typerDialog(false);
+    Object.keys(shownParts).forEach((part) => {
+      const entry = shownParts[part];
+      entry.cancel();
+      if (entry.stop) entry.stop();
+      const doc = entry.frame.contentDocument;
+      const host = doc && doc.getElementById("app");
+      if (host) host.textContent = "";
+    });
+  });
+  // The panel's element, wherever its part is shown (TypeR Studio presses the panel's buttons)
+  const queryPanel = (selector) => {
+    const here = document.querySelector(selector);
+    if (here) return here;
+    for (const part of Object.keys(shownParts)) {
+      const doc = shownParts[part].frame.contentDocument;
+      const found = doc && doc.querySelector(selector);
+      if (found) return found;
+    }
+    return null;
+  };
+
   const load = (url) => fetch(url).then((response) => (response.ok ? response.text() : "")).catch(() => "");
 
   // FontScanR reads the list of fonts once, when it opens, but the browser only learns
@@ -590,6 +784,7 @@
     importPages: pagesFromApp.importPages,
     unlinkPages: pagesFromApp.unlinkPages,
     getFile: (path) => files[path],
+    query: queryPanel,
     // The panel's words in its language, for what the app shows of it (its menu, its modes)
     text: (key) => (typeof bundle[key] === "string" ? bundle[key] : ""),
     setFile: (path, value) => { files[path] = value; },

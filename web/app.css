@@ -537,6 +537,12 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--ui); }
 .dock__head { flex: none; display: flex; align-items: center; height: var(--head); padding: 0 10px; background: var(--ui-dark); border-bottom: 1px solid var(--line); font-weight: 600; }
 .dock--typer iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--ui); }
+/* a part of TypeR in a panel of its own: the panel draws it in the frame (bridge.js) */
+.pane--typer-part iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--ui); }
+.work:not(.is-custom) .pane--typer-part { display: none; }
+/* the TypeR panel brought forward while one of its windows is open (workspace.js) */
+.work.is-custom .dock--typer.is-dialog { display: flex !important; position: fixed; left: 50% !important; top: 50% !important; width: min(440px, calc(100vw - 32px)) !important; height: min(680px, calc(100vh - 64px)) !important; transform: translate(-50%, -50%); z-index: 300 !important; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.4), 0 12px 40px rgba(0, 0, 0, 0.5); }
+.dock--typer.is-dialog > .dock__head, .dock--typer.is-dialog > .ws-grip { display: none; }
 .pane { display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--line); }
 .pane--layers { flex: 1 1 50%; }
 .pane--history { flex: 0 1 24%; }
