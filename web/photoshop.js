@@ -9891,10 +9891,10 @@
       const fits = (layer) => (layer.kind === "text" ? !lockOf(layer, "position") : layer.kind === "raster" && !layer.adjustment && !lockOf(layer, "position") && !lockOf(layer, "pixels") && visualOf(layer, doc));
       return doc.state.layers.filter((layer) => out.has(layer.id) && fits(layer)).map((layer) => layer.id);
     },
-    // Where a layer shows: a pixel layer's pixels, a text's letters
-    pixelBox(layer) {
-      if (!app.doc) return null;
-      return layer.kind === "text" ? boxOf(layer, app.doc) : trimmedBox(layer, app.doc);
+    // Where a layer shows: a pixel layer's pixels, a text's letters. Of the page in front, or of `doc`.
+    pixelBox(layer, doc = app.doc) {
+      if (!doc) return null;
+      return layer.kind === "text" ? boxOf(layer, doc) : trimmedBox(layer, doc);
     },
     setLiveTransform(ids, matrix) {
       const doc = app.doc;

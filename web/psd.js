@@ -82,9 +82,15 @@
   // Where each untouched layer's channels are, in the file it was opened from
   const rawParts = new WeakMap();
 
-  const canvasOfPixels = (pixels) => {
+  // `read`: a canvas whose pixels are read back (a text's, whose edges are blended as soon as
+  // the page shows). The processor keeps those: held by the graphics card, each reading waits
+  // for the card, a text at a time, while the page opens.
+  const canvasOfPixels = (pixels, read) => {
+    // From the worker an image comes as its pixels and its size (psd-worker.js): it is made an
+    // image again around them, without a copy
+    if (pixels.typerImage) pixels = new ImageData(pixels.data, pixels.width, pixels.height);
     const canvas = PS().newCanvas(pixels.width, pixels.height);
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", read ? { willReadFrequently: true } : undefined);
     if (pixels instanceof ImageData) ctx.putImageData(pixels, 0, 0);
     else {
       // 16 and 32 bits per channel: the page works in 8
@@ -109,7 +115,7 @@
   const withCanvases = (node, file) => {
     [node, node.mask, node.realMask].forEach((holder) => {
       if (!holder || !holder.imageData) return;
-      holder.canvas = canvasOfPixels(holder.imageData);
+      holder.canvas = canvasOfPixels(holder.imageData, holder === node && Boolean(node.text));
       delete holder.imageData;
     });
     if (node.typerSlices) {

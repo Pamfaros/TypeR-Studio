@@ -258,6 +258,9 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .stage[data-tool="text"] { cursor: text; }
 .stage[data-tool="hand"], .stage.is-spacing { cursor: grab; }
 .stage.is-panning { cursor: grabbing; }
+/* In Flow, the name of a page, which the page is moved by */
+.stage.is-flow-name, .stage.is-flow-name * { cursor: grab !important; }
+.stage.is-flow-held, .stage.is-flow-held * { cursor: grabbing !important; }
 .stage.is-spacing.is-marquee { cursor: move; }
 .stage[data-tool="zoom"] { cursor: zoom-in; }
 .stage[data-tool="brush"], .stage[data-tool="eraser"], .stage[data-tool="stamp"], .stage[data-tool="heal"] { cursor: none; }
@@ -1063,6 +1066,8 @@ body.is-dragging-tool, body.is-dragging-tool * { cursor: grabbing !important; }
 .modal--settings .modal__body input[type="search"]:focus { outline: 1px solid var(--blue); outline-offset: -1px; }
 .set__card { display: grid; padding: 2px 16px; background: var(--ui); border: 1px solid rgb(var(--tint-rgb) / 0.04); border-radius: 8px; }
 .modal--settings .modal__body .set__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 20px; padding: 12px 0; }
+/* Solo or Flow: two pictures to pick from, under the setting's name */
+.modal--settings .modal__body .set__row--choice { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .set__row + .set__row { border-top: 1px solid rgba(0, 0, 0, 0.28); }
 .set__text { display: grid; gap: 3px; min-width: 0; }
 .set__label { color: var(--text); line-height: 1.3; }
@@ -1259,6 +1264,12 @@ body.is-dragging-tool, body.is-dragging-tool * { cursor: grabbing !important; }
 .onboard__ex-cursor .onboard__ex-head { fill: #1b1b1b; stroke: #fff; stroke-width: 1; stroke-linejoin: round; }
 .onboard__ex-pointer { fill: #1b1b1b; stroke: #fff; stroke-width: 1; stroke-linejoin: round; }
 .onboard__ex-line { fill: #1b1b1b; }
+/* Solo and Flow: the pages of a chapter, the one worked on outlined */
+.onboard__ex-sheet { fill: #fff; stroke: #1b1b1b; stroke-width: 1.5; }
+.onboard__ex-sheet.is-on { stroke: var(--blue); stroke-width: 2.5; }
+.onboard__ex-number { fill: #1b1b1b; font: 600 15px system-ui, sans-serif; }
+.onboard__ex-tab { fill: #cbc8c1; }
+.onboard__ex-tab.is-on { fill: #fff; }
 .onboard__ex-box { fill: none; stroke: var(--blue); stroke-width: 1px; stroke-dasharray: 3 2; }
 .onboard__row--tight { flex-wrap: nowrap; gap: 6px; }
 .onboard__row input.onboard__percent { width: 52px; height: 24px; }

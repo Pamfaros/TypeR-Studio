@@ -9,12 +9,28 @@ lib.initializeCanvas((width, height) => new OffscreenCanvas(width, height), (wid
 
 // What leaves for the page: pixels are handed over, not copied. A small array read from the
 // file is still a view on all of it, so it gets its own copy, or the whole file would follow.
+//
+// An image leaves as its pixels and its size (`typerImage`), which psd.js makes an image of
+// again: sent as an image, its pixels are copied into the message and copied out of it, a
+// page's worth each time, whatever is handed over beside it.
 const prepare = (root) => {
   const transfer = new Set();
   const seen = new Set();
+  const images = new Map();
   const visit = (holder, key) => {
     const value = holder[key];
-    if (!value || typeof value !== "object" || seen.has(value)) return;
+    if (!value || typeof value !== "object") return;
+    if (value instanceof ImageData) {
+      let image = images.get(value);
+      if (!image) {
+        image = { typerImage: true, width: value.width, height: value.height, data: value.data };
+        images.set(value, image);
+        transfer.add(value.data.buffer);
+      }
+      holder[key] = image;
+      return;
+    }
+    if (seen.has(value)) return;
     if (ArrayBuffer.isView(value)) {
       const own = value.byteLength === value.buffer.byteLength ? value : value.slice();
       holder[key] = own;
@@ -22,10 +38,6 @@ const prepare = (root) => {
       return;
     }
     seen.add(value);
-    if (value instanceof ImageData) {
-      transfer.add(value.data.buffer);
-      return;
-    }
     if (value instanceof OffscreenCanvas) {
       delete holder[key];
       return;

@@ -664,6 +664,8 @@
 
   const dpr = () => window.devicePixelRatio || 1;
   const view = () => (app.doc ? app.doc.view : { zoom: 1, x: 0, y: 0 });
+  // Flow, every page on one surface (flow.js): made once the settings are read
+  let Flow = null;
 
   // A browser only colours a slider up to its thumb on its own in Firefox
   const showSliderFill = (input) => {
@@ -865,6 +867,10 @@
     const y = Math.round(v.y);
     const dw = doc.width * v.zoom;
     const dh = doc.height * v.zoom;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = pinch || gesture || performance.now() < quickUntil ? "low" : "high";
+    // In Flow, the other pages on screen first
+    const flowing = Flow ? Flow.drawUnder(ctx) : false;
     if (!checker) {
       const tile = document.createElement("canvas");
       tile.width = tile.height = 16;
@@ -888,6 +894,7 @@
     ctx.strokeStyle = "#111";
     ctx.lineWidth = 1;
     ctx.strokeRect(x - 0.5, y - 0.5, dw + 1, dh + 1);
+    if (flowing) Flow.drawOver(ctx);
   };
 
   let paintRequest = 0;
@@ -947,6 +954,7 @@
     renderTabs();
     placeEditor();
     PS.announce("view");
+    if (Flow) Flow.rested();
   };
 
   /* ------------------------------ the overlay ----------------------------- */
@@ -3717,7 +3725,13 @@
   const STORE_SETTINGS = "typer.web.settings";
   // How far the pointer goes, dragged sideways with Ctrl + Space or the Zoom tool, to zoom twice as close
   const ZOOM_SPEEDS = { normal: 150, fast: 90, veryFast: 55 };
-  const settings = { wheel: "pan", zoomSpeed: "normal", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true, taskBarPlace: null, hiddenChars: false, discord: "page", sizeStep: 2 };
+  const settings = { wheel: "pan", zoomSpeed: "normal", smartGuides: true, snapText: false, transformControls: true, bubbleRoom: true, spellcheck: true, taskBar: true, taskBarPlace: null, hiddenChars: false, discord: "page", sizeStep: 2, workspace: "solo", flowDirection: "rtl", flowGap: 80, flowGapDown: 0, flowPerRow: 0 };
+  // Flow's ways of laying the pages out, and the space between two pages, in the pages' pixels:
+  // one for the pages side by side, one for the pages one under the other, which a manhwa's
+  // strips are read without (flowGapDown)
+  const FLOW_DIRECTIONS = [["rtl", "Right to left (manga)"], ["ltr", "Left to right (comics)"], ["down", "Top to bottom (manhwa)"]];
+  const flowGapOf = (direction) => (direction === "down" ? settings.flowGapDown : settings.flowGap);
+  const FLOW_GAP_MAX = 2000;
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORE_SETTINGS)) || {};
     // On a Mac a mouse can't be told from a trackpad, so "auto" isn't offered there
@@ -3743,6 +3757,11 @@
     if (saved.hiddenChars === true) settings.hiddenChars = true;
     if (typeof saved.sizeStep === "number" && saved.sizeStep > 0 && saved.sizeStep <= 100) settings.sizeStep = saved.sizeStep;
     if (saved.discord === "app" || saved.discord === "off") settings.discord = saved.discord;
+    if (saved.workspace === "flow") settings.workspace = "flow";
+    if (FLOW_DIRECTIONS.some(([id]) => id === saved.flowDirection)) settings.flowDirection = saved.flowDirection;
+    if (number(saved.flowGap) && saved.flowGap >= 0 && saved.flowGap <= FLOW_GAP_MAX) settings.flowGap = Math.round(saved.flowGap);
+    if (number(saved.flowGapDown) && saved.flowGapDown >= 0 && saved.flowGapDown <= FLOW_GAP_MAX) settings.flowGapDown = Math.round(saved.flowGapDown);
+    if (Number.isInteger(saved.flowPerRow) && saved.flowPerRow > 0 && saved.flowPerRow <= 500) settings.flowPerRow = saved.flowPerRow;
   } catch (error) {
     console.warn("TypeR web: could not read the settings", error);
   }
@@ -3750,11 +3769,141 @@
     const d = app.textDefaults;
     try {
       // A language nobody chose keeps following the interface
-      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, zoomSpeed: settings.zoomSpeed === "normal" ? undefined : settings.zoomSpeed, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, taskBarPlace: settings.taskBarPlace || undefined, hiddenChars: settings.hiddenChars || undefined, discord: settings.discord === "page" ? undefined : settings.discord, sizeStep: settings.sizeStep === 2 ? undefined : settings.sizeStep, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, textOnTop: d.textOnTop || undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
+      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, zoomSpeed: settings.zoomSpeed === "normal" ? undefined : settings.zoomSpeed, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, bubbleRoom: settings.bubbleRoom ? undefined : false, taskBar: settings.taskBar ? undefined : false, taskBarPlace: settings.taskBarPlace || undefined, hiddenChars: settings.hiddenChars || undefined, discord: settings.discord === "page" ? undefined : settings.discord, sizeStep: settings.sizeStep === 2 ? undefined : settings.sizeStep, workspace: settings.workspace === "flow" ? "flow" : undefined, flowDirection: settings.flowDirection === "rtl" ? undefined : settings.flowDirection, flowGap: settings.flowGap === 80 ? undefined : settings.flowGap, flowGapDown: settings.flowGapDown || undefined, flowPerRow: settings.flowPerRow || undefined, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, textOnTop: d.textOnTop || undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
     } catch (error) {
       console.warn("TypeR web: could not keep the settings", error);
     }
   };
+  // Flow (flow.js): the pages on one surface, where Solo shows one at a time. Not on a touch
+  // screen, which has its pages elsewhere (touch.js).
+  const flowOn = () => settings.workspace === "flow" && !Shell.touch;
+  let flowColors = null;
+  let flowColorsAt = 0;
+  let flowPickedTold = false;
+  if (window.TypeRFlow) {
+    Flow = window.TypeRFlow.create({
+      app,
+      PS,
+      ops,
+      on: flowOn,
+      options: () => ({ direction: settings.flowDirection, gap: flowGapOf(settings.flowDirection), perRow: settings.flowPerRow }),
+      // The chapter's pages in their order, open or not, then the documents that aren't its pages
+      entries: () => {
+        const list = [];
+        const keys = new Set();
+        const taken = new Set();
+        if (chapter) {
+          chapter.pages.forEach((page) => {
+            const key = pageKey(page);
+            if (keys.has(key)) return;
+            keys.add(key);
+            const doc = app.docs.find((one) => one.path === key) || null;
+            if (doc) taken.add(doc);
+            list.push({ key, name: doc ? doc.name : page.file.name, doc, page });
+          });
+        }
+        app.docs.forEach((doc) => {
+          if (!taken.has(doc)) list.push({ key: `doc:${doc.id}`, name: doc.name, doc, page: null });
+        });
+        return list;
+      },
+      stage: () => [stageW, stageH],
+      // Where a press is on the stage, or null when it isn't on the stage
+      at: (event) => {
+        if (!(event.target instanceof Node) || !ui.stage.contains(event.target)) return null;
+        const rect = stageRectOf(event);
+        return [event.clientX - rect.left, event.clientY - rect.top];
+      },
+      mac: IS_MAC,
+      // The Move tool pressed beside every page draws a rectangle that picks pages
+      bands: () => app.tool === "move",
+      // Its click there, without drawing: the Move tool's own click beside every layer
+      beside: () => {
+        if (app.autoSelect && app.doc) ops.clearActiveLayers();
+        schedule(false);
+      },
+      // Several pages picked: what can be done with them, said once
+      picked: (count) => {
+        if (count < 2 || flowPickedTold) return;
+        flowPickedTold = true;
+        toast(fill(T("{count} pages selected. Drag one of their names to move them together; {save} saves them and {close} closes them."), { count, save: keyLabel(setupKeysOf("Save")), close: keyLabel(setupKeysOf("Close")) }));
+      },
+      dpr,
+      schedule: () => schedule(false),
+      viewChanged: () => viewChanged(),
+      // Something is being done to the page in front: it stays in front
+      busy: () => Boolean(gesture || pinch || pointers.size || polygon || scrubbing || ui.layerStyle || !ui.editor.hidden || (app.doc && app.doc.live) || transformOf() || (crop && crop.edited) || warpedLayer() || (window.TypeRReshapeTool && window.TypeRReshapeTool.busy()) || paging || openingFiles || !ui.busy.hidden || document.querySelector("dialog[open]")),
+      activate: async ({ doc, page }) => {
+        const at = page && chapter ? chapter.pages.indexOf(page) : -1;
+        if (at >= 0) await goToPage(at, true);
+        else if (doc && app.docs.includes(doc)) switchDoc(doc);
+      },
+      fileOf: (page) => chapterFile(page),
+      // Two pages dragged side to side become one, a spread (joinPages)
+      join: (ask) => joinPages(ask),
+      joinHint: () => T("Release to join as a spread"),
+      opening: (name) => fill(T("Opening {name}…"), { name }),
+      // Over the name of a page, which it is moved by, and while it is held
+      cursor: (kind) => {
+        ui.stage.classList.toggle("is-flow-name", kind === "name");
+        ui.stage.classList.toggle("is-flow-held", kind === "held");
+      },
+      // The theme's colours, read again now and then: a theme can change while the app runs
+      colors: () => {
+        const now = performance.now();
+        if (!flowColors || now - flowColorsAt > 2000) {
+          const style = getComputedStyle(document.documentElement);
+          const read = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+          flowColors = { accent: read("--blue", "#2f80ed"), muted: read("--muted", "#9a9a9a"), unsaved: read("--warn", "#e0a030"), blank: "#d8d8d8", font: getComputedStyle(document.body).fontFamily || "sans-serif" };
+          flowColorsAt = now;
+        }
+        return flowColors;
+      },
+    });
+  }
+  // Solo or Flow, from View, its shortcut, Settings or the setup assistant. Back in Solo, each
+  // page is shown whole again: where it stood on the surface means nothing there.
+  const setWorkspace = (mode, silent) => {
+    const next = mode === "flow" ? "flow" : "solo";
+    if (settings.workspace === next) return;
+    settings.workspace = next;
+    keepSettings();
+    if (Flow) Flow.changed();
+    if (!flowOn()) {
+      app.docs.forEach((doc) => {
+        doc.view.fitted = true;
+        doc.view.seen = doc === app.doc;
+      });
+      fitView();
+    } else viewChanged();
+    renderMenusState();
+    if (!silent) toast(T(next === "flow" ? "Flow mode: every page on one surface." : "Solo mode: one page at a time."));
+  };
+  // Flow laid out another way: the page in front stays where it is, the others move around it.
+  // The pages moved by hand are laid out again with the others.
+  const setFlowLayout = ({ direction, gap, perRow }) => {
+    const before = [settings.flowDirection, settings.flowGap, settings.flowGapDown, settings.flowPerRow].join();
+    if (FLOW_DIRECTIONS.some(([id]) => id === direction)) settings.flowDirection = direction;
+    // The space is the one of the way the pages go
+    if (Number.isFinite(gap)) settings[settings.flowDirection === "down" ? "flowGapDown" : "flowGap"] = Math.max(0, Math.min(FLOW_GAP_MAX, Math.round(gap)));
+    if (Number.isFinite(perRow)) settings.flowPerRow = Math.max(0, Math.min(500, Math.round(perRow)));
+    keepSettings();
+    if (!Flow) return;
+    if (before !== [settings.flowDirection, settings.flowGap, settings.flowGapDown, settings.flowPerRow].join()) Flow.tidy();
+    Flow.changed();
+  };
+  // The page in front changed: in Flow, the one left keeps a picture of itself and the one
+  // that comes is placed on the surface. False when it is to be shown as in Solo.
+  const flowTurn = (doc) => {
+    if (!Flow) return false;
+    if (flowOn() && composedDoc && composedDoc !== doc) {
+      const drawn = docCanvas.width === composedDoc.width && docCanvas.height === composedDoc.height;
+      if (drawn && needCompose && app.docs.includes(composedDoc)) PS.paintDoc(composedDoc, docCanvas.getContext("2d"), {});
+      Flow.left(composedDoc, drawn ? docCanvas : null);
+    }
+    return Flow.entered(doc);
+  };
+
   // Show Transform Controls: from the Move tool's options, View > Show Transform Controls and
   // its shortcut, or the setup assistant
   const setTransformControls = (on) => {
@@ -3787,7 +3936,7 @@
       name.textContent = T("Default folder");
       const hint = document.createElement("p");
       hint.className = "modal__hint";
-      hint.textContent = T("Open, Open Pages and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.");
+      hint.textContent = T("Open, Open a Chapter and Batch Save start in this folder, and so do Save As and Export for a page that isn't a file yet. Without one, each opens where you last were.");
       // The desktop app knows where the folder is on the disk
       const where = document.createElement("p");
       where.className = "modal__hint set__path";
@@ -3851,10 +4000,40 @@
           old.remove();
           return line;
         };
+        // Solo or Flow: the two pictures of the setup assistant, in place of a list. The list
+        // stays, hidden, and holds the answer.
+        const workspaceRow = () => {
+          const line = row("workspace");
+          const input = inputs.workspace;
+          const Setup = window.TypeROnboarding;
+          if (!Setup || !Setup.workspaceChoice) return line;
+          const box = document.createElement("div");
+          box.className = "set__row set__row--choice";
+          box.appendChild(line.querySelector(".set__label"));
+          input.hidden = true;
+          box.appendChild(input);
+          const choice = Setup.workspaceChoice(box, input.value, inputs.flowDirection.value, (id) => { input.value = id; });
+          choice.box.setAttribute("aria-label", T("Page display"));
+          inputs.flowDirection.addEventListener("change", () => choice.show(inputs.flowDirection.value));
+          return box;
+        };
+        // The space between pages is one for the pages side by side and one for the pages one
+        // under the other: the field shows the one of the way chosen
+        if (inputs.flowDirection && inputs.flowGap) {
+          const gaps = { side: String(settings.flowGap), down: String(settings.flowGapDown) };
+          let kind = inputs.flowDirection.value === "down" ? "down" : "side";
+          inputs.flowDirection.addEventListener("change", () => {
+            const next = inputs.flowDirection.value === "down" ? "down" : "side";
+            if (next === kind) return;
+            gaps[kind] = inputs.flowGap.value;
+            kind = next;
+            inputs.flowGap.value = gaps[kind];
+          });
+        }
         const card = (...ids) => {
           const box = document.createElement("div");
           box.className = "set__card";
-          box.append(...ids.map(row));
+          box.append(...ids.map((id) => (id === "workspace" ? workspaceRow() : row(id))));
           return box;
         };
         const heading = (text) => {
@@ -3865,7 +4044,7 @@
         };
         const general = document.createElement("div");
         general.className = "settings__pane";
-        general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed", ...(discord ? ["discord"] : []), ...(Stats ? ["stats"] : [])), card("language", "ligature", "hyphenate", "textOnTop", "sizeStep"));
+        general.append(heading(T("General")), card("lang", ...(Shell.touch ? [] : ["wheel", "zoomSpeed"]), ...(discord ? ["discord"] : []), ...(Stats ? ["stats"] : [])), ...(Flow && !Shell.touch ? [card("workspace", "flowDirection", "flowGap", "flowPerRow")] : []), card("language", "ligature", "hyphenate", "textOnTop", ...(Shell.touch ? [] : ["sizeStep"])));
         if (canChooseFolder) general.appendChild(folderCard());
         middle.textContent = "";
         const panes = { general, appearance: appearance.pane };
@@ -3937,7 +4116,13 @@
       },
       fields: [
         { id: "lang", label: T("Interface language"), value: lang, options: Object.keys(LANGUAGES).map((code) => [code, LANGUAGES[code]]) },
-        { id: "wheel", label: T("Mouse wheel"), value: settings.wheel, options: [["pan", T("Like Photoshop")], ["zoom", T("The wheel zooms")], ...(IS_MAC ? [] : [["auto", T("Mouse zooms, trackpad scrolls")]])], hint: (value) => (value === "zoom" ? T("The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.") : T(value === "auto" ? "A mouse's wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers scroll and a pinch zooms." : "The wheel scrolls up and down. Alt + wheel zooms, Ctrl or Cmd + wheel scrolls sideways. On a trackpad, two fingers scroll and a pinch zooms.")) },
+        { id: "wheel", label: T("Navigation mode"), value: settings.wheel, options: [["pan", T("Like Photoshop")], ["zoom", T("Wheel zooms, wheel click moves")], ...(IS_MAC ? [] : [["auto", T("Mouse zooms, trackpad scrolls")]])], hint: (value) => (value === "zoom" ? T("The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.") : T(value === "auto" ? "A mouse's wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers scroll and a pinch zooms." : "The wheel scrolls up and down. Alt + wheel zooms, Ctrl or Cmd + wheel scrolls sideways. On a trackpad, two fingers scroll and a pinch zooms.")) },
+        ...(Flow && !Shell.touch ? [
+          { id: "workspace", label: T("Page display"), value: settings.workspace, options: [["solo", T("Solo mode")], ["flow", T("Flow mode")]], hint: (value) => T(value === "flow" ? "Flow: every page of the chapter on one surface, to move over freely. The page in the middle of the screen is the one you work on, and the script follows it." : "Solo: one page at a time, as in Photoshop.") },
+          { id: "flowDirection", label: T("Pages in Flow"), value: settings.flowDirection, options: FLOW_DIRECTIONS.map(([id, name]) => [id, T(name)]) },
+          { id: "flowGap", label: T("Space between pages in Flow"), value: flowGapOf(settings.flowDirection), type: "number", min: 0, max: FLOW_GAP_MAX, step: 10, hint: () => T("In pixels of the pages.") },
+          { id: "flowPerRow", label: T("Pages per row in Flow"), value: settings.flowPerRow, type: "number", min: 0, max: 500, step: 1, hint: () => T("0: every page on one row.") },
+        ] : []),
         { id: "zoomSpeed", label: T("Zoom speed"), value: settings.zoomSpeed, options: [["normal", T("Normal")], ["fast", T("Fast")], ["veryFast", T("Very fast")]], hint: () => T("When dragging sideways with Ctrl + Space or the Zoom tool.") },
         ...(Stats ? [{ id: "stats", label: T("Anonymous usage statistics"), type: "checkbox", checked: Stats.enabled(), hint: () => T("Once a day, TypeR Studio tells its team it was opened, so they know how many people use it and what to improve: a random number, web or desktop app, the system, the language, how often each tool and command was used and the errors the app ran into. Nothing about you or your files.") }] : []),
         ...(discord ? [{ id: "discord", label: T("Discord activity"), value: settings.discord, options: [["page", T("With the page's name")], ["app", T("Without the page's name")], ["off", T("Off")]], hint: () => T("What your Discord friends see while you work. Discord must be open on this computer.") }] : []),
@@ -3952,6 +4137,11 @@
     if (!answer) return;
     settings.wheel = answer.wheel;
     settings.zoomSpeed = answer.zoomSpeed;
+    if (answer.workspace) {
+      const whole = (value, fallback) => (Number.isFinite(parseFloat(value)) ? parseFloat(value) : fallback);
+      setFlowLayout({ direction: answer.flowDirection, gap: whole(answer.flowGap, flowGapOf(answer.flowDirection)), perRow: whole(answer.flowPerRow, settings.flowPerRow) });
+      setWorkspace(answer.workspace, true);
+    }
     if (discord) settings.discord = answer.discord;
     if (folderChoice !== undefined) setDefaultFolder(folderChoice);
     if (Stats && answer.stats !== Stats.enabled()) Stats.setEnabled(answer.stats);
@@ -7497,6 +7687,15 @@
       if ((app.tool === "text" && !moveLent(event)) || (app.tool === "wand" && !wandSetAside(event))) return;
     }
     if (!handleWhileTyping && !fingerWhileTyping && !moveWhileTyping) ui.stage.focus({ preventScroll: true });
+    // In Flow, a press on another page brings it in front, and that is all it does; a press on
+    // a page's name holds the page, to move it
+    if (Flow && flowOn() && event.button === 0 && ui.editor.hidden && !pointers.size && !spacing && app.tool !== "hand" && app.tool !== "zoom" && !polygon && !transformOf() && !hitHandle(event)) {
+      const rect = stageRectOf(event);
+      if (Flow.press(event.clientX - rect.left, event.clientY - rect.top, event)) {
+        event.preventDefault();
+        return;
+      }
+    }
     if (event.pointerType === "pen") penSeen = true;
     pointers.set(event.pointerId, [event.clientX, event.clientY]);
     if (event.pointerType === "touch" && pointers.size === 2 && gesture && gesture.moved && isMarquee(gesture.kind) && !(gesture.carry && gesture.carry.id !== null)) {
@@ -7811,6 +8010,12 @@
 
   ui.stage.addEventListener("pointermove", (event) => {
     if (pointers.has(event.pointerId)) pointers.set(event.pointerId, [event.clientX, event.clientY]);
+    // In Flow, the name of a page is what the page is moved by: the pointer says so over it
+    if (Flow && flowOn()) {
+      const rect = stageRectOf(event);
+      if (gesture || pinch || pointers.size || !ui.editor.hidden || spacing || app.tool === "hand" || app.tool === "zoom" || polygon || transformOf() || hitHandle(event)) Flow.hover(null, null);
+      else Flow.hover(event.clientX - rect.left, event.clientY - rect.top);
+    }
     if (gesture && gesture.carry && gesture.carry.id === event.pointerId) {
       const current = gesture;
       const at = toDoc(event);
@@ -8261,6 +8466,23 @@
     event.preventDefault();
     if (macWandClick) return;
     if (!app.doc || event.altKey || Shell.touch || event.target.closest(".start")) return;
+    // On a page's name in Flow: what can be done to that page
+    if (Flow && flowOn() && !gesture) {
+      const rect = stageRectOf(event);
+      const named = Flow.nameAt(event.clientX - rect.left, event.clientY - rect.top);
+      if (named) {
+        // The pages picked, when it is one of them (a right click picks it otherwise)
+        const many = Flow.picked().length > 1;
+        openContextMenu(event.clientX, event.clientY, [
+          { label: "Save", title: pickedTitle("Save", "Save {count} Pages"), enabled: () => (docsPicked() || []).length > 0, action: () => savePicked() },
+          { label: "Close", title: pickedTitle("Close", "Close {count} Pages"), enabled: () => (docsPicked() || []).length > 0, action: () => closePicked() },
+          null,
+          { label: "Select All Pages", action: () => Flow.pickAll() },
+          { label: "Separate Pages", enabled: () => !many && maybeSpread(named), action: () => separatePages(named) },
+        ]);
+        return;
+      }
+    }
     if (sizesBrush(app.tool) && !event.shiftKey && !gesture) {
       openBrushPicker(event.clientX, event.clientY);
       return;
@@ -8355,11 +8577,20 @@
     if (command || event.ctrlKey || event.shiftKey) return sideways();
     return { pan: [-x, -y] };
   };
+  // The stage's place on screen while the wheel turns. A turn of the wheel comes at every
+  // frame, each after the status bar and the overlay were written: measured there, the stage
+  // costs a layout each time. Measured a few times a second, and again when its size changes.
+  let wheelRect = null;
+  let wheelRectAt = 0;
   ui.stage.addEventListener("wheel", (event) => {
     if (!app.doc) return;
     event.preventDefault();
     movingQuickly();
-    const rect = ui.stage.getBoundingClientRect();
+    if (!wheelRect || event.timeStamp - wheelRectAt > 250 || event.timeStamp < wheelRectAt) {
+      wheelRect = ui.stage.getBoundingClientRect();
+      wheelRectAt = event.timeStamp;
+    }
+    const rect = wheelRect;
     const move = wheelGesture(event);
     if (move.pan) panBy(...move.pan);
     else zoomTo(view().zoom * Math.exp(-move.zoom), event.clientX - rect.left, event.clientY - rect.top);
@@ -11208,6 +11439,7 @@
     const count = docs.length;
     openContextMenu(event.clientX, event.clientY, [
       ...(TextMask ? [{ label: "Remove Text on Several Pages…", title: () => (count > 1 ? fill(T("Remove Text on {count} Pages…"), { count }) : "Remove Text on Several Pages…"), enabled: () => !pixelsOnly(), action: () => startTextBatch(count > 1 ? docs : app.docs.slice()) }, null] : []),
+      { label: "Save", title: () => (count > 1 ? fill(T("Save {count} Pages"), { count }) : "Save"), action: () => (count > 1 ? saveMany(docs) : save(doc)) },
       { label: "Close", title: () => (count > 1 ? fill(T("Close {count} Pages"), { count }) : "Close"), action: () => closeDocs(docs) },
       { label: "Close Other Pages", enabled: () => app.docs.length > count, action: () => closeDocs(app.docs.filter((one) => !docs.includes(one))) },
     ]);
@@ -11335,6 +11567,7 @@
       const order = Array.from(ui.tabs.children, (each) => each.dataset.id);
       app.docs.sort((a, b) => order.indexOf(String(a.id)) - order.indexOf(String(b.id)));
       renderTabs();
+      if (Flow) Flow.pagesChanged();
       PS.announce("tabs");
     };
     tab.setPointerCapture(event.pointerId);
@@ -11491,16 +11724,38 @@
   let paging = false;
   const pageKey = (page) => "web-file://" + page.file.name;
   const pageOf = (doc) => (chapter && doc ? chapter.pages.findIndex((page) => pageKey(page) === doc.path) : -1);
+  // The page in front leads the script: TypeR goes to the line it was at when that page was
+  // last left, or to the page's first line (the panel's showPage). Once things have settled:
+  // a page only passed through on the way to another leads nothing.
+  let scriptTimer = 0;
+  let scriptLeads = false;
+  const scriptToPage = () => {
+    if (scriptLeads) return;
+    clearTimeout(scriptTimer);
+    scriptTimer = setTimeout(() => {
+      const doc = app.doc;
+      if (pageOf(doc) < 0) return;
+      const bridge = panelBridge();
+      if (bridge && bridge.showPage) bridge.showPage(doc.path);
+    }, 0);
+  };
   const renderStatus = () => {
     const doc = app.doc;
     const zoomInput = $("status-zoom");
-    if (document.activeElement !== zoomInput) zoomInput.value = `${Math.round(view().zoom * 1000) / 10}%`;
-    $("status-doc").textContent = doc ? `${doc.width} × ${doc.height} px, ${Math.round(doc.resolution)} ppi` : "";
+    const zoomText = `${Math.round(view().zoom * 1000) / 10}%`;
+    if (document.activeElement !== zoomInput && zoomInput.value !== zoomText) zoomInput.value = zoomText;
+    // Written only when it says something else: this runs at every step of a zoom or a scroll,
+    // and a text written again, even the same, has the page laid out again
+    const say = (id, text) => {
+      const element = $(id);
+      if (element.textContent !== text) element.textContent = text;
+    };
+    say("status-doc", doc ? `${doc.width} × ${doc.height} px, ${Math.round(doc.resolution)} ppi` : "");
     renderPager();
     const painting = doc && maskPainting();
     const onMask = painting && (app.tool === "brush" || app.tool === "eraser");
     const hint = transform ? T(TRANSFORM_HINT) : onMask && painting.target === "quick" ? T("Quick Mask: black takes away from the selection, white adds to it. Q: back to the selection.") : onMask && painting.target === "mask" ? T("On the layer mask: black hides the layer, white shows it, grey half. X: swap the colours.") : warpedLayer() ? T("Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.") : !ui.editor.hidden && !Shell.touch ? T(TYPING_HINT) : `${app.tool === "reshape" ? T("Experimental tool, still being improved.") + " " : ""}${T(TOOL_HINT[app.tool] || "")}`;
-    $("status-hint").textContent = hint.replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl");
+    say("status-hint", hint.replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl"));
     ui.start.hidden = Boolean(doc);
   };
 
@@ -11596,7 +11851,8 @@
     return fresh;
   };
 
-  const openFiles = async (entries) => {
+  // `quiet`: without the notice over the page (Flow, which says it on the page itself)
+  const openFiles = async (entries, quiet = false) => {
     if (!settleTransform()) return;
     const inOrder = Array.from(entries).sort((a, b) => NATURAL_ORDER.compare((a.file || a).name, (b.file || b).name));
     const opened = [];
@@ -11618,7 +11874,7 @@
         toast(fill(T("{name} can't be opened. Use a PSD, an InDesign file, PNG, JPEG or WebP."), { name: file.name }));
         continue;
       }
-      working(fill(T("Opening {name}…"), { name: file.name }));
+      if (quiet !== true) working(fill(T("Opening {name}…"), { name: file.name }));
       try {
         await nextPaint();
         const tab = InDesign.isInDesignName(file.name) ? null : await tabOfFile(handle);
@@ -11812,7 +12068,7 @@
     }
   };
 
-  // Settings > Default Folder: where Open, Open Pages and Open Folder start, and Save As and
+  // Settings > Default Folder: where Open, Open a Chapter and Open Folder start, and Save As and
   // Export for a page that isn't a file yet. A browser takes no path: the folder is a handle the
   // user picked, kept in its storage. Without one, each picker opens where it did last (its id).
   const FOLDER_DB = "typer-web-folders";
@@ -11948,11 +12204,11 @@
     try {
       openFolderEntries(await filesOfFolder(await pickIn("showDirectoryPicker", { id: "typer-open-folder", mode: "readwrite" })));
     } catch (error) {
-      if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Open Pages…"), error: error.message || error }), true);
+      if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Open a Chapter…"), error: error.message || error }), true);
     }
   };
-  // Open Pages…: the pages picked one by one, or a whole folder. Either way they make a chapter
-  // (see openChapter), shared with the panel's Import pages.
+  // Open a Chapter…: the pages picked one by one, or a whole folder. Either way they make a chapter
+  // (see openChapter). The panel's Import pages button does the same (see bridge.js).
   const PAGE_TYPES = [{ description: "Photoshop, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"] } }];
   const pickPageFiles = async () => {
     if (!canPickFiles) {
@@ -11972,12 +12228,12 @@
       for (const handle of handles) entries.push({ file: await handle.getFile(), handle });
       await openChapter(entries);
     } catch (error) {
-      if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Open Pages…"), error: error.message || error }), true);
+      if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Open a Chapter…"), error: error.message || error }), true);
     }
   };
   const openPages = async () => {
     const answer = await dialog({
-      title: T("Open Pages"),
+      title: T("Open a Chapter"),
       body: T("Pick the pages you want, or a whole folder. They open one at a time, in the order of their names."),
       ok: T("Choose Pages…"),
       also: T("Choose a Folder…"),
@@ -12662,8 +12918,42 @@
     const base = (name) => name.replace(/\.[^.]+$/, "").toLowerCase();
     const psds = new Set(pages.filter((page) => /\.ps[db]$/i.test(page.file.name)).map((page) => base(page.file.name)));
     for (let at = pages.length - 1; at >= 0; at--) if (!/\.ps[db]$/i.test(pages[at].file.name) && psds.has(base(pages[at].file.name))) pages.splice(at, 1);
+    // A spread and the pages it was made of (02-03.psd, saved beside 02.psd and 03.psd) are the
+    // spread: its name is theirs, joined
+    const names = new Set(pages.map((page) => base(page.file.name)));
+    const madeOf = (name, whole) => {
+      const parts = [];
+      for (let from = 0; from < name.length;) {
+        let end = -1;
+        for (let dash = name.indexOf("-", from); dash >= 0 && end < 0; dash = name.indexOf("-", dash + 1)) if (names.has(name.slice(from, dash))) end = dash;
+        if (end < 0 && from > 0 && names.has(name.slice(from)) && name.slice(from) !== whole) end = name.length;
+        if (end < 0) return [];
+        parts.push(name.slice(from, end));
+        from = end + 1;
+      }
+      return parts.length > 1 ? parts : [];
+    };
+    const joined = new Set(pages.flatMap((page) => madeOf(base(page.file.name), base(page.file.name))));
+    for (let at = pages.length - 1; at >= 0; at--) if (joined.has(base(pages[at].file.name))) pages.splice(at, 1);
+    // Another chapter's pages bear the same names (01.psd, 02.psd…): an open document is one of
+    // these pages only if it is that very file. Any other is set aside, a document apart, and the
+    // page reads its own file.
+    if (pages.length > 1) {
+      pages.forEach((page) => {
+        const key = pageKey(page);
+        const stamp = ops.fileStamp(page.file);
+        const named = app.docs.filter((doc) => ops.sharedPath(doc.path) === key);
+        const same = named.find((doc) => doc.path === key && (!doc.stamp || doc.stamp === stamp)) || named.find((doc) => doc.stamp === stamp) || null;
+        named.forEach((doc) => {
+          if (doc !== same) ops.setAside(doc);
+        });
+        ops.registerFile(page.file);
+        if (same) same.path = key;
+      });
+    }
     const had = Boolean(chapter);
     chapter = pages.length > 1 ? { pages, at: 0 } : null;
+    if (Flow) Flow.pagesChanged(true);
     renderStatus();
     renderMenusState();
     const bridge = !fromPanel && panelBridge();
@@ -12677,7 +12967,7 @@
       ? fill(T("{count} pages imported. {next}: next page, {previous}: previous page."), { count: pages.length, next: keyLabel(next), previous: keyLabel(previous) })
       : fill(T("{count} pages imported."), { count: pages.length }));
   };
-  const goToPage = async (target) => {
+  const goToPage = async (target, quiet = false) => {
     if (!chapter || paging || target < 0 || target >= chapter.pages.length) return;
     const at = pageOf(app.doc);
     const left = at < 0 ? null : app.doc;
@@ -12689,7 +12979,7 @@
       else {
         // Saved over its file, a page reopens as it is on disk now
         const file = page.handle ? await page.handle.getFile() : app.files.get(pageKey(page)) || page.file;
-        await openFiles([{ file, handle: page.handle }]);
+        await openFiles([{ file, handle: page.handle }], quiet === true);
       }
       if (pageOf(app.doc) !== target) return;
       chapter.at = target;
@@ -12726,11 +13016,426 @@
       return;
     }
     setPages(entries.filter(isPage));
-    await goToPage(0);
-    const bridge = panelBridge();
-    if (bridge && chapter) bridge.importPages(chapter.pages.map((page) => page.file));
+    // The script says where the work was left, and TypeR opens that page once it has the
+    // pages: the first page, opened meanwhile, doesn't take the script back to its start
+    scriptLeads = true;
+    try {
+      await goToPage(0);
+    } finally {
+      scriptLeads = false;
+    }
+    linkPages();
     const others = entries.filter((entry) => !isPage(entry));
     if (others.length) await openFiles(others);
+  };
+
+  /* ---- spreads: two pages joined in one ---- */
+
+  // In Flow, a page dragged against the side of another becomes one page with it, a spread: a
+  // new document as wide as both, each page's layers in a folder of its name, named after the
+  // two ("02-03.psd"). It takes their place in the chapter, where the first one was. The files
+  // of the two pages aren't touched until the spread is saved: then, from a folder opened here,
+  // it is written beside them and they go (saveHome). Until then, undoing the join, or
+  // closing the spread without saving it, brings the two pages back.
+  const spreads = new Map();
+  const bareName = (name) => name.replace(/\.[^.]+$/, "");
+  // Where a spread goes: the folder opened here that holds the files of both pages, side by side.
+  // { folder, dir, files }, or null when a page has no file or its folder wasn't opened here (pages
+  // picked one by one): Save then asks, as for any new page.
+  const spreadHome = async (entries) => {
+    const files = entries.map((entry) => (entry.doc && entry.doc.handle) || (entry.page && entry.page.handle) || null);
+    if (files.some((handle) => !handle || handle.kind !== "file")) return null;
+    for (const folder of openedFolders) {
+      const paths = [];
+      for (const handle of files) paths.push(await folder.resolve(handle).catch(() => null));
+      if (!paths.every(Boolean)) continue;
+      const dirs = paths.map((path) => path.slice(0, -1));
+      if (dirs.every((dir) => dir.join("/") === dirs[0].join("/"))) return { folder, dir: dirs[0], files };
+    }
+    return null;
+  };
+  const joinPages = async ({ moved, onto, side }) => {
+    if (!ui.editor.hidden) endEdit();
+    if (!settleTransform()) return null;
+    const sources = [onto, moved];
+    const read = [];
+    working(T("Joining the pages…"));
+    try {
+      await nextPaint();
+      // An open page as it is now, changes included; a closed one read from its file
+      const docs = [];
+      for (const entry of sources) {
+        if (entry.doc) docs.push(entry.doc);
+        else {
+          const file = await chapterFile(entry.page);
+          const doc = await ops.readDetached(file, file.name);
+          read.push(doc);
+          docs.push(doc);
+        }
+      }
+      // `side`: where the page moved was put, left or right of the other
+      const left = side === "left" ? docs[1] : docs[0];
+      const right = side === "left" ? docs[0] : docs[1];
+      const width = left.width + right.width;
+      const height = Math.max(left.height, right.height);
+      if (!PS.canvasFits(width, height)) {
+        toast(T("These two pages are too large to make one page."), true);
+        return null;
+      }
+      // Named after both, in the order of the chapter whichever side each is on
+      const placeOf = (entry) => (chapter && entry.page ? chapter.pages.indexOf(entry.page) : -1);
+      const ordered = sources.slice().sort((a, b) => (placeOf(a) >= 0 && placeOf(b) >= 0 ? placeOf(a) - placeOf(b) : NATURAL_ORDER.compare(a.name, b.name)));
+      const name = `${bareName(ordered[0].name)}-${bareName(ordered[1].name)}.psd`;
+      const key = "web-file://" + name;
+      if (app.docs.some((doc) => doc.path === key) || (chapter && chapter.pages.some((page) => pageKey(page) === key))) {
+        toast(fill(T("There is already a page named {name}."), { name }), true);
+        return null;
+      }
+      // The folder the two pages are in, when it was opened here (a chapter's folder): Save
+      // writes the spread there, without asking, and the two files it replaces go
+      const home = await spreadHome(ordered);
+
+      // From here to the end, nothing waits: the screen never shows the join half done
+      const spread = ops.newDocument({ name, width, height, resolution: docs[0].resolution });
+      const first = spread.history[0].id;
+      const blank = spread.state.layers[0].id;
+      let top = null;
+      [[left, 0], [right, left.width]].forEach(([source, dx]) => {
+        const ids = source.state.layers.filter((layer) => !layer.group).map((layer) => layer.id);
+        if (!ops.pasteLayersFrom(source, ids, undefined, undefined, { dx, dy: 0 })) return;
+        const group = ops.groupLayers(bareName(source.name));
+        if (!group) return;
+        // A folder that isn't Pass Through keeps a page's adjustment layers to that page
+        ops.setLayerProps(group.id, { blend: "normal" });
+        top = group.id;
+      });
+      ops.selectLayer(blank);
+      ops.deleteLayers();
+      if (top) ops.selectLayer(top);
+      ops.groupHistory(spread, first, "Join Pages");
+      spread.path = key;
+      spread.handle = null;
+      spread.stamp = null;
+      // Save offers the folder of the pages
+      spread.beside = (onto.page && onto.page.handle) || (onto.doc && onto.doc.handle) || (moved.page && moved.page.handle) || (moved.doc && moved.doc.handle) || null;
+      // Saved, it takes the place of the two pages' files (saveHome); `seam`: where the right one starts
+      spread.home = home && { folder: home.folder, dir: home.dir, replaces: () => home.files };
+      spread.seam = left.width;
+
+      // What brings the two pages back: their places in the chapter, and the documents that
+      // hold what no file does (changes not saved, a page that was never a file)
+      const parts = sources.map((entry) => ({ page: entry.page || null, at: placeOf(entry), tab: entry.doc ? app.docs.indexOf(entry.doc) : -1, doc: entry.doc && (!entry.page || PS.isDirty(entry.doc)) ? entry.doc : null, front: entry === onto }));
+      // Its tab where the first of the two had its own
+      const tabs = parts.filter((part) => part.tab >= 0).map((part) => part.tab);
+      if (tabs.length) {
+        app.docs.splice(app.docs.indexOf(spread), 1);
+        app.docs.splice(Math.min(...tabs), 0, spread);
+      }
+      let page = null;
+      const members = parts.filter((part) => part.at >= 0);
+      if (members.length) {
+        const at = Math.min(...members.map((part) => part.at));
+        page = { file: new File([], name, { type: "image/vnd.adobe.photoshop" }), handle: null };
+        chapter.pages = chapter.pages.filter((one) => !members.some((part) => part.page === one));
+        chapter.pages.splice(at, 0, page);
+        chapter.at = at;
+      }
+      spreads.set(spread, { page, parts, saved: false });
+      sources.forEach((entry) => {
+        if (entry.doc && app.docs.includes(entry.doc)) ops.closeDoc(entry.doc);
+      });
+      PS.setActiveDoc(spread);
+      if (Flow) Flow.pagesChanged();
+      renderStatus();
+      renderMenusState();
+      linkPages();
+      toast(fill(T("{name}: the two pages are now one spread. Undo brings them back."), { name }), true);
+      return page ? pageKey(page) : `doc:${spread.id}`;
+    } catch (error) {
+      console.error(error);
+      toast(fill(T("These pages couldn't be joined: {error}"), { error: error.message || error }), true);
+      return null;
+    } finally {
+      read.forEach((doc) => ops.dropDetached(doc));
+      working(null);
+    }
+  };
+  // The two pages back in the chapter, where the spread was
+  const pagesBack = (record) => {
+    const at = record.page && chapter ? chapter.pages.indexOf(record.page) : -1;
+    if (at < 0) return;
+    chapter.pages.splice(at, 1, ...record.parts.slice().sort((a, b) => a.at - b.at).filter((part) => part.page).map((part) => part.page));
+    if (Flow) Flow.pagesChanged();
+  };
+  // The two pages back, as they were: in the chapter, and in their tabs for what no file holds
+  const unjoinPages = (spread) => {
+    const record = spreads.get(spread);
+    if (!record) return;
+    spreads.delete(spread);
+    pagesBack(record);
+    // Their tabs where the spread had its own, in the order they were in
+    const tabs = record.parts.filter((part) => part.doc && !app.docs.includes(part.doc)).sort((a, b) => a.tab - b.tab).map((part) => part.doc);
+    app.docs.splice(app.docs.includes(spread) ? app.docs.indexOf(spread) : app.docs.length, 0, ...tabs);
+    const front = record.parts.find((part) => part.front) || record.parts[0];
+    const wasFront = app.doc === spread || !app.doc;
+    if (app.docs.includes(spread)) ops.closeDoc(spread);
+    else renderTabs();
+    if (Flow) Flow.pagesChanged();
+    renderStatus();
+    renderMenusState();
+    // The page that comes back in front is opened here, before TypeR hears of the pages: it
+    // would open it too, for its script
+    let shown = null;
+    if (wasFront && front.doc) PS.setActiveDoc(front.doc);
+    else if (wasFront && front.page && chapter && chapter.pages.includes(front.page)) shown = goToPage(chapter.pages.indexOf(front.page), true);
+    Promise.resolve(shown).then(linkPages);
+  };
+  // What happens to a spread: its join undone, the spread closed, or saved to a file
+  let spreadTimer = 0;
+  const watchSpreads = (type, detail) => {
+    if (!spreads.size) return;
+    if (type === "saved") {
+      const record = spreads.get(detail);
+      // A file of its own: a page like the others from now on. Its history starts at the join.
+      if (!record || !detail.handle) return;
+      spreads.delete(detail);
+      if (record.page) {
+        record.page.handle = detail.handle;
+        record.page.file = app.files.get(detail.path) || record.page.file;
+      }
+      if (detail.historyIndex > 0) {
+        detail.history.shift();
+        detail.historyIndex -= 1;
+        PS.announce("history");
+      }
+      return;
+    }
+    if (type !== "history" && type !== "document") return;
+    // A spread closed has no file to be read from: its place in the chapter is its pages' at once
+    spreads.forEach((record, spread) => {
+      if (!app.docs.includes(spread)) pagesBack(record);
+    });
+    // The rest once the engine is done with what it was saying
+    clearTimeout(spreadTimer);
+    spreadTimer = setTimeout(() => {
+      Array.from(spreads.keys()).forEach((spread) => {
+        if (!app.docs.includes(spread)) {
+          unjoinPages(spread);
+          toast(T("The spread wasn't saved: its two pages are back."));
+        } else if (spread.historyIndex === 0) {
+          unjoinPages(spread);
+          toast(T("The two pages are back."));
+        }
+      });
+    }, 0);
+  };
+
+  /* ---- separating a spread ---- */
+
+  // Separate Pages: a spread back to its two pages, with what was done on it. Each page is cut
+  // from it, its folder emptied back onto the page, and what lies on the other page left out.
+  // Until a page is saved, its spread's file stays: a page closed without being saved gives its
+  // place back to the spread. Both saved, in the folder of the spread when it was opened here
+  // (saveHome), the spread's file goes. A spread just joined, untouched since, is undone instead.
+  const splits = new Map();
+  const familyIds = (layers, id) => {
+    const out = new Set([id]);
+    for (let grew = true; grew;) {
+      grew = false;
+      layers.forEach((layer) => {
+        if (layer.group && out.has(layer.group) && !out.has(layer.id)) {
+          out.add(layer.id);
+          grew = true;
+        }
+      });
+    }
+    return out;
+  };
+  // Where a layer, or what a folder holds, shows on its page
+  const shownBox = (doc, layer) => {
+    const family = familyIds(doc.state.layers, layer.id);
+    const boxes = doc.state.layers.filter((one) => family.has(one.id) && one.kind !== "group").map((one) => ops.pixelBox(one, doc)).filter((box) => box && box.right > box.left);
+    if (!boxes.length) return null;
+    return { left: Math.min(...boxes.map((box) => box.left)), right: Math.max(...boxes.map((box) => box.right)) };
+  };
+  // The two folders of a spread, named after its pages ("04" and "05" in 04-05.psd), or null
+  const spreadFolders = (doc) => {
+    const base = bareName(doc.name);
+    const tops = doc.state.layers.filter((layer) => layer.kind === "group" && !layer.group);
+    for (const a of tops) for (const b of tops) if (a !== b && a.name !== b.name && `${a.name}-${b.name}` === base) return [a, b];
+    return null;
+  };
+  // Whether a page in Flow, open or not, may be a spread: the menu offers to separate it
+  const maybeSpread = ({ doc, page }) => (doc ? spreads.has(doc) || Boolean(spreadFolders(doc)) : Boolean(page && /^[^-].*-.*[^-]$/.test(bareName(page.file.name))));
+  // The two pages of a spread: their folders in reading order, which one is on the left, and the
+  // column where the right one starts (the first pixels of its folder)
+  const spreadParts = (doc) => {
+    const folders = spreadFolders(doc);
+    if (!folders) return null;
+    const boxes = folders.map((folder) => shownBox(doc, folder));
+    if (boxes.some((box) => !box)) return null;
+    const left = boxes[0].left <= boxes[1].left ? folders[0] : folders[1];
+    const right = left === folders[0] ? folders[1] : folders[0];
+    const seam = doc.seam || Math.round(boxes[folders.indexOf(right)].left);
+    return seam > 0 && seam < doc.width ? { folders, left, right, seam } : null;
+  };
+  const separatePages = async ({ doc, page }) => {
+    if (!ui.editor.hidden) endEdit();
+    if (!settleTransform()) return;
+    if (doc && !app.docs.includes(doc)) return;
+    if (!page && doc && chapter) page = chapter.pages.find((one) => pageKey(one) === doc.path) || null;
+    if (doc && savingDocs.has(doc)) {
+      toast(fill(T("{name} is already being saved."), { name: doc.name }));
+      return;
+    }
+    const record = doc ? spreads.get(doc) : null;
+    // Untouched since the join: the two pages as they were
+    if (record && doc.historyIndex <= 1) {
+      unjoinPages(doc);
+      toast(T("The two pages are back."));
+      return;
+    }
+    let source = doc;
+    let detached = null;
+    working(T("Separating the pages…"));
+    try {
+      await nextPaint();
+      if (!source) {
+        const file = await chapterFile(page);
+        source = detached = await ops.readDetached(file, file.name);
+      }
+      const parts = spreadParts(source);
+      if (!parts) {
+        toast(fill(T("{name} isn't two pages joined in TypeR: there is nothing to separate."), { name: source.name }), true);
+        return;
+      }
+      // Each page under its name. A spread not saved yet gives back its pages' own files, when
+      // they were PSDs: the pages are saved over them.
+      const halves = parts.folders.map((folder) => {
+        const was = record ? record.parts.find((part) => bareName(part.page ? part.page.file.name : part.doc ? part.doc.name : "") === folder.name) || null : null;
+        const own = was && was.page && /\.ps[db]$/i.test(was.page.file.name) ? was.page : null;
+        return { folder, was, own, name: own ? own.file.name : `${folder.name}.psd` };
+      });
+      for (const half of halves) {
+        const key = "web-file://" + half.name;
+        if (!half.own && (app.docs.some((one) => one !== doc && one.path === key) || (chapter && chapter.pages.some((one) => one !== page && pageKey(one) === key)))) {
+          toast(fill(T("There is already a page named {name}."), { name: half.name }), true);
+          return;
+        }
+      }
+      // Where the pages are saved: the folder of the spread's file, or of the pages joined
+      const file = doc ? doc.handle : page && page.handle;
+      const found = !record && file ? await spreadHome([{ doc, page }]) : null;
+      const home = record ? doc.home : found && { folder: found.folder, dir: found.dir };
+
+      // From here to the end, nothing waits
+      const width = source.width;
+      const height = source.height;
+      const made = halves.map((half) => {
+        const isLeft = half.folder === parts.left;
+        const [from, to] = isLeft ? [0, parts.seam] : [parts.seam, width];
+        const other = isLeft ? parts.right : parts.left;
+        // What sits on top of both pages goes with the one it is on
+        const kept = source.state.layers.filter((layer) => {
+          if (layer.group || layer.id === other.id) return false;
+          if (layer.id === half.folder.id) return true;
+          const box = shownBox(source, layer);
+          return !box || (box.right > from && box.left < to);
+        }).map((layer) => layer.id);
+        const one = ops.newDocument({ name: half.name, width, height, resolution: source.resolution });
+        const first = one.history[0].id;
+        const blank = one.state.layers[0].id;
+        const before = new Set(one.state.layers.map((layer) => layer.id));
+        ops.pasteLayersFrom(source, kept);
+        ops.selectLayer(blank);
+        ops.deleteLayers();
+        // The page's folder emptied back onto it, as the page was before the join, when it is
+        // still only a folder
+        const folder = one.state.layers.find((layer) => !before.has(layer.id) && !layer.group && layer.kind === "group" && layer.name === half.folder.name);
+        if (folder && folder.visible !== false && (folder.opacity === undefined || folder.opacity === 1) && !folder.mask && !folder.vectorMask && !folder.effects) {
+          ops.selectLayer(folder.id);
+          ops.ungroupLayers();
+        }
+        ops.crop(from, 0, to, height, undefined, false);
+        const top = one.state.layers[one.state.layers.length - 1];
+        if (top) ops.selectLayer(top.id);
+        ops.groupHistory(one, first, "Separate Pages");
+        // Its history starts here, still to be saved
+        one.history = [one.history[one.historyIndex]];
+        one.historyIndex = 0;
+        one.savedId = null;
+        one.path = half.own ? pageKey(half.own) : "web-file://" + half.name;
+        one.handle = half.own ? (half.was.doc && half.was.doc.handle) || half.own.handle || null : null;
+        one.stamp = null;
+        return one;
+      });
+      const replaces = () => (file && made.every((one) => one.handle) ? [file] : []);
+      made.forEach((one) => {
+        if (!one.handle && home) one.home = { folder: home.folder, dir: home.dir, replaces: record ? () => [] : replaces };
+      });
+
+      // The pages where the spread was: in the chapter, and in the tabs
+      if (record) spreads.delete(doc);
+      const tab = doc ? app.docs.indexOf(doc) : -1;
+      if (tab >= 0) {
+        made.forEach((one) => app.docs.splice(app.docs.indexOf(one), 1));
+        app.docs.splice(tab, 0, ...made);
+      }
+      const at = page && chapter ? chapter.pages.indexOf(page) : -1;
+      const pages = halves.map((half) => half.own || { file: new File([], half.name, { type: "image/vnd.adobe.photoshop" }), handle: null });
+      if (at >= 0) chapter.pages.splice(at, 1, ...pages);
+      made.forEach((one, index) => {
+        // Closed without being saved, a page gives its place back: to the spread, or to the page
+        // it was before the join
+        const back = halves[index].own ? null : record ? (halves[index].was && halves[index].was.page) || null : page;
+        splits.set(one, { page: at >= 0 ? pages[index] : null, back });
+      });
+      if (doc && app.docs.includes(doc)) ops.closeDoc(doc);
+      PS.setActiveDoc(made[0]);
+      if (Flow) Flow.pagesChanged();
+      renderTabs();
+      renderStatus();
+      renderMenusState();
+      linkPages();
+      toast(fill(T("{name}: the pages are separated, each to be saved."), { name: source.name }));
+    } catch (error) {
+      console.error(error);
+      toast(fill(T("These pages couldn't be separated: {error}"), { error: error.message || error }), true);
+    } finally {
+      if (detached) ops.dropDetached(detached);
+      working(null);
+    }
+  };
+  // A page separated from a spread: saved, a page like the others; closed without being saved,
+  // its place goes back to what it came from
+  const watchSplits = (type, detail) => {
+    if (!splits.size) return;
+    if (type === "saved") {
+      const record = splits.get(detail);
+      if (!record || !detail.handle) return;
+      splits.delete(detail);
+      if (record.page) {
+        record.page.handle = detail.handle;
+        record.page.file = app.files.get(detail.path) || record.page.file;
+      }
+      return;
+    }
+    if (type !== "document") return;
+    let changed = false;
+    splits.forEach((record, one) => {
+      if (app.docs.includes(one)) return;
+      splits.delete(one);
+      const at = record.page && chapter ? chapter.pages.indexOf(record.page) : -1;
+      if (at < 0 || !record.back) return;
+      if (chapter.pages.includes(record.back)) chapter.pages.splice(at, 1);
+      else chapter.pages.splice(at, 1, record.back);
+      changed = true;
+    });
+    if (changed) {
+      if (Flow) Flow.pagesChanged();
+      renderStatus();
+      linkPages();
+    }
   };
 
   // The pager: ‹ 3 / 24 ›, and the number lists every page of the chapter
@@ -12750,7 +13455,8 @@
     if (!shown) return;
     const at = pageOf(app.doc);
     const count = chapter.pages.length;
-    pagerAt.textContent = `${at < 0 ? "–" : at + 1} / ${count}`;
+    const pagerText = `${at < 0 ? "–" : at + 1} / ${count}`;
+    if (pagerAt.textContent !== pagerText) pagerAt.textContent = pagerText;
     pagerAt.title = at < 0 ? T("Pages of the Chapter") : fill(T("Page {at} of {count}"), { at: at + 1, count }) + " · " + chapter.pages[at].file.name;
     pagerPrev.disabled = at === 0;
     pagerNext.disabled = at === count - 1;
@@ -12911,7 +13617,7 @@
         // PNG, JPEG and WebP too, as in Photoshop: the format is the one chosen in the dialog
         const images = Object.keys(IMAGE_EXTENSIONS).filter((type) => type !== "image/webp" || canWriteWebp);
         // In the page's own folder, as in Photoshop
-        const handle = await pickIn("showSaveFilePicker", { id: "typer-save", suggestedName: name, types: [{ description: "Photoshop", accept: { "image/vnd.adobe.photoshop": [photoshopExtension(doc), ".psd", ".psb"].filter((item, at, all) => all.indexOf(item) === at) } }, ...images.map((type) => ({ description: IMAGE_LABELS[type], accept: { [type]: type === "image/jpeg" ? [".jpg", ".jpeg"] : [IMAGE_EXTENSIONS[type]] } }))] }, doc.handle && doc.handle.kind === "file" ? doc.handle : null);
+        const handle = await pickIn("showSaveFilePicker", { id: "typer-save", suggestedName: name, types: [{ description: "Photoshop", accept: { "image/vnd.adobe.photoshop": [photoshopExtension(doc), ".psd", ".psb"].filter((item, at, all) => all.indexOf(item) === at) } }, ...images.map((type) => ({ description: IMAGE_LABELS[type], accept: { [type]: type === "image/jpeg" ? [".jpg", ".jpeg"] : [IMAGE_EXTENSIONS[type]] } }))] }, doc.handle && doc.handle.kind === "file" ? doc.handle : doc.beside || null);
         const image = images.find((type) => (type === "image/jpeg" ? /\.jpe?g$/i : new RegExp(`\\${IMAGE_EXTENSIONS[type]}$`, "i")).test(handle.name));
         if (image) return saveImageCopy(doc, handle, image);
         const note = savingNote(doc, block);
@@ -12977,9 +13683,93 @@
     }
   };
 
+  // A page that takes the place of others in a folder opened here (a spread joined in Flow, the
+  // pages separated from one): `doc.home`, { folder, dir, replaces }. Save writes it in that
+  // folder under its name, without a dialog, then the files `replaces()` gives go. A file of
+  // that name already there is replaced only once said so. Without the right to write there,
+  // the Save dialog, as for any new page, and nothing goes.
+  const saveHome = async (doc, { block = false } = {}) => {
+    const { home } = doc;
+    let place = null;
+    let handle = null;
+    let made = false;
+    try {
+      if (await writable(home.folder, true)) {
+        place = home.folder;
+        for (const part of home.dir) place = await place.getDirectoryHandle(part);
+      }
+    } catch (error) {
+      console.warn("TypeR web: a page can't be written in the folder of its pages", error);
+      place = null;
+    }
+    if (!place) return saveAsNow(doc, { block });
+    const name = psdName(doc);
+    const there = await place.getFileHandle(name).catch(() => null);
+    if (there) {
+      // A page open here under that file: that one is saved over it, not this
+      for (const other of app.docs) if (other !== doc && other.handle && other.handle.kind === "file" && (await other.handle.isSameEntry(there).catch(() => false))) return saveAsNow(doc, { block });
+      const answer = await dialog({ title: name, body: T("There is already a file of this name in the folder of the pages. Replace it?"), ok: T("Replace"), also: T("Save As…") });
+      if (!answer) return false;
+      if (answer.also) return saveAsNow(doc, { block });
+      handle = there;
+    } else {
+      try {
+        handle = await place.getFileHandle(name, { create: true });
+        made = true;
+      } catch (error) {
+        console.warn("TypeR web: a page can't be written in the folder of its pages", error);
+        return saveAsNow(doc, { block });
+      }
+    }
+    let built;
+    try {
+      const note = savingNote(doc, block);
+      try {
+        built = await buildPsd(doc, handle.name);
+        await writeTo(handle, built.blob);
+      } finally {
+        note.done();
+      }
+    } catch (error) {
+      // The empty file made for it doesn't stay
+      if (made) await place.removeEntry(handle.name).catch(() => {});
+      console.error(error);
+      reportError(error);
+      toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
+      return false;
+    }
+    doc.handle = handle;
+    doc.name = handle.name;
+    doc.home = null;
+    ops.fileWritten(doc, await handle.getFile());
+    Recent.add([handle]);
+    ops.markSaved(doc, built.savedId);
+    // The files it replaces. One open in a tab stays.
+    const gone = [];
+    for (const old of home.replaces()) {
+      try {
+        if (await old.isSameEntry(handle)) continue;
+        let open = false;
+        for (const other of app.docs) if (other.handle && other.handle.kind === "file" && (await other.handle.isSameEntry(old))) open = true;
+        if (open) continue;
+        const path = await home.folder.resolve(old);
+        if (!path) continue;
+        let parent = home.folder;
+        for (const part of path.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+        await parent.removeEntry(old.name);
+        gone.push(old.name);
+      } catch (error) {
+        console.warn(`TypeR web: ${old.name} couldn't be deleted after the page replacing it was saved`, error);
+      }
+    }
+    toast(gone.length ? fill(T("Saved {name}. It replaces {pages}."), { name: doc.name, pages: gone.join(", ") }) : fill(T("Saved {name}."), { name: doc.name }));
+    return true;
+  };
+
   const saveNow = async (doc, { block = false } = {}) => {
     if (!ui.editor.hidden) endEdit();
     if (doc.idml) return saveInDesign(doc, false);
+    if (!doc.handle && doc.home) return saveHome(doc, { block });
     if (doc.handle && /\.ps[db]$/i.test(doc.name)) {
       try {
         if (doc.handle.requestPermission && (await doc.handle.requestPermission({ mode: "readwrite" })) !== "granted") return saveAsNow(doc, { block });
@@ -13014,6 +13804,105 @@
   };
   const save = oneSaveAtATime(saveNow);
   const saveAs = oneSaveAtATime(saveAsNow);
+  const saveBeside = oneSaveAtATime(saveHome);
+
+  // On a phone or a tablet, a page of the chapter is saved as it is left for another one:
+  // there is no Cmd+S under the fingers, and nobody thinks of saving before turning a page.
+  // Only where Save asks nothing, a PSD over its own file: a page that needs a place to be
+  // saved (a PNG, a JPEG) stays open with its changes, as before. Saved, it leaves its place
+  // like a page left without changes (goToPage).
+  let pageInFront = null;
+  const savePageLeft = (doc) => {
+    const left = pageInFront;
+    pageInFront = doc || null;
+    if (!Shell.touch || !left || !doc || left === doc || pageOf(left) < 0 || pageOf(doc) < 0) return;
+    if (!app.docs.includes(left) || !PS.isDirty(left) || savingDocs.has(left)) return;
+    if (!left.handle || !/\.ps[db]$/i.test(left.name)) return;
+    save(left).then((saved) => {
+      const at = pageOf(left);
+      if (!saved || app.doc === left || at < 0 || !app.docs.includes(left) || PS.isDirty(left)) return;
+      chapter.pages[at].handle = left.handle;
+      ops.closeDoc(left);
+    });
+  };
+
+  // The pages picked, open: in Flow by their names, or else in the tabs. Null when none is.
+  const docsPicked = () => {
+    const flow = Flow && flowOn() ? Flow.picked() : [];
+    if (flow.length) return flow.map((one) => one.doc).filter((doc) => doc && app.docs.includes(doc));
+    const tabs = pickedDocs();
+    return tabs.length ? tabs : null;
+  };
+  // Save and Close, said with the number of pages they go for
+  const pickedTitle = (one, several) => () => {
+    const docs = docsPicked();
+    return docs && docs.length > 1 ? fill(T(several), { count: docs.length }) : one;
+  };
+  // Save and Close: the page in front, or the pages picked
+  const savePicked = () => {
+    const docs = docsPicked();
+    return docs && docs.length !== 1 ? saveMany(docs) : save(docs ? docs[0] : app.doc);
+  };
+  const closePicked = async () => {
+    const docs = docsPicked();
+    if (docs && docs.length !== 1) {
+      await closeDocs(docs);
+      if (Flow) Flow.forget();
+      return;
+    }
+    await closeDoc(docs ? docs[0] : app.doc);
+  };
+  // Several pages saved one after the other: Save All, or the pages picked in Flow. Only those
+  // with changes. The images of a folder opened here (a chapter of JPEGs) become PSDs beside
+  // them, as their Save As would have them, after one question for all; any other page without
+  // a PSD of its own is asked for as Save As does.
+  const saveMany = async (docs) => {
+    if (!ui.editor.hidden) endEdit();
+    const list = docs.filter((doc) => app.docs.includes(doc) && PS.isDirty(doc));
+    if (!list.length) {
+      toast(T("No changes to save."));
+      return;
+    }
+    const homes = new Map();
+    for (const doc of list) {
+      if (doc.home || doc.idml || !doc.handle || doc.handle.kind !== "file" || /\.ps[db]$/i.test(doc.name)) continue;
+      for (const folder of openedFolders) {
+        const path = await folder.resolve(doc.handle).catch(() => null);
+        if (!path) continue;
+        homes.set(doc, { folder, dir: path.slice(0, -1), replaces: () => [] });
+        break;
+      }
+    }
+    if (homes.size) {
+      const names = Array.from(homes.keys()).map((doc) => psdName(doc));
+      const shown = names.length > 4 ? `${names.slice(0, 3).join(", ")}… (${names.length})` : names.join(", ");
+      const body = fill(T(homes.size > 1 ? "These pages are images: they will be saved as PSD beside them, in their folder ({names})." : "This page is an image: it will be saved as PSD beside it, in its folder ({names})."), { names: shown });
+      if (!(await dialog({ title: T("Save All"), body, ok: T("Save") }))) return;
+    }
+    let saved = 0;
+    for (const doc of list) {
+      if (!app.docs.includes(doc)) continue;
+      const home = homes.get(doc);
+      if (home && !doc.home) {
+        // The chapter's page it is: the PSD takes the image's place there, as opening the
+        // chapter again would have it (setPages)
+        const page = chapter && pageOf(doc) >= 0 ? chapter.pages[pageOf(doc)] : null;
+        doc.home = home;
+        try {
+          if (await saveBeside(doc)) {
+            saved++;
+            const at = page ? chapter.pages.indexOf(page) : -1;
+            if (at >= 0) chapter.pages[at] = { file: await doc.handle.getFile(), handle: doc.handle };
+          }
+        } finally {
+          // Not written there: the page stays the image it was
+          if (doc.home === home) doc.home = null;
+        }
+      } else if (await save(doc)) saved++;
+    }
+    if (Flow && saved) Flow.pagesChanged();
+    if (list.length > 1) toast(fill(T(saved === list.length ? "Saved {count} pages." : "Saved {count} of {total} pages."), { count: saved, total: list.length }), saved < list.length);
+  };
 
   const flattened = (doc, background) => {
     const canvas = document.createElement("canvas");
@@ -17224,23 +18113,30 @@
     ["File", [
       { label: "New…", keys: DESKTOP ? "Cmd+N" : "Alt+Cmd+N", action: newDocument },
       { label: "Open…", keys: "Cmd+O", action: openDialog },
-      { label: "Open Pages…", id: "Open Folder…", keys: "Shift+Cmd+O", action: openPages },
+      { label: "Open a Chapter…", id: "Open Folder…", keys: "Shift+Cmd+O", action: openPages },
       { label: "Open Recent…", enabled: () => Recent.available, action: showRecentFiles },
       null,
-      { label: "Close", keys: DESKTOP ? "Cmd+W" : "Alt+Cmd+W", enabled: hasDoc, action: () => closeDoc() },
+      // Close and Save go for the pages picked, in Flow or in the tabs, when there are
+      { label: "Close", title: pickedTitle("Close", "Close {count} Pages"), keys: DESKTOP ? "Cmd+W" : "Alt+Cmd+W", enabled: hasDoc, action: () => closePicked() },
       { label: "Close All", keys: DESKTOP ? "Alt+Cmd+W" : "Alt+Shift+Cmd+W", enabled: hasDoc, action: closeAllDocs },
       null,
-      { label: "Save", keys: "Cmd+S", enabled: hasDoc, action: () => save() },
+      { label: "Save", title: pickedTitle("Save", "Save {count} Pages"), keys: "Cmd+S", enabled: hasDoc, action: () => savePicked() },
       { label: "Save As…", keys: "Shift+Cmd+S", enabled: hasDoc, action: () => saveAs() },
+      // Every open page with changes. Photoshop has none: Alt+Cmd+S is its Save a Copy, which
+      // TypeR doesn't have
+      { label: "Save All", keys: "Alt+Cmd+S", enabled: () => app.docs.some((doc) => PS.isDirty(doc)), action: () => saveMany(app.docs) },
       { label: "Export as PNG…", enabled: hasDoc, action: () => exportImage("image/png") },
       { label: "Export as JPEG…", enabled: hasDoc, action: () => exportImage("image/jpeg") },
       { label: "Export as WebP…", enabled: () => hasDoc() && canWriteWebp, action: () => exportImage("image/webp") },
       { label: "Export for InDesign (IDML)…", enabled: hasDoc, action: exportInDesign },
-      { label: "Batch Save…", action: batchSave },
+      // Photoshop has no key for it: its Save for Web's, a save of another kind too
+      { label: "Batch Save…", keys: "Alt+Shift+Cmd+S", action: batchSave },
       // The desktop app only, once its own part knows how
       ...(Studio ? [{ label: "Open in Photoshop…", enabled: hasDoc, action: openInPhotoshop }] : []),
       null,
       { label: "Import Styles and Fonts (.zip, .json)…", action: () => $("file-kit").click() },
+      // Clip Studio Paint's, into the Library panel (library.js)
+      ...(window.TypeRLibrary || document.getElementById("pane-library") ? [{ label: "Import Brushes and Materials…", action: () => window.TypeRLibrary && window.TypeRLibrary.pick() }] : []),
       // The app sees the computer's fonts from the start: there's nothing to ask for
       ...(DESKTOP ? [] : [{ label: "Use Installed Fonts…", action: useInstalledFonts }]),
       { label: "Load Font Files…", action: chooseFonts },
@@ -17384,6 +18280,16 @@
       { label: "Fit on Screen", keys: "Cmd+0", enabled: hasDoc, browserWhenOff: true, action: fitView },
       { label: "Fit Width", keys: "Alt+Cmd+0", enabled: hasDoc, action: fitWidth },
       { label: "100%", keys: "Cmd+1", enabled: hasDoc, browserWhenOff: true, action: () => zoomTo(1) },
+      // Solo, one page at a time, or Flow, every page on one surface (flow.js)
+      ...(Flow && !Shell.touch ? [
+        null,
+        { label: "Flow Mode", keys: "Shift+F", check: flowOn, action: () => setWorkspace(flowOn() ? "solo" : "flow") },
+        { label: "Fit All Pages", keys: "Shift+Cmd+0", enabled: () => hasDoc() && flowOn(), action: () => Flow.fitAll() },
+        // The pages moved by hand (dragged by their name) go back in line
+        { label: "Tidy Up Pages", enabled: () => hasDoc() && flowOn() && Flow.moved(), action: () => Flow.tidy() },
+        // Every page picked, to move, save or close them together
+        { label: "Select All Pages", keys: "Alt+Shift+Cmd+A", enabled: () => hasDoc() && flowOn(), action: () => Flow.pickAll() },
+      ] : []),
       null,
       { label: "Smart Guides", check: () => settings.smartGuides, action: () => { settings.smartGuides = !settings.smartGuides; keepSettings(); } },
       { label: "Snap Text", check: () => settings.snapText, enabled: () => settings.smartGuides, action: () => { settings.snapText = !settings.snapText; keepSettings(); } },
@@ -17526,7 +18432,7 @@
   // shortcuts, and the search goes through everything.
   const FEATURED_SHORTCUTS = new Set([
     ...["Move", "Rectangular Marquee", "Lasso", "Magic Wand", "Brush", "Eraser", "Clone Stamp", "Bubble Cleaner", "Eyedropper", "Type", "SFX"].map((label) => `Tools:${label}`),
-    "File:Open…", "File:Save", "File:Save As…",
+    "File:Open…", "File:Save", "File:Save As…", "File:Save All", "File:Batch Save…",
     "Edit:Undo", "Edit:Redo", "Edit:Fill with Foreground Colour", "Edit:Content-Aware Fill…", "Edit:Free Transform",
     "Layer:New Layer", "Layer:Duplicate Layer", "Layer:Group Layers", "Layer:Merge Down",
     "Select:All", "Select:Deselect", "Select:Inverse",
@@ -18704,7 +19610,10 @@
   const isSpace = (event) => event.code === "Space" || event.key === " ";
 
   // What doesn't wait for a field to lose the focus
-  const ANYWHERE = new Set(["Save", "Save As…", "Open…", "Open Pages…"]);
+  const ANYWHERE = new Set(["Save", "Save As…", "Save All", "Open…", "Open a Chapter…"]);
+  // What acts on the pages picked in Flow: any other key lets them go
+  const ON_PICKED = new Set(["Save", "Save All", "Close", "Select All Pages"]);
+  const onPicked = (event) => allShortcuts().some((item) => ON_PICKED.has(item.label) && (matches(event, item.keys) || (item.alias && matches(event, item.alias))));
   const anywhereItems = () => allShortcuts().filter((item) => item.anywhere || ANYWHERE.has(item.label));
 
   const handleKey = (event, fromPanel) => {
@@ -18712,6 +19621,27 @@
     if (ui.modal.open || ui.layerStyle) return;
     const active = fromPanel ? event.target : document.activeElement;
     const command = isCommand(event);
+    // In Flow, Delete after a click on pages' names closes those pages, as Close does: asked to
+    // save first if they have changes. Escape lets them go, and so does any key that doesn't act
+    // on them (Save, Close…).
+    // Not the keys of a menu: Escape closes it, Enter runs its command for them
+    const inMenu = Boolean(openMenu || contextMenu) || (event.target instanceof Element && Boolean(event.target.closest(".menu__list")));
+    if (Flow && flowOn() && !inMenu && Flow.picked().length && !["Shift", "Control", "Alt", "Meta"].includes(event.key)) {
+      const plain = !fromPanel && !command && !event.altKey && !event.shiftKey && !isField(active);
+      if (plain && (event.key === "Backspace" || event.key === "Delete")) {
+        event.preventDefault();
+        closePicked();
+        return;
+      }
+      if (event.key === "Escape") {
+        // Not the Escape that closed a menu
+        if (plain && !event.defaultPrevented) {
+          event.preventDefault();
+          Flow.forget();
+          return;
+        }
+      } else if (!onPicked(event)) Flow.forget();
+    }
     // A menu or a checkbox only keeps the plain keys, which it uses itself
     if (isField(active) && (isText(active) || !command)) {
       // Saving or opening would otherwise go to the browser
@@ -19040,6 +19970,7 @@
 
   const measureStage = () => {
     const rect = ui.stage.getBoundingClientRect();
+    wheelRect = null;
     if (rect.width === stageW && rect.height === stageH) return;
     stageW = rect.width;
     stageH = rect.height;
@@ -19138,6 +20069,8 @@
     if (gesture === null && (app.tool === "move" || app.tool === "text") && optionsSignature() !== optionsShown) renderOptions();
   };
   PS.on((type, detail) => {
+    if (type === "saved" || type === "history" || type === "document") watchSpreads(type, detail);
+    if (type === "saved" || type === "document") watchSplits(type, detail);
     // Part of a page during a drag or a stroke: nothing else can have changed, so nothing
     // else needs looking at, sixty times a second
     if (type === "render" && detail) {
@@ -19157,10 +20090,13 @@
       layersKey = "";
       historyKey = "";
       characterKey = "";
-      if (detail && !detail.view.seen) {
+      if (flowTurn(detail)) viewChanged();
+      else if (detail && !detail.view.seen) {
         detail.view.seen = true;
         fitView();
       } else viewChanged();
+      scriptToPage();
+      savePageLeft(detail);
       showSelection(detail ? detail.state.selection : null);
       schedule(true);
       refreshedFor = detail ? detail.state : NO_STATE;
@@ -19183,7 +20119,11 @@
       renderMenusState();
       placeUnder();
     }
-    else if (type === "saved") renderTabs();
+    else if (type === "saved") {
+      renderTabs();
+      // In Flow, the page's name says it is saved
+      if (Flow && flowOn()) schedule(false);
+    }
     else if (type === "psd-opened") {
       const { doc, missing, notes } = detail;
       const parts = [];
@@ -19531,7 +20471,7 @@
   $("start-open").textContent = T("Open a file");
   $("start-new").textContent = T("New document");
   $("start-open").addEventListener("click", openDialog);
-  $("start-folder").textContent = T("Open pages");
+  $("start-folder").textContent = T("Open a chapter");
   $("start-folder").addEventListener("click", openPages);
   $("start-new").addEventListener("click", newDocument);
   $("start-practice").textContent = T("Try it on a practice page");
@@ -19759,9 +20699,13 @@
       },
       // The same, as written in the shortcuts: "Alt+Cmd+T"
       keysOf: (label) => setupKeysOf(label),
-      preferences: () => ({ wheel: settings.wheel, textLanguage: app.textDefaults.language, transformControls: settings.transformControls }),
-      setPreferences({ wheel, textLanguage, transformControls }) {
+      preferences: () => ({ wheel: settings.wheel, textLanguage: app.textDefaults.language, transformControls: settings.transformControls, workspace: settings.workspace, flowDirection: settings.flowDirection }),
+      // Flow can be chosen here: not on a touch screen, nor with a flow.js that didn't load
+      flow: Flow && !Shell.touch ? { directions: FLOW_DIRECTIONS } : null,
+      setPreferences({ wheel, textLanguage, transformControls, workspace, flowDirection }) {
         if (wheel) settings.wheel = wheel;
+        if (flowDirection) setFlowLayout({ direction: flowDirection });
+        if (workspace) setWorkspace(workspace, true);
         // Text with no language of its own is drawn again in the new one
         if (textLanguage && textLanguage !== app.textDefaults.language) {
           app.textDefaults.language = textLanguage;
@@ -19790,10 +20734,15 @@
     zoomTo,
     view,
     viewChanged,
+    // Solo or Flow, and Flow itself (flow.js)
+    setWorkspace,
+    setFlowLayout,
+    flow: () => (Flow && flowOn() ? Flow : null),
     openDialog,
     openFiles,
     setPages,
     openChapter,
+    openPages,
     goToPage,
     stepPage,
     // The chapter's pages for the touch interface: where the page in front is (-1: elsewhere),

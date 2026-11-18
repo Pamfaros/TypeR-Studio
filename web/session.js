@@ -182,6 +182,17 @@
   };
 
   const MAX_WAIT = 5000;
+  // A page that only comes in front, nothing done to it, isn't kept at once: going through a
+  // chapter (Flow, the pager, Page Down held) brings each page in front for a moment, and
+  // keeping one is writing its pixels whole. It is kept once it has stayed this long, and is
+  // on disk as it is anyway.
+  const PASSING = 3000;
+  const opened = new WeakMap();
+  const passingBy = (doc) => {
+    if (kept.has(doc) || doc.historyIndex !== 0 || PS.isDirty(doc)) return 0;
+    if (!opened.has(doc)) opened.set(doc, Date.now());
+    return Math.max(0, opened.get(doc) + PASSING - Date.now());
+  };
   let timer = 0;
   let waitingSince = 0;
   let lastEstimate = 0;
@@ -201,13 +212,16 @@
     }
   };
 
-  const sweep = async () => {
+  // `all`: the pages only passing by too (the tab is being left)
+  const sweep = async (all) => {
+    timer = 0;
     if (sweeping) {
       again = true;
       return;
     }
     sweeping = true;
     waitingSince = 0;
+    let later = 0;
     try {
       for (const [doc, keep] of Array.from(kept)) {
         if (app.docs.includes(doc)) continue;
@@ -221,6 +235,11 @@
         if (!doc) continue;
         const keep = kept.get(doc);
         if (isKept(doc) && keep.view === viewOf(doc)) continue;
+        const wait = all === true ? 0 : passingBy(doc);
+        if (wait) {
+          later = Math.max(later, wait);
+          continue;
+        }
         try {
           await saveDoc(doc);
         } catch (error) {
@@ -241,7 +260,7 @@
     if (again) {
       again = false;
       schedule();
-    }
+    } else if (later && !timer) timer = setTimeout(sweep, later + 50);
   };
 
   // Each change starts the wait over, up to this: work without a pause still gets kept
@@ -252,11 +271,14 @@
   }
   const flush = () => {
     clearTimeout(timer);
-    sweep();
+    sweep(true);
   };
 
   PS.on((type) => {
     if (type === "render" || type === "history" || type === "document" || type === "saved" || type === "selection" || type === "tabs") schedule();
+    // Reading a page's pixels back holds the screen for a moment: not in the middle of a zoom
+    // or of a scroll, which wait for nothing
+    else if (type === "view" && timer) schedule();
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flush();

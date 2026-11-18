@@ -691,7 +691,7 @@
           text: "Click the page number: every page of the chapter is listed. Pick page 3.",
           targets: [{ el: byId("pager-at") }],
           done: (ctx) => ctx.page === 3,
-          result: "For your own chapter: File → Open Pages… ({Shift}{Cmd}{O}), then pick its folder or its files.",
+          result: "For your own chapter: File → Open a Chapter… ({Shift}{Cmd}{O}), then pick its folder or its files.",
         },
       ],
     },

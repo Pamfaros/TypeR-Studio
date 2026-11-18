@@ -141,6 +141,52 @@
     </svg>`);
   };
 
+  // A chapter's pages as each workspace shows them: one page under its tabs (Solo), or all of
+  // them on one surface in the order they are read (Flow: `rtl`, `ltr` or `down`)
+  const workspacePicture = (way) => {
+    const sheet = (x, y, w, h, number, on) => `<rect class="onboard__ex-sheet${on ? " is-on" : ""}" x="${x}" y="${y}" width="${w}" height="${h}"/><text class="onboard__ex-number" x="${x + w / 2}" y="${y + h / 2 + 5}" text-anchor="middle">${number}</text>`;
+    let inner = "";
+    if (way === "solo") {
+      inner = [8, 50, 92].map((x, at) => `<rect class="onboard__ex-tab${at ? "" : " is-on"}" x="${x}" y="7" width="38" height="10" rx="2"/>`).join("") + sheet(82, 26, 56, 78, 1, true);
+    } else if (way === "down") {
+      // One under the other with nothing between, as a manhwa's strips are read
+      inner = [70, 42, 14].map((y, at) => sheet(74, y, 72, 28, 3 - at, at === 2)).join("");
+    } else {
+      const places = [166, 118, 70, 22];
+      if (way === "ltr") places.reverse();
+      inner = places.map((x, at) => sheet(x, 28, 40, 58, at + 1, at === 0)).join("");
+    }
+    return `<rect class="onboard__ex-page" width="220" height="112"/>${inner}`;
+  };
+  const workspaceExample = (way) => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "onboard__example");
+    svg.setAttribute("viewBox", "0 0 220 112");
+    svg.setAttribute("aria-hidden", "true");
+    svg.innerHTML = workspacePicture(way);
+    return svg;
+  };
+
+  // Solo or Flow, as two pictures to pick from: here and in Settings. `more` adds to the Flow
+  // card (the way its pages go); show() draws its pages another way.
+  const workspaceChoice = (parent, value, way, onPick, more) => {
+    const flowPicture = workspaceExample(way);
+    const cards = choices(parent, [
+      { id: "solo", title: T("Solo mode"), text: T("One page at a time, as in Photoshop. The other pages wait in the tabs."), extra: (words) => words.prepend(workspaceExample("solo")) },
+      {
+        id: "flow",
+        title: T("Flow mode"),
+        text: T("Every page of the chapter on one surface, side by side. Move over it freely: the page in the middle of the screen is the one you work on, and the script follows it."),
+        extra: (words) => {
+          words.prepend(flowPicture);
+          if (more) more(words);
+        },
+      },
+    ], value, onPick);
+    cards.box.classList.add("onboard__choices--row");
+    return { box: cards.box, pick: cards.pick, show: (next) => { flowPicture.innerHTML = workspacePicture(next); } };
+  };
+
   // A bubble with the lines of a paste in it, as bars: made smaller to fit (`shrink`), kept at
   // the style's size and past its edge (`keep`), or in a plain box over it (`classic`)
   const pasteExample = (way) => (words) => {
@@ -272,6 +318,33 @@
           leave: () => {
             // A kit without its file is no choice
             state.styles = choice === "kit" && !state.kits ? "fresh" : choice;
+            return true;
+          },
+        };
+      },
+    },
+    {
+      id: "workspace",
+      // Not on a touch screen, whose pages are in its top bar
+      when: () => Boolean(App().setup.flow),
+      title: () => T("Page display"),
+      build(pane) {
+        const setup = App().setup;
+        el("p", "onboard__lead", pane, T("Choose how the pages of a chapter are shown."));
+        const was = setup.preferences();
+        let mode = was.workspace;
+        const direction = select(setup.flow.directions.map(([id, name]) => [id, T(name)]), was.flowDirection);
+        direction.setAttribute("aria-label", T("Pages in Flow"));
+        const cards = workspaceChoice(pane, mode, was.flowDirection, (id) => { mode = id; }, (words) => el("div", "onboard__row onboard__row--tight", words).appendChild(direction));
+        direction.addEventListener("change", () => {
+          cards.show(direction.value);
+          if (mode !== "flow") cards.pick("flow", false);
+        });
+        const keys = setup.shortcut("Flow Mode");
+        el("p", "onboard__meta", pane, fill(T("You can switch at any time with {menu}."), { menu: `${T("View")} → ${T("Flow Mode")}${keys ? ` (${keys})` : ""}` }));
+        return {
+          leave: () => {
+            setup.setPreferences({ workspace: mode, flowDirection: direction.value });
             return true;
           },
         };
@@ -774,5 +847,5 @@
     return running;
   };
 
-  window.TypeROnboarding = { due, run };
+  window.TypeROnboarding = { due, run, workspaceChoice };
 })();
