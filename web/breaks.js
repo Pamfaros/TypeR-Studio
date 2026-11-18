@@ -683,10 +683,17 @@
   $("breaks-more").setAttribute("aria-label", T("One line more"));
   empty.textContent = T("Select a text layer to set its line breaks.");
 
+  // While its text is typed in, the panel can't be used and follows a moment after the
+  // letters: writing a long text out again at each of them slowed the typing down
+  const TYPING_PAUSE = 200;
+  let typed = 0;
   PS.on((type, detail) => {
     // A render of a part of the page (a brush stroke, a layer dragged) changes no text
     if (type === "render" && detail) return;
-    if (type === "render" || type === "history" || type === "document" || type === "editing" || type === "workspace") update();
+    if (!(type === "render" || type === "history" || type === "document" || type === "editing" || type === "workspace")) return;
+    clearTimeout(typed);
+    if (type === "history" && App.isEditing() && !root.hidden) typed = setTimeout(update, TYPING_PAUSE);
+    else update();
   });
   update();
 

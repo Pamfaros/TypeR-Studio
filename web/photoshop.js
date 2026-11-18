@@ -2766,11 +2766,13 @@
     }
     return kept.canvas;
   };
-  const applyAntiAlias = (canvas, ctx, mode, gamma) => {
+  // `band`: the rows to go through, [first, end), instead of the whole canvas
+  const applyAntiAlias = (canvas, ctx, mode, gamma, band) => {
     if (mode !== "antiAliasNone" && !gamma) return;
-    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const top = band ? band[0] : 0;
+    const image = ctx.getImageData(0, top, canvas.width, band ? band[1] - band[0] : canvas.height);
     antiAliasPixels(image.data, mode, gamma);
-    ctx.putImageData(image, 0, 0);
+    ctx.putImageData(image, 0, top);
   };
 
   // Below 256 px the browser asks the system for each letter, and Windows draws them heavier
@@ -2790,23 +2792,43 @@
   // Draws on the canvas what draw() traces, with `transform` from the text to the canvas,
   // tile by tile to keep the large copy within a few dozen megabytes
   const TILE_PIXELS = 16 * 1024 * 1024;
-  const drawFromOutlines = (canvas, ctx, transform, k, draw) => {
+  // The tiles a canvas is drawn by, in its own pixels: none when it is drawn at its own size
+  const tileSize = (canvas, k) => {
+    if (k === 1) return [0, 0];
+    const tileW = Math.min(canvas.width, Math.floor(16384 / k));
+    return [tileW, Math.max(1, Math.min(canvas.height, Math.floor(TILE_PIXELS / (tileW * k * k))))];
+  };
+  // `bands`: the only rows to draw, each [first, end), the rest of the canvas left as it is
+  // (see keptRows). They are drawn by the same tiles as the whole canvas would be: where a
+  // tile starts changes its letters' edges by a hair, and a row must come out the same
+  // either way.
+  const drawFromOutlines = (canvas, ctx, transform, k, draw, bands) => {
     const [a, b, c, d, e, f] = transform;
+    const inBands = () => {
+      ctx.beginPath();
+      bands.forEach(([from, to]) => ctx.rect(0, from, canvas.width, to - from));
+      ctx.clip();
+    };
     if (k === 1) {
+      // In bands for a quick draw only: cut by a band, a letter's edge isn't quite the same
+      ctx.save();
+      if (bands) inBands();
       ctx.setTransform(a, b, c, d, e, f);
       draw(ctx);
+      ctx.restore();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       return;
     }
-    const tileW = Math.min(canvas.width, Math.floor(16384 / k));
-    const tileH = Math.max(1, Math.min(canvas.height, Math.floor(TILE_PIXELS / (tileW * k * k))));
+    const [tileW, tileH] = tileSize(canvas, k);
     const tile = newCanvas(tileW * k, tileH * k);
     const g = tile.getContext("2d", { willReadFrequently: true });
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (bands) inBands();
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "medium";
     for (let y0 = 0; y0 < canvas.height; y0 += tileH) {
+      if (bands && !bands.some(([from, to]) => from < y0 + tileH && to > y0)) continue;
       for (let x0 = 0; x0 < canvas.width; x0 += tileW) {
         g.setTransform(1, 0, 0, 1, 0, 0);
         g.clearRect(0, 0, tile.width, tile.height);
@@ -2822,7 +2844,7 @@
   // canvas mixed the two colours plainly, and the pixel is given Photoshop's blend of them
   // instead, each channel (see textGamma). Only pixels the stroke fills, whose colour lies
   // between the two.
-  const blendOnStroke = (canvas, ctx, letters, stroke) => {
+  const blendOnStroke = (canvas, ctx, letters, stroke, band) => {
     const from = [stroke.r, stroke.g, stroke.b];
     const to = [letters.r, letters.g, letters.b];
     // Read on the channel where the two colours are furthest apart
@@ -2834,7 +2856,8 @@
       for (let i = 0; i < 256; i++) table[i] = Math.round(((i / 255) * (to[j] / 255) ** TEXT_GAMMA + (1 - i / 255) * (from[j] / 255) ** TEXT_GAMMA) ** (1 / TEXT_GAMMA) * 255);
       return table;
     });
-    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const top = band ? band[0] : 0;
+    const image = ctx.getImageData(0, top, canvas.width, band ? band[1] - band[0] : canvas.height);
     const px = image.data;
     for (let i = 0; i < px.length; i += 4) {
       if (px[i + 3] !== 255) continue;
@@ -2846,17 +2869,280 @@
       px[i + 1] = tables[1][at];
       px[i + 2] = tables[2][at];
     }
-    ctx.putImageData(image, 0, 0);
+    ctx.putImageData(image, 0, top);
   };
   // A text's lines on a canvas, through `transform`, then the anti-aliasing and the blend of
-  // the letters' edges: into the page, or into the stroke they stand on
-  const drawText = (canvas, ctx, transform, k, lines, stroke, layer, antiAlias, opacity) => {
-    drawFromOutlines(canvas, ctx, transform, k, (g) => drawLines(g, lines, stroke, layer));
-    applyAntiAlias(canvas, ctx, antiAlias, blendedEdges(layer, stroke, opacity));
+  // the letters' edges: into the page, or into the stroke they stand on.
+  // `bands`: the only rows to draw (see keptRows)
+  const drawText = (canvas, ctx, transform, k, lines, stroke, layer, antiAlias, opacity, bands) => {
+    drawFromOutlines(canvas, ctx, transform, k, (g) => drawLines(g, lines, stroke, layer), bands);
     // One colour of letters on one stroke: two strokes, or letters of several colours, can't be
     // told apart from their pixels
     const letters = antiAlias !== "antiAliasNone" && strokeUnder(layer, stroke) && !(stroke.outer && stroke.outer.size > 0) ? oneColourOf(layer) : null;
-    if (letters) blendOnStroke(canvas, ctx, letters, stroke.color);
+    (bands || [undefined]).forEach((band) => {
+      applyAntiAlias(canvas, ctx, antiAlias, blendedEdges(layer, stroke, opacity), band);
+      if (letters) blendOnStroke(canvas, ctx, letters, stroke.color, band);
+    });
+  };
+
+  // Typing in a long text changes a line or two of it: the rows of the others are kept from
+  // the text as it was last drawn, and only the rest is drawn again. Drawing a paragraph of
+  // 30 lines whole, at 16 times its size, took a third of a second for each letter typed.
+  // A line is kept where nothing of it has changed: its letters, their styles, its place, the
+  // canvas's own and the tiles that draw it. A line that only moved is drawn again, even by
+  // whole pixels: its letters' edges change by a hair with where it stands. The text then
+  // comes out the same, to the pixel, as if drawn whole.
+  const DRAWN_BUDGET = 48 * 1024 * 1024;
+  const drawnTexts = new Map();
+  const styleKeys = new WeakMap();
+  const styleKeyOf = (style) => {
+    let key = styleKeys.get(style);
+    if (!key) {
+      key = JSON.stringify(style);
+      styleKeys.set(style, key);
+    }
+    return key;
+  };
+  // Each line that shows, on a canvas whose top is at `y`: what it draws, where, and the rows
+  // its ink can reach, as far as the canvas itself allows around the text (`pad`)
+  const drawnLines = (lines, y, pad, height, antiAlias) => {
+    const out = [];
+    lines.forEach((line) => {
+      if (!line.m.placed.length) return;
+      let boldDown = 0;
+      const what = line.m.placed.map((item) => {
+        if (item.run.style.syntheticBold) boldDown = Math.max(boldDown, weightOf(item.run.style, item.size, antiAlias).down);
+        return [item.shown, item.x, item.size, item.scaleX, item.scaleY, item.shift, styleKeyOf(item.run.style)];
+      });
+      const from = Math.max(0, Math.floor(line.baseline - y - line.m.ascent - pad));
+      const to = Math.min(height, Math.ceil(line.baseline - y + line.m.descent + boldDown + pad));
+      if (to > from) out.push({ key: JSON.stringify(what), x: line.x, baseline: line.baseline, from, to });
+    });
+    return out;
+  };
+  // The rows of a new canvas that an earlier one, at the same place, has already (`copies`)
+  // and the rows to draw (`bands`), each [first, end). Null when there is nothing to keep.
+  // `rough`: rows of the earlier canvas not to keep, whatever they hold.
+  const keptRows = (earlier, lines, height, rough) => {
+    const byKey = new Map();
+    earlier.lines.forEach((line, index) => {
+      if (!byKey.has(line.key)) byKey.set(line.key, []);
+      byKey.get(line.key).push(index);
+    });
+    // On each row: 1 where a line shows, 2 where one has changed, here or in the earlier canvas
+    const rows = new Uint8Array(height);
+    const mark = (from, to, value) => {
+      for (let r = from; r < Math.min(to, height); r++) rows[r] |= value;
+    };
+    const taken = new Set();
+    lines.forEach((line) => {
+      const match = (byKey.get(line.key) || []).find((index) => {
+        const old = earlier.lines[index];
+        return !taken.has(index) && old.x === line.x && old.baseline === line.baseline && old.from === line.from && old.to === line.to;
+      });
+      if (match !== undefined) taken.add(match);
+      mark(line.from, line.to, match === undefined ? 3 : 1);
+    });
+    if (!taken.size) return null;
+    earlier.lines.forEach((old, index) => {
+      if (!taken.has(index)) mark(old.from, old.to, 2);
+    });
+    (rough || NONE).forEach(([from, to]) => mark(from, to, 2));
+    const copies = [];
+    const bands = [];
+    for (let r = 0; r < height; r++) {
+      if (!(rows[r] & 1)) continue;
+      const list = rows[r] === 1 && r < earlier.height ? copies : bands;
+      const last = list[list.length - 1];
+      if (last && last[1] === r) last[1] = r + 1;
+      else list.push([r, r + 1]);
+    }
+    return copies.length ? { copies, bands } : null;
+  };
+
+  // A letter typed that adds a line to a long text moves the lines after it, all of them in
+  // a box centred from top to bottom: half a second of drawing for 30 lines, in the middle of
+  // a word. Such a letter is drawn quickly instead, at an eighth of the size the letters are
+  // drawn at otherwise, close enough to tell no difference while typing; the rows drawn that
+  // way are drawn again as they should be once the typing pauses, a few at a time so that a
+  // letter typed meanwhile isn't kept waiting. Only what is typed on the page is ever drawn
+  // quickly, and only the screen shows it: the edit ending, or the page being read for
+  // anything else (a file, a copy, a selection), finishes the drawing first.
+  // More tiles than this to draw for a letter typed (a row of them is a line or two): drawn
+  // quickly, which takes about as long as two tiles whatever there is to draw
+  const QUICK_TILES = 2;
+  // How long after the last letter the rows drawn quickly are drawn again, and for how long
+  // at a time
+  const REFINE_PAUSE = 300;
+  const REFINE_SLICE = 8;
+  // Above 0 while a text may be drawn quickly (a letter typed), and while one drawn quickly
+  // may show (the screen)
+  let quickTexts = 0;
+  let roughShown = 0;
+  let refineTimer = 0;
+  let refining = null;
+  // Row ranges from a row-by-row mask
+  const rangesOf = (mask) => {
+    const out = [];
+    for (let r = 0; r < mask.length; r++) {
+      if (!mask[r]) continue;
+      const last = out[out.length - 1];
+      if (last && last[1] === r) last[1] = r + 1;
+      else out.push([r, r + 1]);
+    }
+    return out;
+  };
+  // A text drawn quickly whose drawing is dropped: it isn't shown again as it is
+  const forgetRough = (drawn) => {
+    const a = drawn.again;
+    if (a && a.forLayout.get(a.entryKey) === a.entry) a.forLayout.delete(a.entryKey);
+  };
+  // The page shows a text again, where it is
+  const showAgain = (doc, id) => {
+    if (app.doc !== doc) return;
+    const layer = doc.state.layers.find((item) => item.id === id);
+    const styled = !layer || (layer.group && styledParentOf(layer, new Map(doc.state.layers.map((item) => [item.id, item])), doc.state.layers));
+    roughShown++;
+    const bounds = styled ? null : visualBounds(layer, doc);
+    roughShown--;
+    emit("render", bounds ? unionRect(doc, bounds, bounds) : undefined);
+  };
+  // The rows of one text drawn quickly, drawn as they should be: those of one row of tiles
+  // at each call, then the text as a new canvas in place of the quick one. True once done.
+  const refineStep = () => {
+    if (!refining) {
+      const found = Array.from(drawnTexts).find(([, drawn]) => drawn.rough.length && drawn.again);
+      if (!found) return true;
+      const [id, drawn] = found;
+      const [, tileH] = tileSize(drawn.canvas, drawn.again.k);
+      const canvas = newCanvas(drawn.canvas.width, drawn.canvas.height);
+      const todo = [];
+      for (let y0 = 0; y0 < canvas.height; y0 += tileH) {
+        const within = drawn.rough.filter(([from, to]) => from < y0 + tileH && to > y0).map(([from, to]) => [Math.max(from, y0), Math.min(to, y0 + tileH)]);
+        if (within.length) todo.push(within);
+      }
+      refining = { id, drawn, canvas, ctx: canvas.getContext("2d", { willReadFrequently: true }), todo };
+    }
+    const { id, drawn, canvas, ctx, todo } = refining;
+    const a = drawn.again;
+    // Typed in since, or its page closed: nothing to finish
+    if (drawnTexts.get(id) !== drawn || !app.docs.includes(a.doc)) {
+      if (drawnTexts.get(id) === drawn) {
+        forgetRough(drawn);
+        drawnTexts.delete(id);
+      }
+      refining = null;
+      return false;
+    }
+    if (todo.length) {
+      try {
+        drawText(canvas, ctx, [1, 0, 0, 1, -a.entry.x, -a.entry.y], a.k, a.relative.lines, a.stroke, a.layer, a.antiAlias, a.opacity, todo.shift());
+      } catch (error) {
+        // No memory for it, say: the quick drawing goes, and the text is drawn whole when next shown
+        console.warn("TypeR web: text not drawn again", error);
+        forgetRough(drawn);
+        drawnTexts.delete(id);
+        refining = null;
+      }
+      return false;
+    }
+    // The rows that were right already
+    const mask = new Uint8Array(canvas.height).fill(1);
+    drawn.rough.forEach(([from, to]) => mask.fill(0, from, to));
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    rangesOf(mask).forEach(([from, to]) => ctx.drawImage(drawn.canvas, 0, from, canvas.width, to - from, 0, from, canvas.width, to - from));
+    ctx.restore();
+    if (a.forLayout.get(a.entryKey) === a.entry) keepText(a.forLayout, a.entryKey, { canvas, x: a.entry.x, y: a.entry.y });
+    drawnTexts.set(id, { how: drawn.how, canvas, lines: drawn.lines, height: drawn.height, bytes: drawn.bytes, rough: NONE, again: null });
+    refining = null;
+    showAgain(a.doc, a.layer.id);
+    return false;
+  };
+  const refineSome = () => {
+    refineTimer = 0;
+    const start = performance.now();
+    let done = false;
+    try {
+      while (!done && performance.now() - start < REFINE_SLICE) done = refineStep();
+    } finally {
+      if (!done) refineTimer = setTimeout(refineSome, 0);
+    }
+  };
+  const refineLater = () => {
+    clearTimeout(refineTimer);
+    refineTimer = setTimeout(refineSome, REFINE_PAUSE);
+  };
+  // Every text drawn quickly, drawn as it should be, now
+  const settleTexts = () => {
+    clearTimeout(refineTimer);
+    refineTimer = 0;
+    while (!refineStep());
+  };
+
+  // A straight text drawn on its canvas (`entry`, top left at its x and y): whole, or from
+  // what it was
+  const drawTextFrom = (entry, ctx, pad, relative, stroke, layer, doc, antiAlias, opacity, entryKey, forLayout) => {
+    const { canvas, x, y } = entry;
+    const k = outlineScale(relative.lines, 1);
+    const draw = (bands, scale) => drawText(canvas, ctx, [1, 0, 0, 1, -x, -y], scale || k, relative.lines, stroke, layer, antiAlias, opacity, bands);
+    // Drawn whole each time: letters large enough to be drawn at their own size, which is
+    // quick, and whose edges a band would cut otherwise; a gradient, which spans all the
+    // letters; and a stroke inside the letters or below 100%, drawn apart on canvases that
+    // don't give the same pixels twice
+    const apart = stroke && (strokeIsGradient(stroke) || Boolean(stroke.outer && stroke.outer.color && stroke.outer.color.gradient) || strokeOutside(stroke) < stroke.size || strokeAlpha(stroke) < 1 || Boolean(stroke.outer && strokeAlpha(stroke.outer) < 1));
+    // A bubble's text is a tile or two: drawing a band of it is drawing it all
+    const tiles = tileSize(canvas, k);
+    const across = k === 1 ? 1 : Math.ceil(canvas.width / tiles[0]);
+    if (k === 1 || apart || !layer.id || across * Math.ceil(canvas.height / tiles[1]) < 3) {
+      draw();
+      return;
+    }
+    const paragraph = layer.params.layerText.paragraphStyleRange && layer.params.layerText.paragraphStyleRange[0];
+    // All that the pixels of a line depend on, besides the line itself
+    const how = JSON.stringify([entryKey, x, y, k, tiles, Fonts.generation, fillOf(layer), paragraph && paragraph.paragraphStyle && paragraph.paragraphStyle.directionType, layer.params.layerText.textStyleRange.some((range) => extraBoldOf(range.textStyle)), oneColourOf(layer)]);
+    const lines = drawnLines(relative.lines, y, pad, canvas.height, antiAlias);
+    const id = objectKey(doc) + "|" + layer.id + "|" + entryKey;
+    const earlier = drawnTexts.get(id);
+    const quick = quickTexts > 0;
+    // Rows drawn quickly are only kept by a drawing that may be quick itself
+    const rows = earlier && earlier.how === how && earlier.canvas !== canvas ? keptRows(earlier, lines, canvas.height, quick ? null : earlier.rough) : null;
+    const bands = rows ? rows.bands : [[0, canvas.height]];
+    let cost = 0;
+    for (let y0 = 0; y0 < canvas.height; y0 += tiles[1]) {
+      if (bands.some(([from, to]) => from < y0 + tiles[1] && to > y0)) cost += across;
+    }
+    const roughly = quick && cost > QUICK_TILES;
+    if (rows) {
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      const width = Math.min(canvas.width, earlier.canvas.width);
+      rows.copies.forEach(([from, to]) => ctx.drawImage(earlier.canvas, 0, from, width, to - from, 0, from, width, to - from));
+      ctx.restore();
+    }
+    if (bands.length) draw(rows || roughly ? bands : undefined, roughly ? Math.max(1, k >> 3) : k);
+    // The rows that aren't as they should be: those drawn quickly now, and those kept that were
+    const mask = new Uint8Array(canvas.height);
+    if (roughly) bands.forEach(([from, to]) => mask.fill(1, from, to));
+    if (rows && quick) {
+      earlier.rough.forEach(([from, to]) => rows.copies.forEach(([first, end]) => {
+        if (Math.min(to, end) > Math.max(from, first)) mask.fill(1, Math.max(from, first), Math.min(to, end));
+      }));
+    }
+    const rough = rangesOf(mask);
+    if (earlier && earlier.rough.length) forgetRough(earlier);
+    if (rough.length) entry.rough = true;
+    drawnTexts.delete(id);
+    drawnTexts.set(id, { how, canvas, lines, height: canvas.height, bytes: canvas.width * canvas.height * 4, rough, again: rough.length ? { entry, k, relative, stroke, layer, doc, antiAlias, opacity, entryKey, forLayout } : null });
+    if (rough.length) refineLater();
+    let bytes = 0;
+    drawnTexts.forEach((item) => { bytes += item.bytes; });
+    for (const [key, item] of drawnTexts) {
+      if (bytes <= DRAWN_BUDGET || drawnTexts.size <= 1) break;
+      forgetRough(item);
+      drawnTexts.delete(key);
+      bytes -= item.bytes;
+    }
   };
 
   // A picture laid on a grid of points, triangle by triangle: `pixels` (sw × sh) spread over
@@ -3321,6 +3607,15 @@
     const spin = spinOf(layer);
     const entryKey = spin ? strokeKey + "|" + spin.join(",") : strokeKey;
     let entry = forLayout.get(entryKey);
+    // Drawn quickly while it was typed (see drawTextFrom): only the screen shows it so
+    if (entry && entry.rough && !quickTexts && !roughShown) {
+      settleTexts();
+      entry = forLayout.get(entryKey);
+      if (entry && entry.rough) {
+        forLayout.delete(entryKey);
+        entry = undefined;
+      }
+    }
     if (!entry) {
       let largest = 0;
       relative.lines.forEach((line) => line.m.placed.forEach((item) => { largest = Math.max(largest, item.size); }));
@@ -3355,8 +3650,8 @@
         const y = Math.floor(b.top - pad);
         const canvas = newCanvas(Math.ceil(b.right + pad) - x, Math.ceil(b.bottom + pad) - y);
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        drawText(canvas, ctx, [1, 0, 0, 1, -x, -y], outlineScale(relative.lines, 1), relative.lines, stroke, layer, antiAlias, opacity);
         entry = { canvas, x, y };
+        drawTextFrom(entry, ctx, pad, relative, stroke, layer, doc, antiAlias, opacity, entryKey, forLayout);
       }
       keepText(forLayout, entryKey, entry);
     }
@@ -5357,7 +5652,22 @@
     if (raster.strokeDrawnIn) return Object.assign({}, layer, { stroke: null, effects, raster: null });
     return Object.assign({}, layer, { stroke: null, effects, raster: { bitmap: raster.bitmap, left: raster.left, top: raster.top } });
   };
+  // The screen may show a text as it was quickly drawn while typed (see drawTextFrom):
+  // anything else gets it as it should be
   const paintDoc = (doc, ctx, options = {}) => {
+    if (!options.screen) {
+      settleTexts();
+      paintPage(doc, ctx, options);
+      return;
+    }
+    roughShown++;
+    try {
+      paintPage(doc, ctx, options);
+    } finally {
+      roughShown--;
+    }
+  };
+  const paintPage = (doc, ctx, options) => {
     // On screen, layers being dragged in the panel show where they would land
     const layers = options.screen && doc.orderPreview ? doc.orderPreview : options.screen && doc.extra ? withExtra(doc) : doc.state.layers;
     const blendOf = (layer) => BLENDS[doc.blendPreview && doc.blendPreview.ids.has(layer.id) ? doc.blendPreview.blend : layer.blend] || "source-over";
@@ -7466,6 +7776,9 @@
     return () => box;
   };
 
+  // How long after the last letter typed the panel is told of the text (see ops.setText)
+  const TYPING_PAUSE = 400;
+  let typingTold = 0;
   const firePanelEvent = (eventID, eventData) => {
     const type = "com.adobe.PhotoshopJSONCallback" + EXTENSION_ID;
     const payload = { eventID };
@@ -11803,10 +12116,24 @@
       // Typing redraws where the text was and where it is, not the whole page
       // (a styled folder draws its stroke around all it holds: the whole page then)
       const styled = layer.group && styledParentOf(layer, new Map(doc.state.layers.map((item) => [item.id, item])), doc.state.layers);
-      const before = styled ? null : visualBounds(layer, doc);
       const next = Object.assign({}, layer, { params, raster: null, name, source: null });
-      commitState(doc, "Edit Type", { layers: doc.state.layers.map((item) => (item.id === layer.id ? next : item)) }, coalesce, () => unionRect(doc, before, before && visualBounds(next, doc)));
-      firePanelEvent(EVENT_HISTORY);
+      // A letter typed may be drawn quickly, and drawn again once the typing pauses (see
+      // drawTextFrom): that pause starts again with each letter
+      const typing = coalesce === "typing";
+      if (typing) quickTexts++;
+      try {
+        const before = styled ? null : visualBounds(layer, doc);
+        commitState(doc, "Edit Type", { layers: doc.state.layers.map((item) => (item.id === layer.id ? next : item)) }, coalesce, () => unionRect(doc, before, before && visualBounds(next, doc)));
+      } finally {
+        if (typing) quickTexts--;
+      }
+      if (typing && (refineTimer || refining)) refineLater();
+      // The panel reads the text again each time it is told, and works out its shapes: told
+      // once the typing pauses, as Photoshop tells it once the text is typed in, not at
+      // every letter
+      clearTimeout(typingTold);
+      if (coalesce === "typing") typingTold = setTimeout(() => firePanelEvent(EVENT_HISTORY), TYPING_PAUSE);
+      else firePanelEvent(EVENT_HISTORY);
     },
     // Font, size, leading, colour, alignment: on all the selected text layers, or on the
     // letters of `range` when text is selected in the editor. A patch can be a function of
@@ -13759,6 +14086,8 @@
       app.panelListeners = {};
     },
     announce(type) {
+      // A text is only shown as it was quickly drawn while it is typed
+      if (type === "editing") settleTexts();
       emit(type);
     },
     warnStorage() {
