@@ -239,7 +239,12 @@ const setMenu = (model) => {
           if (TEXT_EDITS[item.name]) win.webContents.send("menu-key", TEXT_EDITS[item.name]);
           return;
         }
-        win.webContents.send("menu-action", item.id);
+        // As a click in the page, so that what it opens (a file window) may open: a message
+        // from here isn't one. A page from before TypeRDesktopMenu gets the message.
+        const id = JSON.stringify(item.id);
+        win.webContents.executeJavaScript(`typeof window.TypeRDesktopMenu === "function" ? (window.TypeRDesktopMenu(${id}), true) : false`, true)
+          .then((done) => { if (!done && win) win.webContents.send("menu-action", item.id); })
+          .catch(() => { if (win) win.webContents.send("menu-action", item.id); });
       },
     };
     // A greyed Undo or Cut would keep its key from the text field being typed in, which the
