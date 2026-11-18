@@ -13046,18 +13046,27 @@
       });
     },
     // A PNG, a JPEG or a PSD, picked by the user or by TypeR's page sync
-    async openBlob(file, name, path, handle) {
+    // `aside`: the file bears the name of a page of the chapter without being that page (see
+    // setAside)
+    async openBlob(file, name, path, handle, aside = false) {
       handle = handle || fileHandles.get(handleKey(file)) || null;
-      const key = path || ops.registerFile(file);
+      const named = path || "web-file://" + file.name;
       // The same name isn't the same file: every chapter has its 01.psd, and a file can
       // change on disk while its document is kept in the browser
       const stamp = fileStamp(file);
-      const known = app.docs.find((doc) => doc.path === key && (!doc.stamp || doc.stamp === stamp));
+      const same = (doc) => !doc.stamp || doc.stamp === stamp;
+      const known = (!aside && app.docs.find((doc) => doc.path === named && same(doc))) || app.docs.find((doc) => doc.path !== named && ops.sharedPath(doc.path) === named && same(doc));
       if (known) {
         if (handle && !known.handle) known.handle = handle;
         setDoc(known);
         return known;
       }
+      // Another file of this name is open already: this one is a document of its own
+      let key = named;
+      if (!path && (aside || app.docs.some((doc) => doc.path === named))) {
+        key = `${named}#${newId()}`;
+        app.files.set(key, file);
+      } else if (!path) ops.registerFile(file);
       if (/\.psd$/i.test(name) || /\.psb$/i.test(name)) {
         // Told by the file's first bytes, before anything is decoded
         const head = new DataView(await file.slice(0, 26).arrayBuffer());
@@ -13124,9 +13133,25 @@
     // The file on disk is now the document's: opening it again finds the document, and
     // the next save can tell whether someone else changed it
     fileWritten(doc, file) {
-      doc.path = ops.registerFile(file);
+      const named = "web-file://" + file.name;
+      // A document set aside stays so: its file isn't the one the chapter's page of that name reads
+      if (doc.path !== ops.sharedPath(doc.path) || app.docs.some((one) => one !== doc && one.path === named)) {
+        if (ops.sharedPath(doc.path) !== named || doc.path === named) doc.path = `${named}#${newId()}`;
+        app.files.set(doc.path, file);
+      } else doc.path = ops.registerFile(file);
       doc.stamp = fileStamp(file);
     },
+    // Every chapter has its 01.psd, 02.psd…: an open document of the name of a page of another
+    // chapter would be taken for that page (the pager, Flow, the script). Set aside, it keeps a
+    // path of its own, and stays a document apart.
+    setAside(doc) {
+      if (doc.path !== ops.sharedPath(doc.path)) return;
+      const file = app.files.get(doc.path);
+      doc.path = `${doc.path}#${newId()}`;
+      if (file && doc.stamp && fileStamp(file) === doc.stamp) app.files.set(doc.path, file);
+    },
+    // The path a document set aside had: the name its file bears
+    sharedPath: (path) => String(path || "").replace(/^(web-file:\/\/.*)#\d+$/, "$1"),
     fileStamp,
     rememberHandle(file, handle) {
       fileHandles.set(handleKey(file), handle);

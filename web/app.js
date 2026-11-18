@@ -6023,6 +6023,14 @@
   // which the pager then opens) and closed: one page of the chapter in a tab at a time. A page
   // that can't be saved there stays open, to be saved by hand.
   const chapterFile = async (ref) => (ref.handle ? ref.handle.getFile() : app.files.get(pageKey(ref)) || ref.file);
+  // A file of the name of a page of the chapter that isn't that page (another chapter's 02.psd):
+  // it opens as a document apart, not as the page (setPages)
+  const notThePage = async (file, handle) => {
+    const page = chapter && chapter.pages.find((one) => pageKey(one) === "web-file://" + file.name);
+    if (!page) return false;
+    if (handle && page.handle && handle.isSameEntry) return !(await handle.isSameEntry(page.handle).catch(() => false));
+    return ops.fileStamp(file) !== ops.fileStamp(await chapterFile(page).catch(() => page.file));
+  };
   // Read without a tab, for its text to be found ahead (Review Page by Page); let go with
   // ops.dropDetached()
   const readBatchPage = async (ref) => ops.readDetached(await chapterFile(ref), ref.file.name);
@@ -11611,7 +11619,7 @@
           const doc = await reopenInTab(tab, file, handle);
           if (doc) opened.push(doc);
         } else if (InDesign.isInDesignName(file.name)) opened.push(...(await openInDesign(file, handle)));
-        else opened.push(await ops.openBlob(file, file.name, undefined, handle));
+        else opened.push(await ops.openBlob(file, file.name, undefined, handle, await notThePage(file, handle)));
       } catch (error) {
         console.error(error);
         if (error.tooLarge) toast(tooLargeText(error.tooLarge.width, error.tooLarge.height), true);
