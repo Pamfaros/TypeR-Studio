@@ -817,6 +817,8 @@
   ];
   const selectionActions = () => [
     action("paste", T("Paste the line"), () => pressInPanel('[data-tour="paste"]'), "tact--main"),
+    // Right after the paste: a sound effect selected is most often to be taken out of the art
+    window.TypeRGenerative ? action("sparkles", T("Generative Fill"), () => runMenu("Edit", "Generative Fill…")) : null,
     action("inverse", T("Inverse"), () => runMenu("Select", "Inverse")),
     action("grow", T("Expand…"), () => runMenu("Select", "Expand…")),
     action("shrink", T("Contract…"), () => runMenu("Select", "Contract…")),
@@ -872,7 +874,7 @@
     ctxActions.textContent = "";
     ctxActions.scrollLeft = 0;
     if (mode === "text") ctxActions.append(...textActions());
-    if (mode === "selection") ctxActions.append(...selectionActions());
+    if (mode === "selection") ctxActions.append(...selectionActions().filter(Boolean));
     renderEdges();
   };
 
