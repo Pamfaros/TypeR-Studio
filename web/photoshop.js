@@ -1694,6 +1694,30 @@
     canvas.height = Math.max(1, Math.ceil(height));
     return canvas;
   };
+  // A pixel layer's picture as a canvas, whatever it came as (an ImageBitmap, an <img>, pixels):
+  // one user's had become something else, and every look at its pixels failed. Said once, with
+  // what it was, so that the anonymous error reports tell where it came from.
+  const asCanvases = new WeakMap();
+  let toldOdd = false;
+  const asCanvas = (picture) => {
+    if (!picture || typeof picture !== "object" || typeof picture.getContext === "function") return picture;
+    let canvas = asCanvases.get(picture);
+    if (canvas) return canvas;
+    if (!toldOdd) {
+      toldOdd = true;
+      if (window.TypeRStats) window.TypeRStats.error(new Error(`A layer picture is a ${Object.prototype.toString.call(picture)}`));
+    }
+    canvas = newCanvas(picture.width || 1, picture.height || 1);
+    const ctx = canvas.getContext("2d");
+    try {
+      if (picture.data && picture.data.length === canvas.width * canvas.height * 4) ctx.putImageData(picture instanceof ImageData ? picture : new ImageData(new Uint8ClampedArray(picture.data), canvas.width, canvas.height), 0, 0);
+      else ctx.drawImage(picture, 0, 0);
+    } catch (error) {
+      // Nothing that can be drawn: an empty layer
+    }
+    asCanvases.set(picture, canvas);
+    return canvas;
+  };
   // A canvas larger than the graphics card's largest texture (16384 pixels, 8192 on some
   // cards: a webtoon strip) is drawn by the processor. A small canvas the card holds, drawn on
   // it, is read back from the card every time: some 40 ms a dab on a slow laptop. Drawn often
@@ -2221,7 +2245,7 @@
       const mark = entry && entry.marks.filter((item) => item.bitmap === layer.bitmap && item.count <= paint.length && item.cx0 === cx0 && item.cy0 === cy0 && item.canvas.width === canvas.width && item.canvas.height === canvas.height && item.ops.every((op, i) => op === paint[i])).pop();
       if (mark) ctx.drawImage(mark.canvas, 0, 0);
       ctx.translate(-cx0, -cy0);
-      if (layer.bitmap && !mark) ctx.drawImage(layer.bitmap, left, top);
+      if (layer.bitmap && !mark) ctx.drawImage(asCanvas(layer.bitmap), left, top);
       const previous = rasterCache.get(layer.id);
       if (previous) forgetRaster(layer.id, previous);
       const marks = entry ? entry.marks.filter((item) => item.bitmap === layer.bitmap && item.count <= paint.length && item.ops.every((op, i) => op === paint[i])) : [];
@@ -2249,7 +2273,7 @@
     const dy = layer.dy || 0;
     const live = doc.liveStroke && doc.liveStroke.layerId === layer.id && !doc.liveStroke.target;
     if (!paint.length && !live) {
-      return layer.bitmap ? { canvas: layer.bitmap, x: (layer.left || 0) + dx, y: (layer.top || 0) + dy } : null;
+      return layer.bitmap ? { canvas: asCanvas(layer.bitmap), x: (layer.left || 0) + dx, y: (layer.top || 0) + dy } : null;
     }
     const entry = rasterEntry(layer, doc);
     return { canvas: entry.canvas, x: entry.cx0 + dx, y: entry.cy0 + dy, version: entry.version };
@@ -14300,6 +14324,8 @@
     newRaster,
     newId,
     newCanvas,
+    clipOf,
+    asCanvas,
     imageResolution,
     withResolution,
     wrapWords,

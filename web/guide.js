@@ -1193,8 +1193,10 @@
   // The card keeps clear of what it points at: bottom left of the page, else top left, else
   // bottom right. Once dragged, it stays where it was put.
   const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-  const placeCard = (measured) => {
+  const placeCard = (given) => {
     if (!run || !run.card) return;
+    // As the window's resize listener, it gets the event: only drawRings' measures count
+    const measured = given && given.stage ? given : null;
     const card = run.card;
     if (run.moved) return;
     const stage = measured ? measured.stage : document.getElementById("stage").getBoundingClientRect();

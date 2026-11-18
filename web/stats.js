@@ -146,6 +146,8 @@
   window.addEventListener("error", (event) => {
     // A file that didn't load (an image, a font): no error object, and nothing of the app's
     if (!event.message) return;
+    // The browser saying a layout took two passes: nothing went wrong
+    if (/ResizeObserver loop/.test(event.message)) return;
     failed(event.error, event.message, { file: event.filename, line: event.lineno });
   });
   window.addEventListener("unhandledrejection", (event) => {

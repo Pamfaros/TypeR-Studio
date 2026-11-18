@@ -247,6 +247,8 @@
         held.capture = this;
         return undefined;
       }
+      // Taken off the page by the press itself: nothing left to hold
+      if (!this.isConnected) return undefined;
       return set.call(this, id);
     };
     proto.releasePointerCapture = function (id) {

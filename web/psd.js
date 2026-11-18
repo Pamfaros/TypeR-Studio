@@ -1325,6 +1325,7 @@
   };
 
   const place = (node, canvas, left, top) => {
+    canvas = PS().asCanvas(canvas);
     node.canvas = canvas;
     node.left = left;
     node.top = top;
