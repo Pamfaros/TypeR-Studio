@@ -1011,6 +1011,128 @@
     return points;
   };
 
+  // A text the Perspective tool can lay on a surface: not Warp Text's, whose shape Photoshop
+  // keeps, nor a letter of an SFX, which takes its shape from the SFX
+  const surfaceFits = (layer, doc) => {
+    if (!layer || layer.kind !== "text" || layer.sfx || layer.mesh || layer.outline || (window.TypeRTextWarp && window.TypeRTextWarp.on(layer.envelope))) return false;
+    const parent = layer.group && doc.state.layers.find((item) => item.id === layer.group);
+    return !(parent && parent.sfx);
+  };
+
+  /* ------------------------------ perspective zones ----------------------------- */
+
+  // A zone of the page that is a surface seen in perspective, as the Perspective tool draws
+  // one over a board, a wall, a sign: `corners`, its four corners on the page, give the
+  // perspective; `unit`, how many pixels of text it is wide and tall, gives the size of what
+  // is written on it, which `wide` makes wider or narrower. `found` says what the page showed
+  // of it. The texts whose middle is in a zone lie on its surface: each has a `warp` marked
+  // `auto`, [across, down], its own size there, laid again whenever the text or the zone
+  // changes (see commitState). A text the user took off the surface says `offSurface`.
+  const NO_SURFACES = [];
+  const surfacesOf = (state) => state.surfaces || NO_SURFACES;
+  // The zone a point of the page is in: the last one drawn, where two overlap
+  const surfaceAt = (surfaces, [x, y]) => {
+    for (let i = surfaces.length - 1; i >= 0; i--) if (insidePolygon(surfaces[i].corners, x, y, 0)) return surfaces[i];
+    return null;
+  };
+  const surfaceUnit = (zone) => [zone.unit[0] / (zone.wide || 1), zone.unit[1]];
+  // A zone that faces the reader, at the size things are typed: a text on it is as it was
+  const flatSurface = (zone) => {
+    const m = window.TypeRPerspective.squareTo(zone.corners);
+    const [ux, uy] = surfaceUnit(zone);
+    const near = (value, wanted) => Math.abs(value - wanted) <= 1e-4 * Math.max(1, Math.abs(wanted));
+    return Math.abs(m[6]) < 1e-7 && Math.abs(m[7]) < 1e-7 && near(m[1] / uy, 0) && near(m[3] / ux, 0) && near(m[0], ux) && near(m[4], uy);
+  };
+  // Where a text is, for the zones: the middle of its surface, or of its frame
+  const placeOnSurface = (layer, doc) => {
+    if (layer.warp) {
+      const middle = window.TypeRPerspective.onQuad(window.TypeRPerspective.squareTo(layer.warp.corners), 0.5, 0.5);
+      if (middle) return middle;
+    }
+    return middleOfText(layer, doc);
+  };
+  // A text laid on a zone, or null where the surface turns away under it. One already there
+  // keeps its anchor in place, so that what is typed grows from it as its alignment says;
+  // one that comes in keeps its middle where it shows, and lands along the surface.
+  const laidOn = (layer, zone, doc) => {
+    const P = window.TypeRPerspective;
+    const plain = Object.assign({}, layer, { raster: null, warp: null, rotated: false, spin: null });
+    const f = frameOf(plain, doc);
+    const [ax, ay] = anchorOf(layer.params.layerText, doc);
+    const width = Math.max(1, f.width);
+    const height = Math.max(1, f.height);
+    const source = { left: f.left - ax, top: f.top - ay, width, height };
+    const m = P.squareTo(zone.corners);
+    const [ux, uy] = surfaceUnit(zone);
+    let auto;
+    let u0;
+    let v0;
+    if (layer.warp && layer.warp.auto) {
+      auto = layer.warp.auto;
+      const was = layer.warp.source;
+      const anchor = P.onQuad(P.squareTo(layer.warp.corners), -was.left / was.width, -was.top / was.height);
+      const at = anchor && P.fromQuad(m, anchor[0], anchor[1]);
+      if (!at) return null;
+      u0 = at[0] + (source.left * auto[0]) / ux;
+      v0 = at[1] + (source.top * auto[1]) / uy;
+    } else {
+      const spin = spinOf(layer);
+      auto = spin ? [Math.hypot(spin[0], spin[1]), Math.hypot(spin[2], spin[3])] : [1, 1];
+      const middle = placeOnSurface(layer, doc);
+      const at = P.fromQuad(m, middle[0], middle[1]);
+      if (!at) return null;
+      u0 = at[0] - (width * auto[0]) / ux / 2;
+      v0 = at[1] - (height * auto[1]) / uy / 2;
+    }
+    const u1 = u0 + (width * auto[0]) / ux;
+    const v1 = v0 + (height * auto[1]) / uy;
+    const frame = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+    // Well before the line the surface vanishes on
+    if (!frame.every(([u, v]) => m[6] * u + m[7] * v + 1 > 0.2)) return null;
+    return Object.assign(plain, { warp: { source, corners: frame.map(([u, v]) => P.onQuad(m, u, v)), bendTop: [0, 0], bendBottom: [0, 0], wrap: 0, auto } });
+  };
+  // A text taken off its surface: a plain text again, its middle where the surface had it
+  const liftedOff = (layer, doc) => {
+    const [x, y] = placeOnSurface(layer, doc);
+    const plain = Object.assign({}, layer, { warp: null, raster: null });
+    const now = middleOfText(plain, doc);
+    return shifted(plain, x - now[0], y - now[1], doc);
+  };
+  const sameSurface = (a, b) => Boolean(a && b) && a.auto[0] === b.auto[0] && a.auto[1] === b.auto[1]
+    && ["left", "top", "width", "height"].every((key) => Math.abs(a.source[key] - b.source[key]) < 1e-6)
+    && a.corners.every((corner, i) => Math.abs(corner[0] - b.corners[i][0]) < 0.005 && Math.abs(corner[1] - b.corners[i][1]) < 0.005);
+  // The layers of a step, each text that changed in it laid on the zone it is now in, or taken
+  // off the one it left; every text, when the zones changed. null when nothing is to change.
+  const settleSurfaces = (doc, before) => {
+    const state = doc.state;
+    const zones = surfacesOf(state);
+    const all = zones !== surfacesOf(before);
+    if ((!zones.length && !all) || (!all && state.layers === before.layers) || !window.TypeRPerspective) return null;
+    const old = new Map(before.layers.map((layer) => [layer.id, layer]));
+    const turned = zones.filter((zone) => !flatSurface(zone));
+    let changed = false;
+    const layers = state.layers.map((layer) => {
+      if (layer.kind !== "text" || (layer.warp && !layer.warp.auto)) return layer;
+      const same = old.get(layer.id) === layer;
+      // A zone that changes leaves a locked text where it is
+      if (same && (!all || lockOf(layer, "position"))) return layer;
+      if (!layer.warp && (layer.offSurface || !surfaceFits(layer, doc))) return layer;
+      const zone = layer.offSurface ? null : surfaceAt(turned, placeOnSurface(layer, doc));
+      let next = null;
+      if (zone) {
+        next = laidOn(layer, zone, doc);
+        if (!next || sameSurface(layer.warp, next.warp)) return layer;
+      } else if (layer.warp) next = liftedOff(layer, doc);
+      if (!next) return layer;
+      changed = true;
+      return next;
+    });
+    return changed ? layers : null;
+  };
+  // The zones of a page that moved by (ox, oy), or whose size changed
+  const surfacesShifted = (doc, ox, oy) => (surfacesOf(doc.state).length ? { surfaces: surfacesOf(doc.state).map((zone) => Object.assign({}, zone, { corners: zone.corners.map(([x, y]) => [x + ox, y + oy]) })) } : null);
+  const surfacesScaled = (doc, sx, sy) => (surfacesOf(doc.state).length ? { surfaces: surfacesOf(doc.state).map((zone) => Object.assign({}, zone, { corners: zone.corners.map(([x, y]) => [x * sx, y * sy]), unit: [zone.unit[0] * sx, zone.unit[1] * sy] })) } : null);
+
   /* ------------------------------ a letter reshaped ----------------------------- */
 
   // A letter given a shape of its own (an SFX's, as Photoshop's Convert to Shape would let a
@@ -6302,7 +6424,7 @@
 
   const newRaster = (name, fields) => Object.assign({ id: newId(), kind: "raster", name, visible: true, opacity: 1, blend: "normal", bitmap: null, left: 0, top: 0, dx: 0, dy: 0, paint: NONE, group: null }, fields);
 
-  const createDoc = ({ name, path, width, height, resolution, layers, handle, psd, stamp, idml }) => {
+  const createDoc = ({ name, path, width, height, resolution, layers, handle, psd, stamp, idml, surfaces }) => {
     const doc = {
       id: newId(),
       name,
@@ -6323,6 +6445,8 @@
       savedId: null,
       view: { zoom: 1, x: 0, y: 0, fitted: true },
     };
+    // The perspective zones its file kept
+    if (surfaces && surfaces.length) doc.state.surfaces = surfaces.map((zone) => Object.assign({}, zone, { id: newId() }));
     const top = doc.state.layers[doc.state.layers.length - 1];
     if (top) doc.state.activeIds = [top.id];
     pushHistory(doc, "Open");
@@ -7990,7 +8114,14 @@
   // Gestures that repeat (arrow keys, a slider) make one step of history
   // `rect`, if given, says the part of the page the step changed, once the state is in place
   const commitState = (doc, name, change, coalesce, rect) => {
+    const before = doc.state;
     doc.state = Object.assign({}, doc.state, change);
+    // The texts of a perspective zone follow it, and what changed of them
+    const settled = settleSurfaces(doc, before);
+    if (settled) {
+      doc.state = Object.assign({}, doc.state, { layers: settled });
+      rect = null;
+    }
     const last = doc.history[doc.historyIndex];
     if (coalesce && last.coalesce === coalesce && (coalesce.indexOf("gesture:") === 0 || Date.now() - last.time < 1500) && doc.historyIndex === doc.history.length - 1) {
       last.state = doc.state;
@@ -8285,7 +8416,8 @@
     if (base.warp) {
       const round = ([x, y]) => [pivot[0] + cos * (x - pivot[0]) - sin * (y - pivot[1]), pivot[1] + sin * (x - pivot[0]) + cos * (y - pivot[1])];
       const spun = ([x, y]) => [cos * x - sin * y, sin * x + cos * y];
-      return Object.assign({}, base, { warp: Object.assign({}, base.warp, { corners: base.warp.corners.map(round), bendTop: spun(base.warp.bendTop), bendBottom: spun(base.warp.bendBottom) }) });
+      // Turned on a perspective zone, it stops following the zone: its surface is its own
+      return Object.assign({}, base, base.warp.auto ? { offSurface: true } : null, { warp: Object.assign({}, base.warp, { corners: base.warp.corners.map(round), bendTop: spun(base.warp.bendTop), bendBottom: spun(base.warp.bendBottom), auto: undefined }) });
     }
     const [a, b, c, d] = spinOf(base) || [1, 0, 0, 1];
     const clean = (value) => (Math.abs(value) < 1e-9 ? 0 : Math.abs(Math.abs(value) - 1) < 1e-9 ? Math.sign(value) : value);
@@ -8309,7 +8441,11 @@
     const map = ([x, y]) => [a * x + c * y + e, b * x + d * y + f];
     if (layer.warp) {
       const linear = ([x, y]) => [a * x + c * y, b * x + d * y];
-      return Object.assign({}, layer, { raster: null, warp: Object.assign({}, layer.warp, { corners: layer.warp.corners.map(map), bendTop: linear(layer.warp.bendTop), bendBottom: linear(layer.warp.bendBottom) }) });
+      const { auto } = layer.warp;
+      // On a perspective zone: made larger or smaller, it stays on the zone at that size;
+      // turned, skewed or mirrored, its surface is its own from then on
+      const straight = Boolean(auto) && Math.abs(b) < 1e-9 && Math.abs(c) < 1e-9 && a > 0 && d > 0;
+      return Object.assign({}, layer, auto && !straight ? { offSurface: true } : null, { raster: null, warp: Object.assign({}, layer.warp, { corners: layer.warp.corners.map(map), bendTop: linear(layer.warp.bendTop), bendBottom: linear(layer.warp.bendBottom), auto: straight ? [auto[0] * a, auto[1] * d] : undefined }) });
     }
     // Skewed, or a skewed text: the text's own frame goes where the transform takes it
     const own = spinOf(layer);
@@ -9879,7 +10015,7 @@
       if (!doc || (width === doc.width && height === doc.height)) return;
       const ox = Math.round((width - doc.width) * ax);
       const oy = Math.round((height - doc.height) * ay);
-      resizeDoc(doc, "Canvas Size", { width, height }, onNewCanvas(doc, width, height, ox, oy, fill));
+      resizeDoc(doc, "Canvas Size", { width, height }, onNewCanvas(doc, width, height, ox, oy, fill), surfacesShifted(doc, ox, oy));
     },
     // What Free Transform works on: the active pixel layers and texts, and those in the active
     // folders (an SFX's letters with it)
@@ -10033,7 +10169,7 @@
           return withPixels(layer, bitmap, 0, 0, pageMask(layer, doc));
         });
       }
-      resizeDoc(doc, "Crop", { width, height }, layers);
+      resizeDoc(doc, "Crop", { width, height }, layers, surfacesShifted(doc, -left, -top));
     },
     // An image dropped on a side of the page, for double pages: the page grows on that side
     // and the image goes there, on a layer of its own under everything that sits on the page.
@@ -10047,7 +10183,7 @@
       let at = layers[0] && layers[0].isBackground ? 1 : 0;
       while (layers[at] && layers[at].clipping) at++;
       layers.splice(at, 0, layer);
-      resizeDoc(doc, "Add Page", { width, height }, layers, { activeIds: [layer.id] });
+      resizeDoc(doc, "Add Page", { width, height }, layers, Object.assign({ activeIds: [layer.id] }, surfacesShifted(doc, side === "left" ? bitmap.width : 0, 0)));
       firePanelEvent(EVENT_SELECT);
       return layer;
     },
@@ -10065,7 +10201,7 @@
         if (layer.kind === "group") return layer.mask || layer.vectorMask ? Object.assign({}, layer, scaledMasks(layer, doc, sx, sy)) : layer;
         return scaledRaster(layer, doc, sx, sy);
       });
-      resizeDoc(doc, "Image Size", { width, height, resolution }, layers);
+      resizeDoc(doc, "Image Size", { width, height, resolution }, layers, surfacesScaled(doc, sx, sy));
     },
     // The Magic Eraser: what a click on the active pixel layer takes, as the Magic Wand would,
     // goes transparent. A Background becomes Layer 0 first, as in Photoshop: it can't be.
@@ -10283,7 +10419,10 @@
       if (activeIds) change.activeIds = activeIds.filter((id) => layers.some((layer) => layer.id === id));
       if (selection !== undefined) change.selection = selection;
       if (amend) {
+        const before = doc.state;
         doc.state = Object.assign({}, doc.state, change);
+        const settled = settleSurfaces(doc, before);
+        if (settled) doc.state = Object.assign({}, doc.state, { layers: settled });
         doc.history[doc.historyIndex].state = doc.state;
         emit("history");
         emit("render");
@@ -12476,7 +12615,7 @@
         const away = ([x, y]) => [px + (x - px) * factor, py + (y - py) * factor];
         if (base.warp) {
           const scaled = ([x, y]) => [x * factor, y * factor];
-          changed.set(base.id, Object.assign({}, base, { warp: Object.assign({}, base.warp, { corners: base.warp.corners.map(away), bendTop: scaled(base.warp.bendTop), bendBottom: scaled(base.warp.bendBottom) }) }));
+          changed.set(base.id, Object.assign({}, base, { warp: Object.assign({}, base.warp, { corners: base.warp.corners.map(away), bendTop: scaled(base.warp.bendTop), bendBottom: scaled(base.warp.bendBottom), auto: base.warp.auto ? [base.warp.auto[0] * factor, base.warp.auto[1] * factor] : undefined }) }));
           return;
         }
         const from = middleOfText(base, doc);
@@ -12906,7 +13045,108 @@
       if (!layer || !layer.warp) return;
       const place = frameOf(layer, doc);
       const plain = Object.assign({}, layer, { warp: null });
+      // In a perspective zone, it would be laid on it at once: it stays off it
+      if (surfaceAt(surfacesOf(doc.state), placeOnSurface(layer, doc))) plain.offSurface = true;
       commitState(doc, "Perspective", { layers: replaceLayer(doc, layer, centredOn(plain, doc, place.xMid, place.yMid)) });
+      firePanelEvent(EVENT_HISTORY);
+    },
+    /* ---- the Perspective tool (perspective-tool.js) ---- */
+    // The grey levels of a zone of the page, without its texts: as it shows (`shown`), and,
+    // where the layers above changed it, as its lowest picture alone has it (`under`): what
+    // was drawn before any cleaning, the writing still on it
+    surfaceGrey(zone) {
+      const doc = app.doc;
+      if (!doc) return null;
+      const left = Math.max(0, Math.floor(zone.left));
+      const top = Math.max(0, Math.floor(zone.top));
+      const width = Math.min(doc.width, Math.ceil(zone.right)) - left;
+      const height = Math.min(doc.height, Math.ceil(zone.bottom)) - top;
+      if (width < 1 || height < 1) return null;
+      const grey = (skip) => {
+        const canvas = newCanvas(width, height);
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, width, height);
+        paintDoc(doc, ctx, { x: -left, y: -top, keep: true, skip });
+        const data = ctx.getImageData(0, 0, width, height).data;
+        const out = new Uint8Array(width * height);
+        for (let i = 0; i < out.length; i++) out[i] = (data[4 * i] * 77 + data[4 * i + 1] * 150 + data[4 * i + 2] * 29) >> 8;
+        return out;
+      };
+      const shown = grey((layer) => layer.kind === "text");
+      const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+      const lowest = doc.state.layers.find((layer) => layer.kind === "raster" && !layer.adjustment && layer.bitmap && chainOf(layer, byId).visible);
+      let under = null;
+      if (lowest && doc.state.layers.some((layer) => layer !== lowest && layer.kind === "raster")) {
+        const group = (layer) => layer.kind === "group" && familyOf(doc.state.layers, layer.id).has(lowest.id);
+        under = grey((layer) => layer !== lowest && !group(layer));
+        let differs = 0;
+        for (let i = 0; i < shown.length && differs < 40; i++) if (Math.abs(shown[i] - under[i]) > 24) differs++;
+        if (differs < 40) under = null;
+      }
+      return { left, top, width, height, shown, under };
+    },
+    // A perspective zone drawn (see surfacesOf): the texts in it lie on it from then on.
+    // `replaced`: the ids of the zones it takes the place of. Its id.
+    addSurface({ corners, unit, found }, replaced = []) {
+      const doc = app.doc;
+      if (!doc) return null;
+      const id = newId();
+      const surfaces = surfacesOf(doc.state).filter((zone) => !replaced.includes(zone.id)).concat([{ id, corners, unit, wide: 1, found: found || { across: false, down: false } }]);
+      commitState(doc, "Perspective Zone", { surfaces });
+      firePanelEvent(EVENT_HISTORY);
+      return id;
+    },
+    // Its corners, its size or its width changed: its texts follow
+    setSurface(id, changes, coalesce) {
+      const doc = app.doc;
+      if (!doc || !surfacesOf(doc.state).some((zone) => zone.id === id)) return;
+      commitState(doc, "Perspective Zone", { surfaces: surfacesOf(doc.state).map((zone) => (zone.id === id ? Object.assign({}, zone, changes) : zone)) }, coalesce);
+      firePanelEvent(EVENT_HISTORY);
+    },
+    // A zone removed: its texts are plain texts again
+    removeSurface(id) {
+      const doc = app.doc;
+      if (!doc || !surfacesOf(doc.state).some((zone) => zone.id === id)) return;
+      commitState(doc, "Perspective Zone", { surfaces: surfacesOf(doc.state).filter((zone) => zone.id !== id) });
+      firePanelEvent(EVENT_HISTORY);
+    },
+    // These texts, in a perspective zone, follow it (`on`) or stay as typed. One whose
+    // corners were set by hand takes the zone's again. How many changed.
+    setSurfaceFollow(ids, on) {
+      const doc = app.doc;
+      if (!doc) return 0;
+      const set = new Set(ids);
+      const zones = surfacesOf(doc.state);
+      let count = 0;
+      let refused = false;
+      const layers = doc.state.layers.map((layer) => {
+        if (!set.has(layer.id) || layer.kind !== "text" || !surfaceAt(zones, placeOnSurface(layer, doc))) return layer;
+        const follows = Boolean(layer.warp && layer.warp.auto);
+        if (follows === on && Boolean(layer.offSurface) === !on) return layer;
+        if (lockOf(layer, "position")) {
+          refused = true;
+          return layer;
+        }
+        if (on && !layer.warp && !surfaceFits(layer, doc)) return layer;
+        count++;
+        const next = layer.warp ? liftedOff(layer, doc) : Object.assign({}, layer);
+        if (on) delete next.offSurface;
+        else next.offSurface = true;
+        return next;
+      });
+      if (refused) emit("layer-locked");
+      if (!count) return 0;
+      commitState(doc, "Perspective", { layers });
+      firePanelEvent(EVENT_HISTORY);
+      return count;
+    },
+    // A text on a zone whose corners are taken by hand: its surface is its own from then on
+    ownTextWarp(id) {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id && item.kind === "text");
+      if (!layer || !layer.warp || !layer.warp.auto) return;
+      commitState(doc, "Perspective", { layers: replaceLayer(doc, layer, { offSurface: true, warp: Object.assign({}, layer.warp, { auto: undefined }) }) });
       firePanelEvent(EVENT_HISTORY);
     },
     setTextVerticalAlign(ids, value) {
@@ -14307,6 +14547,11 @@
     caretLines,
     photoshopLines,
     surfaceOf,
+    surfaceFits,
+    surfacesOf: (doc) => surfacesOf(doc.state),
+    surfaceAt: (doc, point) => surfaceAt(surfacesOf(doc.state), point),
+    flatSurface,
+    placeOnSurface,
     meshOk,
     meshShift,
     meshOutline,

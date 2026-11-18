@@ -569,6 +569,23 @@
     const outline = { ch, c };
     return PS().outlineOk(outline) ? outline : null;
   };
+  // The perspective zones of a page (see surfacesOf in photoshop.js) go in the metadata too,
+  // and the texts taken off them, told by their name and their words
+  const surfacesForSave = (doc) => PS().surfacesOf(doc).map(({ corners, unit, wide, found }) => ({ corners, unit, wide, found }));
+  const offSurfaceForSave = (doc) => doc.state.layers.filter((layer) => layer.kind === "text" && layer.offSurface).map((layer) => ({ name: layer.name, text: layer.params.layerText.textKey }));
+  const surfacesOfXmp = (xmp) => listOfXmp(xmp, "surfaces")
+    .filter((zone) => zone && Array.isArray(zone.corners) && zone.corners.length === 4 && zone.corners.every((corner) => Array.isArray(corner) && corner.length === 2 && corner.every(Number.isFinite))
+      && Array.isArray(zone.unit) && zone.unit.length === 2 && zone.unit.every((value) => value > 0))
+    .map(({ corners, unit, wide, found }) => ({ corners, unit, wide: wide > 0 ? wide : 1, found: { across: Boolean(found && found.across), down: Boolean(found && found.down) } }));
+  const attachOffSurface = (layers, xmp) => {
+    const taken = new Set();
+    listOfXmp(xmp, "offsurface").forEach((entry) => {
+      const layer = entry && layers.find((item) => item.kind === "text" && !taken.has(item) && item.name === entry.name && item.params.layerText.textKey === entry.text);
+      if (!layer) return;
+      layer.offSurface = true;
+      taken.add(layer);
+    });
+  };
   const attachWarps = (layers, xmp) => {
     const list = listOfXmp(xmp, "warps");
     if (!list.length) return;
@@ -987,6 +1004,7 @@
     };
     walk(psd.children, null);
     attachWarps(layers, psd.imageResources && psd.imageResources.xmpMetadata);
+    attachOffSurface(layers, psd.imageResources && psd.imageResources.xmpMetadata);
     // Photoshop's linked layers share a number; one shared by every layer is no link at all
     const shared = new Map();
     layers.forEach((layer) => {
@@ -1010,7 +1028,7 @@
     delete source.children;
     delete source.canvas;
     delete source.imageData;
-    return { width: psd.width, height: psd.height, resolution, layers, psd: { source }, missingFonts: missing, notes };
+    return { width: psd.width, height: psd.height, resolution, layers, psd: { source }, missingFonts: missing, notes, surfaces: surfacesOfXmp(psd.imageResources && psd.imageResources.xmpMetadata) };
   };
 
   // What FontScanR wants from a file: its text layers, without decoding a single pixel.
@@ -1692,7 +1710,7 @@
     delete imageResources.thumbnail;
     delete imageResources.thumbnailRaw;
     const sfx = window.TypeRSFX ? window.TypeRSFX.recipesForSave(doc) : [];
-    const xmp = xmpWithList(xmpWithSfx(imageResources.xmpMetadata, sfx), "warps", warpsForSave(doc));
+    const xmp = xmpWithList(xmpWithList(xmpWithList(xmpWithSfx(imageResources.xmpMetadata, sfx), "warps", warpsForSave(doc)), "surfaces", surfacesForSave(doc)), "offsurface", offSurfaceForSave(doc));
     if (xmp === undefined) delete imageResources.xmpMetadata;
     else imageResources.xmpMetadata = xmp;
     const root = Object.assign({}, source, { width: doc.width, height: doc.height, bitsPerChannel: 8, canvas: composite, children, imageResources });

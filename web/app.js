@@ -100,6 +100,8 @@
     clean: SVG('<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.290a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/><path d="M12 7.500l.9 2.600 2.600.9-2.600.9L12 14.500l-.9-2.600L8.500 11l2.600-.9Z"/>'),
     // A bubble taken by its outline: a speech bubble with a pointer on its edge
     reshape: SVG('<path d="M7.04 15.84A7 7 0 1 0 3.66 12.46L2.2 17.3Z"/><path d="m15.4 14 6.4 2.5-2.8 1.1-1.1 2.8Z"/>'),
+    // A wall going away: its edges and its lines, running to where they would meet
+    perspective: SVG('<path d="M3 4.500 21 8v8L3 19.500Z"/><path d="M3 12h18"/><path d="M9 5.700v12.600"/><path d="M15 6.800v10.400"/>'),
     eyedropper: SVG('<path d="m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12"/> <path d="m18 9 .4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4 3.4-3.4a1 1 0 1 1 3 3z"/> <path d="m2 22 .414-.414"/>'),
     text: SVG('<path d="M12 4v16"/> <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/> <path d="M9 20h6"/>'),
     sfx: SVG('<g transform="rotate(-14 10 14)"><path d="M14.600 15H5.400M3 20 9.600 6.300a.450.450 0 0 1 .800 0L17 20"/></g><path d="M13.38 3.64L14.51 1.52M16.53 6.53L19.01 5.21M17.56 10.79L20.14 11.07"/>'),
@@ -1097,6 +1099,8 @@
     if (!layer || layer.rotated || layer.envelope) return;
     if (layer.raster && Fonts.isMissing(layer.params.layerText.textStyleRange[0].textStyle.fontPostScriptName)) toast(T("This text's font is missing: it will be drawn with another font."), true);
     if (!layer.warp) ops.startTextWarp(layer.id);
+    // Laid by a perspective zone: its corners are its own from here on
+    else if (layer.warp.auto) ops.ownTextWarp(layer.id);
     warping = layer.id;
     toolBeforeSurface = app.tool;
     setTool("move");
@@ -2389,6 +2393,9 @@
     ["eyedropper", "Eyedropper", "I"],
     ["text", "Type", "T"],
     ["sfx", "SFX", "K"],
+    // Auto Perspective (perspective.js, perspective-tool.js): P, which Photoshop gives its Pen;
+    // Shift+P is Type > Perspective, the same by hand
+    ["perspective", "Auto Perspective", "P"],
     null,
     ["hand", "Hand", "H"],
     ["zoom", "Zoom", "Z"],
@@ -2421,6 +2428,7 @@
     eyedropper: "Click to pick the foreground colour. Alt: the background colour.",
     text: "Click a text to edit it, click elsewhere to add one, drag to draw a text box. Esc or Cmd+Enter to finish.",
     sfx: "Click: an SFX there. Drag: along a line. Alt + drag: along a path you draw. Shift + click: fill a bubble. On an SFX: drag a letter, its ● turns it, its corner resizes it.",
+    perspective: "Drag over a surface drawn on the page, a board, a wall, a sign: it becomes a perspective zone, and the texts in it take its perspective, the ones typed or moved there later too. The corners of the zone set its perspective, its sides how far it goes. A selected text: drag to move it, a corner to resize it, a side to stretch it. Enter or Alt+click: a text off its zone, or back on it. Delete: remove the zone.",
     hand: "Drag to pan. Space works with every tool.",
     zoom: "Click to zoom in, Alt to zoom out.",
   };
@@ -2500,6 +2508,7 @@
     ui.brushRing.setAttribute("hidden", "");
     if (window.TypeRSFX) window.TypeRSFX.toolChosen(tool);
     if (window.TypeRReshapeTool) window.TypeRReshapeTool.toolChosen(tool);
+    if (window.TypeRPerspectiveTool) window.TypeRPerspectiveTool.toolChosen(tool);
     if (window.TypeRRetouch) window.TypeRRetouch.toolChosen(tool);
     renderOptions();
     renderStatus();
@@ -6859,6 +6868,7 @@
     }
     if (tool === "sfx" && window.TypeRSFX) window.TypeRSFX.options(bar);
     if (tool === "reshape" && window.TypeRReshapeTool) window.TypeRReshapeTool.options(bar);
+    if (tool === "perspective" && window.TypeRPerspectiveTool) window.TypeRPerspectiveTool.options(bar);
     if (SELECTION_TOOLS.has(tool)) {
       const modes = document.createElement("span");
       modes.className = "obar__group";
@@ -7885,6 +7895,15 @@
       event.preventDefault();
       return;
     }
+    if (tool === "perspective" && window.TypeRPerspectiveTool) {
+      const made = window.TypeRPerspectiveTool.down(event, point, base);
+      if (made) {
+        gesture = made;
+        ui.stage.setPointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+      return;
+    }
     if (tool === "sfx" && window.TypeRSFX) {
       const made = window.TypeRSFX.down(event, point, base);
       if (made) {
@@ -8069,6 +8088,7 @@
     if (polygon && (tool === "polygon" || polygon.clean) && !gesture && !pinch) showPolygon(polygonAim(toDoc(event), event));
     if (tool === "sfx" && !gesture && app.doc && window.TypeRSFX) window.TypeRSFX.hover(event, toDoc(event));
     if (tool === "reshape" && !gesture && app.doc && window.TypeRReshapeTool) window.TypeRReshapeTool.hover(event, toDoc(event));
+    if (tool === "perspective" && !gesture && app.doc && window.TypeRPerspectiveTool) window.TypeRPerspectiveTool.hover(event, toDoc(event));
     if (tool === "gradient" && !gesture && app.doc && window.TypeRRetouch) window.TypeRRetouch.hover(event, toDoc(event));
     if (!gesture || event.pointerId !== gesture.id) {
       const adding = app.selectionMode === "add" || app.selectionMode === "subtract";
@@ -8085,6 +8105,11 @@
     if (current.kind === "reshape") {
       if (Math.hypot(event.clientX - current.x, event.clientY - current.y) > current.slop) current.moved = true;
       if (current.moved) window.TypeRReshapeTool.move(current, event, toDoc(event));
+      return;
+    }
+    if (current.kind === "perspective") {
+      if (Math.hypot(event.clientX - current.x, event.clientY - current.y) > current.slop) current.moved = true;
+      if (current.moved) window.TypeRPerspectiveTool.move(current, event, toDoc(event));
       return;
     }
     if (current.kind === "sfx") {
@@ -8230,11 +8255,16 @@
       }
       const { warp } = current.layer;
       const scaled = ([x, y]) => [x * sx, y * sy];
+      // On a perspective zone, its size there follows: as much longer as its sides become
+      // along the surface, and as much taller
+      const side = (a, b) => Math.hypot(warp.corners[b][0] - warp.corners[a][0], warp.corners[b][1] - warp.corners[a][1]);
+      const grown = (a, b) => Math.hypot((warp.corners[b][0] - warp.corners[a][0]) * sx, (warp.corners[b][1] - warp.corners[a][1]) * sy);
+      const by = (a, b, c, d) => (grown(a, b) + grown(c, d)) / Math.max(1e-6, side(a, b) + side(c, d));
       ops.setTextWarp(current.layer, Object.assign({}, warp, {
         corners: warp.corners.map(([x, y]) => [ax + (x - ax) * sx, ay + (y - ay) * sy]),
         bendTop: scaled(warp.bendTop),
         bendBottom: scaled(warp.bendBottom),
-      }), current.token);
+      }, warp.auto ? { auto: [warp.auto[0] * by(0, 1, 3, 2), warp.auto[1] * by(0, 3, 1, 2)] } : null), current.token);
       hud(`${Math.round(f.width * sx)} × ${Math.round(f.height * sy)} px`, event);
     } else if (current.kind === "side") {
       // Left and right: the width, the height following the text unless it was set.
@@ -8348,6 +8378,10 @@
     }
     if (kind === "reshape") {
       window.TypeRReshapeTool.up(current, event, point, cancelled);
+      return;
+    }
+    if (kind === "perspective") {
+      window.TypeRPerspectiveTool.up(current, event, point, cancelled);
       return;
     }
     if (kind === "sfx") {
@@ -8516,7 +8550,7 @@
     return null;
   };
 
-  const EDITS_ON_DOUBLE_CLICK = new Set(["move", "rectangle", "ellipse", "lasso"]);
+  const EDITS_ON_DOUBLE_CLICK = new Set(["move", "rectangle", "ellipse", "lasso", "perspective"]);
   ui.stage.addEventListener("dblclick", (event) => {
     if (event.target === ui.editor) {
       // Ctrl and a double-click with the wand: the first click opened the text, all of it stays selected
@@ -20663,7 +20697,7 @@
   // What Discord friends see while TypeR Studio is open (desktop.js sends it): the page's name
   // unless the user would rather not, what is being done on it, where it is in the chapter.
   // Null: nothing shown. Moving around or zooming doesn't change what was being done.
-  const TYPESETTING = new Set(["text", "sfx", "wand"]);
+  const TYPESETTING = new Set(["text", "sfx", "wand", "perspective"]);
   const CLEANING = new Set(["brush", "eraser", "magicEraser", "stamp", "clean", "heal", "reshape", "blur", "sharpen", "smudge"]);
   let presenceWork = "";
   const presence = () => {
