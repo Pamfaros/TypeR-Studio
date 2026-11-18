@@ -16,6 +16,8 @@
         "en": "Settings → Page display",
         "fr": "Paramètres → Affichage des pages"
       },
+      "demo": "flow-mode.mp4",
+      "poster": "flow-mode.webp",
       "covers": [
         "0fe800213618"
       ]
@@ -36,6 +38,8 @@
         "en": "P",
         "fr": "P"
       },
+      "demo": "auto-perspective.mp4",
+      "poster": "auto-perspective.webp",
       "covers": [
         "f8f52f19e1e5"
       ]
@@ -56,6 +60,8 @@
         "en": "Window → Library",
         "fr": "Fenêtre → Bibliothèque"
       },
+      "demo": "library.mp4",
+      "poster": "library.webp",
       "covers": [
         "19c0f83e437f"
       ]
@@ -76,6 +82,8 @@
         "en": "Move tool (V), or View",
         "fr": "Outil Déplacement (V), ou Affichage"
       },
+      "demo": "bubble-distances.mp4",
+      "poster": "bubble-distances.webp",
       "covers": [
         "5fece4e8fdb0"
       ]

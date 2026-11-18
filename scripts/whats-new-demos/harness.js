@@ -47,6 +47,7 @@ async function boot(o = {}) {
         ['typer-web-documents', 'typer-web-recent', 'typer-web-library'].forEach((n) => indexedDB.deleteDatabase(n));
         localStorage.setItem('typer.web.onboarding', 'done');
         localStorage.setItem('typer.web.betaNotice', '1');
+        localStorage.setItem('typer.web.flowOffered', '1');
         if (!extra || !extra['typer.web.whatsNew']) localStorage.setItem('typer.web.whatsNew.off', '1');
         Object.entries(extra || {}).forEach(([k, v]) => localStorage.setItem(k, v));
         sessionStorage.setItem('__seeded', '1');
