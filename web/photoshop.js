@@ -519,38 +519,67 @@
     return stemWidths.get(key);
   };
 
-  // Where each line goes and the box of its ink, measured once per text and style.
-  // Everything here is relative to the layer's anchor: moving a layer costs nothing.
-  const layoutCache = new Map();
-  // The same text object asks again on every frame: answered without writing its key out
-  const layoutByText = new WeakMap();
-  const relativeLayout = (lt, resolution) => {
+  // Where a line of a paragraph can end: after each of its words and, with Hyphenate, at the
+  // syllables wrapRuns cuts at, whatever the word's length: to read lines set elsewhere
+  const lineStops = (runs, hyphenRules) => {
+    const text = runs.map((run) => run.text).join("");
+    const isGap = (ch) => ch === " " || ch === "\t";
+    const lettersIn = (from, to) => (text.slice(from, to).match(/[\p{L}\p{N}]/gu) || []).length;
+    const stops = [];
+    let i = 0;
+    while (i < text.length) {
+      let end = i;
+      while (end < text.length && !isGap(text[end])) end++;
+      if (hyphenRules && end > i) {
+        for (const part of text.slice(i, end).matchAll(/[\p{L}\p{M}]+/gu)) {
+          const from = i + part.index;
+          const style = sliceRuns(runs, from, from + 1)[0];
+          const language = hyphenLanguage(style && style.style);
+          if (!language || (language === "fr" && UNCUT_ELISIONS.test(part[0]) && /^['’]/.test(text.slice(from + part[0].length)))) continue;
+          window.TypeRHyphenation.patternCuts(part[0], language).forEach((point) => {
+            const cut = from + point;
+            if (lettersIn(i, cut) >= hyphenRules.pre && lettersIn(cut, end) >= hyphenRules.post) stops.push({ end: cut, next: cut, hyphen: true });
+          });
+        }
+      }
+      let next = end;
+      while (next < text.length && isGap(text[next])) next++;
+      if (end > i) stops.push({ end, next, last: next >= text.length });
+      i = next > i ? next : i + 1;
+    }
+    return stops.sort((a, b) => a.end - b.end);
+  };
+  // A line that ends on a word cut there: the hyphen is drawn, but isn't in the text
+  const hyphenated = (runs) => {
+    const out = runs.slice();
+    const last = out[out.length - 1];
+    if (last) out[out.length - 1] = { text: last.text + "-", style: last.style };
+    out.hyphenated = true;
+    return out;
+  };
+
+  // A paragraph's lines where TypeR breaks them: the hard ones, each wrapped in its box
+  const wrappedLines = (lt, resolution) => {
     const shape = boxShape(lt);
-    const box = shape && shape.box;
-    const known = layoutByText.get(lt);
-    // The anti-aliasing method too: the box of a Faux Bold's ink depends on it
+    const paragraph = (lt.paragraphStyleRange && lt.paragraphStyleRange[0] && lt.paragraphStyleRange[0].paragraphStyle) || {};
+    const lines = splitLines(lt);
+    if (!shape) return lines;
+    const wrapped = [];
+    // `fit`: how much wider than its box Photoshop let this text's lines be (see fitOf)
+    const width = shape.box.width * (shape.box.fit || 1);
+    lines.forEach((runs) => {
+      if (runs.length) wrapped.push(...wrapRuns(runs, width, resolution, hyphenRulesOf(paragraph), Boolean(paragraph.hangingRoman)));
+      else wrapped.push(runs);
+    });
+    return wrapped;
+  };
+  // Lines put in place: where each goes and the box of their ink
+  const placedLines = (lt, resolution, lines) => {
+    const shape = boxShape(lt);
     const antiAlias = lt.antiAlias || "antiAliasSmooth";
-    if (known && known.generation === Fonts.generation && known.resolution === resolution && known.textKey === lt.textKey && known.ranges === lt.textStyleRange && known.paragraphs === lt.paragraphStyleRange && known.box === box && known.antiAlias === antiAlias) return known.layout;
-    const key = Fonts.generation + "|" + resolution + "|" + JSON.stringify([lt.textKey, lt.textStyleRange, lt.paragraphStyleRange, box, antiAlias]);
-    const remember = (layout) => {
-      layoutByText.set(lt, { generation: Fonts.generation, resolution, textKey: lt.textKey, ranges: lt.textStyleRange, paragraphs: lt.paragraphStyleRange, box, antiAlias, layout });
-      return layout;
-    };
-    const cached = layoutCache.get(key);
-    if (cached) return remember(cached);
-    if (layoutCache.size > 4000) layoutCache.clear();
     const paragraph = (lt.paragraphStyleRange && lt.paragraphStyleRange[0] && lt.paragraphStyleRange[0].paragraphStyle) || {};
     const align = paragraph.alignment || "center";
     const frame = shape ? shape.box : null;
-    let lines = splitLines(lt);
-    if (frame) {
-      const wrapped = [];
-      lines.forEach((runs) => {
-        if (runs.length) wrapped.push(...wrapRuns(runs, frame.width, resolution, hyphenRulesOf(paragraph), Boolean(paragraph.hangingRoman)));
-        else wrapped.push(runs);
-      });
-      lines = wrapped;
-    }
     // Photoshop's first baseline in a box is its Ascent: as low as the top of the font's
     // "d". Measured on 730 lines of real PSDs: 0.86 of the size in Sakana, 0.75 in
     // Victory Speech, where a fixed 0.75 put Sakana's lines 2 px too high
@@ -655,7 +684,30 @@
       top += shift;
       bottom += shift;
     }
-    const result = { lines: out, box: rectFrom(left, top, right, bottom), frame: frame ? { width: frame.width, height: frame.autoHeight ? contentBottom : frame.height } : null, overflow, contentHeight: contentBottom, firstOffset, shift, wrapped: lines };
+    return { lines: out, box: rectFrom(left, top, right, bottom), frame: frame ? { width: frame.width, height: frame.autoHeight ? contentBottom : frame.height } : null, overflow, contentHeight: contentBottom, firstOffset, shift, wrapped: lines };
+  };
+
+  // Where each line goes and the box of its ink, measured once per text and style.
+  // Everything here is relative to the layer's anchor: moving a layer costs nothing.
+  const layoutCache = new Map();
+  // The same text object asks again on every frame: answered without writing its key out
+  const layoutByText = new WeakMap();
+  const relativeLayout = (lt, resolution) => {
+    const shape = boxShape(lt);
+    const box = shape && shape.box;
+    const known = layoutByText.get(lt);
+    // The anti-aliasing method too: the box of a Faux Bold's ink depends on it
+    const antiAlias = lt.antiAlias || "antiAliasSmooth";
+    if (known && known.generation === Fonts.generation && known.resolution === resolution && known.textKey === lt.textKey && known.ranges === lt.textStyleRange && known.paragraphs === lt.paragraphStyleRange && known.box === box && known.antiAlias === antiAlias) return known.layout;
+    const key = Fonts.generation + "|" + resolution + "|" + JSON.stringify([lt.textKey, lt.textStyleRange, lt.paragraphStyleRange, box, antiAlias]);
+    const remember = (layout) => {
+      layoutByText.set(lt, { generation: Fonts.generation, resolution, textKey: lt.textKey, ranges: lt.textStyleRange, paragraphs: lt.paragraphStyleRange, box, antiAlias, layout });
+      return layout;
+    };
+    const cached = layoutCache.get(key);
+    if (cached) return remember(cached);
+    if (layoutCache.size > 4000) layoutCache.clear();
+    const result = placedLines(lt, resolution, wrappedLines(lt, resolution));
     layoutCache.set(key, result);
     return remember(result);
   };
@@ -678,13 +730,171 @@
     };
   };
 
+  // A paragraph opened from a PSD shows Photoshop's own pixels, and the file says its text
+  // and its box, not its lines. Where a line fits by a hair in Photoshop and not here, TypeR
+  // would break them elsewhere: the lines are then read back from the pixels, each row of
+  // ink as wide as the piece of text it holds, so that the caret, the selection and the
+  // hidden characters go where Photoshop put the letters.
+  // `layout`: the lines as Photoshop set them, placed (none: they are TypeR's own too), and
+  // `lines`, their runs. Null when the pixels don't tell: a turned text, its stroke drawn
+  // in, letters of several sizes, or no way of breaking the text that gives these rows.
+  const SAME_LINES = { layout: null, lines: null };
+  const pixelLines = new WeakMap();
+  const photoshopLines = (layer, doc) => {
+    const raster = layer.raster;
+    if (!raster || !raster.bitmap || !raster.bitmap.width || !raster.bitmap.height) return null;
+    const lt = layer.params.layerText;
+    const shape = boxShape(lt);
+    // A point text only breaks where it is told to
+    if (!shape) return SAME_LINES;
+    if (shape.orientation === "vertical" || raster.strokeDrawnIn || layer.rotated || layer.warp || layer.envelope) return null;
+    const relative = relativeLayout(lt, doc.resolution);
+    const [ax, ay] = anchorOf(lt, doc);
+    const dx = Math.round((raster.left - ax) * 100) / 100;
+    const dy = Math.round((raster.top - ay) * 100) / 100;
+    const known = pixelLines.get(raster.bitmap);
+    if (known && known.relative === relative && known.dx === dx && known.dy === dy) return known.read;
+    const read = readPixelLines(lt, relative, raster.bitmap, dx, dy, doc.resolution);
+    pixelLines.set(raster.bitmap, { relative, dx, dy, read });
+    return read;
+  };
+  // `dx`, `dy`: where the pixels are from the text's anchor
+  const readPixelLines = (lt, relative, bitmap, dx, dy, resolution) => {
+    if (relative.overflow || relative.shift || !relative.lines.length) return null;
+    const paragraph = (lt.paragraphStyleRange && lt.paragraphStyleRange[0] && lt.paragraphStyleRange[0].paragraphStyle) || {};
+    const styles = (lt.textStyleRange || []).map((range) => range.textStyle);
+    if (!styles.length) return null;
+    // The rows are told apart by their leading, and read where every letter has ink: one
+    // size and one leading for the whole text
+    const size = sizePxOf(styles[0], resolution);
+    const leadOf = (style) => (style.autoLeading === false && style.leading > 0 ? (style.leading * resolution) / 72 : sizePxOf(style, resolution) * (paragraph.autoLeadingPercentage || 1.2));
+    const lead = leadOf(styles[0]);
+    const even = (style) => Math.abs(sizePxOf(style, resolution) - size) < 0.01 && Math.abs(leadOf(style) - lead) < 0.01 && (style.verticalScale || 100) === (styles[0].verticalScale || 100) && !style.baselineShift && !style.impliedBaselineShift;
+    if (!(size > 0) || !(lead >= size * 0.7) || !styles.every(even)) return null;
+    const { width, height } = bitmap;
+    let source = bitmap;
+    if (!source.getContext) {
+      source = newCanvas(width, height);
+      source.getContext("2d").drawImage(bitmap, 0, 0);
+    }
+    const data = source.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, width, height).data;
+    const scaleY = (styles[0].verticalScale || 100) / 100;
+    const first = relative.lines[0].baseline;
+    // A row's ink, from the middle of its capitals down to its baseline: accents and
+    // descenders, which reach into the rows next to it, are left out
+    const rows = [];
+    for (let k = 0; ; k++) {
+      const top = Math.max(0, Math.ceil(first + k * lead - size * scaleY * 0.7 - dy));
+      const bottom = Math.min(height - 1, Math.floor(first + k * lead + size * scaleY * 0.05 - dy));
+      if (top >= height) break;
+      let left = Infinity;
+      let right = -Infinity;
+      for (let y = top; y <= bottom; y++) {
+        for (let x = 0; x < width && x < left; x++) {
+          if (data[(y * width + x) * 4 + 3] > 24) left = x;
+        }
+        for (let x = width - 1; x >= 0 && x > right; x--) {
+          if (data[(y * width + x) * 4 + 3] > 24) right = x;
+        }
+      }
+      rows.push(right >= left ? { left: left + dx, right: right + 1 + dx } : null);
+    }
+    while (rows.length && !rows[rows.length - 1]) rows.pop();
+    if (!rows.length) return null;
+    const widthOf = (k) => (rows[k] ? rows[k].right - rows[k].left : 0);
+    const tolerance = Math.max(3, size * 0.3);
+    const textOf = (runs) => runs.map((run) => run.text).join("");
+    const inkOf = (runs) => {
+      if (!runs.length) return 0;
+      const m = measureRuns(runs, resolution);
+      return isFinite(m.inkLeft) ? m.inkRight - m.inkLeft : 0;
+    };
+    // TypeR's own lines give these rows: nothing to read
+    const own = relative.wrapped;
+    if (own.length === rows.length && own.every((runs, k) => Math.abs(inkOf(sliceRuns(runs, 0, textOf(runs).replace(/[ \t]+$/, "").length)) - widthOf(k)) <= tolerance)) return SAME_LINES;
+    // Where each paragraph can break: after a word, or inside one with a hyphen where Hyphenate
+    // would cut it
+    const hyphenRules = hyphenRulesOf(paragraph);
+    const paragraphs = splitLines(lt).map((runs) => ({ runs, stops: lineStops(runs, hyphenRules) }));
+    // The breaks whose lines are the closest to the rows' widths. A line may be further from
+    // its row than TypeR's own lines are let to be: Photoshop kerns some pairs of letters
+    // that the browser doesn't ("tront" comes out 8 px narrower at 16 px in Sakana), and the
+    // other lines tell the breaks apart.
+    const reach = Math.max(tolerance, size * 0.6);
+    const widths = new Map();
+    const lineOf = (p, from, stop) => {
+      const runs = sliceRuns(paragraphs[p].runs, from, stop.end);
+      return stop.hyphen ? hyphenated(runs) : runs;
+    };
+    const lineWidth = (p, from, stop) => {
+      const key = p + ":" + from + ":" + stop.end + (stop.hyphen ? "-" : "");
+      if (!widths.has(key)) widths.set(key, inkOf(lineOf(p, from, stop)));
+      return widths.get(key);
+    };
+    const solved = new Map();
+    const solve = (p, from, k) => {
+      if (p === paragraphs.length) return k >= rows.length ? { cost: 0, line: null, rest: null } : null;
+      const key = p + ":" + from + ":" + k;
+      if (solved.has(key)) return solved.get(key);
+      let best = null;
+      const { runs, stops } = paragraphs[p];
+      if (!stops.length) {
+        // An empty paragraph: a row with nothing on it
+        const rest = widthOf(k) <= reach ? solve(p + 1, 0, k + 1) : null;
+        if (rest) best = { cost: rest.cost + widthOf(k), line: runs, rest };
+      }
+      for (const stop of stops) {
+        if (stop.end <= from) continue;
+        const wide = lineWidth(p, from, stop);
+        if (wide > widthOf(k) + reach + size) break;
+        const off = Math.abs(wide - widthOf(k));
+        if (off > reach) continue;
+        const rest = stop.last ? solve(p + 1, 0, k + 1) : solve(p, stop.next, k + 1);
+        if (rest && (!best || off + rest.cost < best.cost)) best = { cost: off + rest.cost, line: lineOf(p, from, stop), rest };
+      }
+      solved.set(key, best);
+      return best;
+    };
+    const found = solve(0, 0, 0);
+    if (!found) return null;
+    const lines = [];
+    for (let step = found; step && step.line; step = step.rest) lines.push(step.line);
+    if (lines.length === own.length && lines.every((runs, k) => textOf(runs) === textOf(own[k]).replace(/[ \t]+$/, "") || textOf(runs) === textOf(own[k]))) return SAME_LINES;
+    const layout = placedLines(lt, resolution, lines);
+    // Each line where its ink is in the pixels: Photoshop's letters are a little narrower or
+    // wider than the browser's
+    layout.lines.forEach((line, k) => {
+      if (!rows[k] || !line.runs.length || line.tabShift || !isFinite(line.m.inkLeft)) return;
+      const move = (rows[k].left + rows[k].right) / 2 - (line.x + (line.m.inkLeft + line.m.inkRight) / 2);
+      if (Math.abs(move) <= reach) line.x += move;
+    });
+    return { layout, lines };
+  };
+  // How much wider (or narrower) than its box Photoshop's lines say the text may be: the
+  // smallest change of width that makes TypeR break them as Photoshop did. With it, a text
+  // typed in keeps Photoshop's lines. 0 when none does, or when none is needed.
+  const fitOf = (layer, doc) => {
+    const read = photoshopLines(layer, doc);
+    if (!read || !read.lines) return 0;
+    const lt = layer.params.layerText;
+    const shape = boxShape(lt);
+    const textOf = (runs) => runs.map((run) => run.text).join("");
+    for (const fit of [1.005, 0.995, 1.01, 0.99, 1.015, 0.985, 1.02, 0.98, 1.03, 0.97]) {
+      const lines = wrappedLines(Object.assign({}, lt, { textShape: [Object.assign({}, shape, { box: Object.assign({}, shape.box, { fit }) })] }), doc.resolution);
+      if (lines.length === read.lines.length && lines.every((runs, k) => textOf(runs) === textOf(read.lines[k]))) return fit;
+    }
+    return 0;
+  };
+
   // Where the caret can go in a text, line by line as the canvas sets them: the part of the
   // text each line holds, and the x after each of its letters. The editor's own lines don't
   // break or measure the same, so its caret and selection are drawn from these.
   const caretCache = new WeakMap();
   const caretLines = (layer, doc) => {
     const lt = layer.params.layerText;
-    const relative = relativeLayout(lt, doc.resolution);
+    // On Photoshop's pixels, the lines Photoshop set
+    const read = photoshopLines(layer, doc);
+    const relative = (read && read.layout) || relativeLayout(lt, doc.resolution);
     let rel = caretCache.get(relative);
     if (!rel) {
       const text = lt.textKey || "";
@@ -5365,6 +5575,19 @@
     });
     return { canvas, x: base.x, y: base.y };
   };
+  // A text opened from a PSD shows Photoshop's own pixels, its lines where Photoshop broke
+  // them, and its caret and selection go on those lines (see photoshopLines). Where they
+  // can't be read from the pixels, a text typed on the page shows as TypeR sets it instead:
+  // its caret and selection are drawn on TypeR's lines.
+  const typedTexts = new WeakMap();
+  const asTyped = (layer, doc) => {
+    const typed = app.typed;
+    if (!typed || typed.doc !== doc || typed.id !== layer.id || !layer.raster || photoshopLines(layer, doc)) return layer;
+    if (!typedTexts.has(layer)) typedTexts.set(layer, Object.assign({}, layer, { raster: null }));
+    return typedTexts.get(layer);
+  };
+  // What the page shows in a layer's place
+  const onPage = (layer, doc) => (doc.preview && doc.preview.id === layer.id ? doc.preview : asTyped(layer, doc));
   const groupVisuals = new Map();
   // `still`: the folder moves as a whole, so its picture is the one it has at rest
   // `skip`: layers to leave out (the Magic Wand reads the page without its text)
@@ -5394,7 +5617,7 @@
     const shown = (layer, bare) => {
       const moving = live && live.ids.has(layer.id);
       const loose = moving && looseMasks(layer);
-      const source = loose ? shifted(layer, Math.round(live.dx), Math.round(live.dy), doc) : doc.preview && doc.preview.id === layer.id ? doc.preview : layer;
+      const source = loose ? shifted(layer, Math.round(live.dx), Math.round(live.dy), doc) : onPage(layer, doc);
       const visual = pageVisualOf(bare ? withoutStroke(source) : source, doc);
       if (!visual || !visual.canvas || !visual.canvas.width) return null;
       const dx = moving && !loose ? Math.round(live.dx) : 0;
@@ -5681,7 +5904,7 @@
       // A layer whose mask isn't linked moves under its mask, which stays
       const moving = live && live.ids.has(layer.id);
       const loose = moving && looseMasks(layer);
-      const shown = loose ? shifted(layer, Math.round(live.dx), Math.round(live.dy), doc) : doc.preview && doc.preview.id === layer.id ? doc.preview : layer;
+      const shown = loose ? shifted(layer, Math.round(live.dx), Math.round(live.dy), doc) : onPage(layer, doc);
       const still = rect && shown === layer && !moving && !(doc.liveTransform && doc.liveTransform.ids.has(layer.id));
       if (still) {
         const known = visualBoxes.get(layer);
@@ -7717,6 +7940,8 @@
     bg: { r: 255, g: 255, b: 255 },
     brush: { size: 24, hardness: 100 },
     textDefaults: { font: "WildjessNormal", family: "Wildjess", style: "Normal", size: 38, verticalAlign: "center", language: DEFAULT_TEXT_LANGUAGE, ligature: true },
+    // The text being typed on the page: { doc, id } (see asTyped)
+    typed: null,
     lastAction: 0,
     pendingActions: 0,
     monitor: { lastBounds: null, documentKey: null },
@@ -12111,6 +12336,9 @@
       const params = paramsFromStyle({ textProps: layer.params }, value, null, base.size);
       params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
       if (boxShape(layer.params.layerText)) params.layerText.textShape = clone(layer.params.layerText.textShape);
+      // Typed in, a text from a PSD keeps breaking its lines as Photoshop did (see fitOf)
+      const fit = layer.raster && boxShape(params.layerText) ? fitOf(layer, doc) : 0;
+      if (fit) boxShape(params.layerText).box.fit = fit;
       if (layer.params.layerText.textStyleRange.length > 1) params.layerText.textStyleRange = rangesAfterEdit(layer.params.layerText, params.layerText.textKey);
       const name = String(value).replace(/[\r\n]+/g, " ").substring(0, 60) || layer.name;
       // Typing redraws where the text was and where it is, not the whole page
@@ -12285,6 +12513,13 @@
       const y = f.top + (layout.relative.lines[0] ? layout.relative.lines[0].baseline : 0);
       lt.textClickPoint = { horizontal: (x / doc.width) * 100, vertical: (y / doc.height) * 100 };
       commitState(doc, "Convert Text", { layers: replaceLayer(doc, layer, { params, raster: null }) });
+    },
+    // The text typed on the page, or none: it shows as TypeR sets it (see asTyped)
+    showTyped(id) {
+      const before = app.typed;
+      app.typed = id && app.doc ? { doc: app.doc, id } : null;
+      const changes = (typed) => Boolean(typed) && typed.doc.state.layers.some((layer) => layer.id === typed.id && layer.raster);
+      if (changes(before) || changes(app.typed)) emit("render");
     },
     // The Line Breaks window: the page shows a break before it is clicked
     previewBreaks(id, model, breaks) {
@@ -14014,12 +14249,14 @@
     visualOf,
     boxOf,
     frameOf,
+    onPage,
     turnOf,
     turnedFrame,
     lineModel,
     lineWidth,
     layoutLayer,
     caretLines,
+    photoshopLines,
     surfaceOf,
     meshOk,
     meshShift,

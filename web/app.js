@@ -1383,7 +1383,7 @@
     if (!doc || (app.tool !== "move" && !typing && !wandShows)) return;
     // An SFX is its letters: the frame goes around them, and its handles scale and turn them all
     const sfxLetters = (layers) => layers.flatMap((layer) => (layer.kind === "group" && layer.sfx ? doc.state.layers.filter((item) => item.kind === "text" && item.group === layer.id) : [layer]));
-    const list = (typing ? doc.state.layers.filter((layer) => layer.id === editing.id) : sfxLetters(activeLayers()).filter((layer) => layer.kind !== "group" && !layer.isBackground && (!wandShows || layer.kind === "text"))).map((layer) => (doc.preview && doc.preview.id === layer.id ? doc.preview : layer));
+    const list = (typing ? doc.state.layers.filter((layer) => layer.id === editing.id) : sfxLetters(activeLayers()).filter((layer) => layer.kind !== "group" && !layer.isBackground && (!wandShows || layer.kind === "text"))).map((layer) => PS.onPage(layer, doc));
     if (!list.length) return;
     const live = doc.live;
     let left = Infinity;
@@ -8755,6 +8755,7 @@
     ui.editor.lang = SPELLING_LANGUAGES[layer.params.layerText.textStyleRange[0].textStyle.textLanguage || app.textDefaults.language] || "";
     ui.editor.hidden = false;
     placeEditor();
+    ops.showTyped(typingOnPage() ? layer.id : null);
     ui.editor.focus();
     if (Shell.touch) ui.editor.setSelectionRange(ui.editor.value.length, ui.editor.value.length);
     else if (press && typingOnPage()) pressTyped(press, drag);
@@ -8771,6 +8772,7 @@
     editing = null;
     ui.editor.hidden = true;
     ui.editor.blur();
+    ops.showTyped(null);
     const doc = app.doc;
     if (doc && !value.trim()) {
       const layer = doc.state.layers.find((item) => item.id === id);
@@ -8793,6 +8795,7 @@
     ui.editor.blur();
     const target = app.doc ? app.doc.history.findIndex((step) => step.id === base) : -1;
     if (target >= 0 && app.doc.historyIndex > target) ops.rollbackHistory(target);
+    ops.showTyped(null);
     ui.stage.focus({ preventScroll: true });
     schedule(false);
     renderStatus();
