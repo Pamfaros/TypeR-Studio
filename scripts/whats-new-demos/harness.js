@@ -44,7 +44,7 @@ async function boot(o = {}) {
     try {
       if (!sessionStorage.getItem('__seeded')) {
         localStorage.clear();
-        ['typer-web-documents', 'typer-web-recent'].forEach((n) => indexedDB.deleteDatabase(n));
+        ['typer-web-documents', 'typer-web-recent', 'typer-web-library'].forEach((n) => indexedDB.deleteDatabase(n));
         localStorage.setItem('typer.web.onboarding', 'done');
         localStorage.setItem('typer.web.betaNotice', '1');
         if (!extra || !extra['typer.web.whatsNew']) localStorage.setItem('typer.web.whatsNew.off', '1');
