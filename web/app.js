@@ -29,6 +29,9 @@
   // An error that stopped what the user asked for (an open, a save), counted without what it was
   // about, for Settings › Anonymous usage statistics (stats.js)
   const reportError = (error) => window.TypeRStats && window.TypeRStats.error(error);
+  // What stopped a save or an export, said plainly when it's the computer's memory: a page too
+  // large for what's left of it
+  const whyNot = (error) => (/out of memory|allocation failed|memory/i.test(String((error && error.message) || error)) ? T("not enough memory. Close the pages you don't need and try again.") : (error && error.message) || error);
   const DISCORD = "https://discord.com/invite/Pdmfmqk";
   const KOFI = "https://ko-fi.com/typertools";
 
@@ -11745,7 +11748,7 @@
       if (error.name === "SecurityError" && !as) return saveInDesign(doc, true);
       console.error(error);
       reportError(error);
-      toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
       return false;
     } finally {
       working(null);
@@ -11798,7 +11801,7 @@
       if (error.name !== "AbortError") {
         console.error(error);
         reportError(error);
-        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
       }
     } finally {
       working(null);
@@ -12936,7 +12939,7 @@
       if (error.name === "AbortError") return false;
       console.error(error);
       reportError(error);
-      toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
       return false;
     }
     ops.markSaved(doc, savedId);
@@ -12999,7 +13002,7 @@
         if (error.name === "SecurityError") return saveAsNow(doc, { block });
         console.error(error);
         reportError(error);
-        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
         return false;
       }
     }
@@ -13085,7 +13088,7 @@
     } catch (error) {
       if (error.name !== "AbortError") {
         reportError(error);
-        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
       }
     }
   };
@@ -13112,7 +13115,7 @@
     } catch (error) {
       if (error.name !== "AbortError") {
         reportError(error);
-        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
       }
     }
   };
@@ -13325,7 +13328,7 @@
       } catch (error) {
         if (error.name !== "AbortError") {
           reportError(error);
-          toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+          toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
         }
       }
     }) : null;
@@ -13667,7 +13670,7 @@
       } catch (error) {
         if (error.name !== "AbortError") {
           reportError(error);
-          toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+          toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
         }
         return;
       }
@@ -13804,7 +13807,7 @@
     } catch (error) {
       if (error.name !== "AbortError") {
         reportError(error);
-        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
       }
       return null;
     }
@@ -13855,7 +13858,7 @@
       } catch (error) {
         console.error(error);
         reportError(error);
-        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        toast(fill(T("Could not save: {error}"), { error: whyNot(error) }), true);
         return null;
       } finally {
         note.done();
