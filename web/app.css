@@ -1543,6 +1543,7 @@ html.touch .levels__values input { width: 72px; height: 40px; }
 .modal__body .fb__text { width: 100%; min-height: 96px; max-height: 40vh; padding: 7px 9px; box-sizing: border-box; background: var(--ui-dark); border: 1px solid var(--line); border-radius: 4px; line-height: 1.45; resize: vertical; }
 .modal__body .fb__text:focus { outline: none; border-color: var(--blue); }
 .modal__body .fb__note { margin: 2px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.modal__body .fb__note a { color: var(--blue); white-space: nowrap; }
 
 /* Settings > Appearance: each theme in its own colours */
 .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }

@@ -10,6 +10,7 @@
   "use strict";
 
   const ENDPOINT = "https://feedback.teamscanr.fr/";
+  const DISCORD = "https://discord.gg/dsHn3xQQTC";
   const STORE = "typer.web.feedback";
   // Days the app was opened on, counted once each, before it asks
   const DAYS_BEFORE = 5;
@@ -170,7 +171,13 @@
     area.maxLength = MAX_TEXT;
     area.placeholder = T("A tool, a shortcut, something that gets in your way…");
     area.value = draft.text || "";
-    el("p", "fb__note", main, T("Sent to the TypeR team with the app's language, web or desktop, and how many days you've used it. Nothing else."));
+    const note = el("p", "fb__note", main);
+    const [before, after = ""] = T("You can also join the {discord} to hear about everything new in TypeR, or if you have a problem.").split("{discord}");
+    const discord = el("a", "", null, T("Discord server"));
+    discord.href = DISCORD;
+    discord.target = "_blank";
+    discord.rel = "noopener";
+    note.append(before, discord, after);
 
     const pending = App().dialog({ title, body, cancel: T("Not Now"), ok: T("Send") });
     const modal = body.closest("dialog");
