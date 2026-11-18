@@ -37,7 +37,7 @@
   const PANELS = ["typer", "layers", "character", "sfx", "breaks", "history", "actions", "styles"].concat(PART_IDS);
   const SIDE = ["layers", "character", "sfx", "breaks", "history", "actions", "styles"];
   const SIDES = ["left", "right"];
-  const MIN = { tools: [42, 42], typer: [280, 260], layers: [170, 90], character: [210, 130], sfx: [230, 160], breaks: [210, 120], history: [150, 80], actions: [190, 110], styles: [150, 90] };
+  const MIN = { tools: [42, 42], typer: [200, 200], layers: [170, 90], character: [210, 130], sfx: [230, 160], breaks: [210, 120], history: [150, 80], actions: [190, 110], styles: [150, 90] };
   const HEIGHTS = { typer: 600, layers: 290, character: 240, sfx: 420, breaks: 290, history: 180, actions: 260, styles: 220 };
   PART_IDS.forEach((id) => {
     ELEMENTS[id] = `pane-${id}`;
@@ -313,14 +313,15 @@
     return group ? { group, column: null, side: null } : null;
   };
   // The TypeR panel with parts of it apart needs only the room of what it still shows: it can
-  // be made that small, docked or floating
+  // be made that small, docked or floating. Whole, it folds what doesn't fit (TextShapeR, the
+  // style buttons) and keeps the rest down to its minimum.
   const TYPER_ROOM = { actions: 50, shaper: 90, text: 120, styles: 80 };
   const minOf = (id) => {
     if (id !== "typer") return MIN[id];
     const apart = PART_IDS.filter(isOpen);
     if (Shell.touch || !apart.length) return MIN.typer;
     const inside = PART_IDS.filter((key) => !apart.includes(key)).map((key) => TYPER_ROOM[TYPER_PARTS[key].part]);
-    return [200, Math.min(MIN.typer[1], 40 + sum(inside))];
+    return [MIN.typer[0], Math.min(MIN.typer[1], 40 + sum(inside))];
   };
   const widest = (group) => Math.max(0, ...tabsOf(group).map((id) => minOf(id)[0]));
   const tallest = (group) => Math.max(0, ...tabsOf(group).map((id) => minOf(id)[1]));
