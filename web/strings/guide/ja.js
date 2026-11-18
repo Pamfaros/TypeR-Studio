@@ -111,7 +111,7 @@ window.TYPER_WEB_STRINGS.ja = Object.assign(window.TYPER_WEB_STRINGS.ja || {}, {
   "Hold {Space} and drag the page to move around it.": "{Space} を押しながらページをドラッグすると移動できます。",
   "{Tab} hides every panel, for the page alone. Window → Reset Workspace puts them all back in place.": "{Tab} ですべてのパネルが隠れ、ページだけになります。「ウィンドウ → ワークスペースをリセット」ですべて元の位置に戻せます。",
   "{PageUp} goes back. A page you leave without changes closes by itself: a chapter of 40 pages stays light.": "{PageUp} で前に戻ります。変更せずに離れたページは自動で閉じるので、40 ページの章でも軽いままです。",
-  "For your own chapter: File → Open Pages… ({Shift}{Cmd}{O}), then pick its folder or its files.": "自分の章は「ファイル → ページを開く…」（{Shift}{Cmd}{O}）で、フォルダーかファイルを選んで開きます。",
+  "For your own chapter: File → Open a Chapter… ({Shift}{Cmd}{O}), then pick its folder or its files.": "自分の章は「ファイル → 章を開く…」（{Shift}{Cmd}{O}）で、フォルダーかファイルを選んで開きます。",
   "Page 2 still has its original text. Take the Bubble Cleaner ({J}) and click inside bubbles ⑥ and ⑦: their text goes, painted over in each bubble's own colours.": "2 ページ目には元の文字が残っています。吹き出しクリーナー（{J}）を選び、吹き出し ⑥ と ⑦ の中をクリックしてください。文字が消え、それぞれの吹き出しの色で塗りつぶされます。",
   "{Cmd}{D} deselects. For harder spots, Edit → Generative Fill… redraws the selection, with LaMa Manga for free on this computer.": "{Cmd}{D} で選択を解除します。もっと難しい箇所は「編集 → 生成塗りつぶし…」で選択範囲を描き直せます。LaMa Manga を使い、このコンピューター上で無料です。",
   "Take the Magic Wand ({W}) and click inside bubble ① to select it.": "自動選択ツール（{W}）を選び、吹き出し ① の中をクリックして選択してください。",

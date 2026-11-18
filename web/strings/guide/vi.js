@@ -111,7 +111,7 @@ window.TYPER_WEB_STRINGS.vi = Object.assign(window.TYPER_WEB_STRINGS.vi || {}, {
   "Hold {Space} and drag the page to move around it.": "Giữ {Space} và kéo trang để di chuyển.",
   "{Tab} hides every panel, for the page alone. Window → Reset Workspace puts them all back in place.": "{Tab} ẩn mọi bảng, chỉ để lại trang. Cửa sổ → Đặt lại không gian làm việc đưa tất cả về chỗ cũ.",
   "{PageUp} goes back. A page you leave without changes closes by itself: a chapter of 40 pages stays light.": "{PageUp} để quay lại. Trang bạn rời đi mà không sửa gì sẽ tự đóng: một chương 40 trang vẫn nhẹ.",
-  "For your own chapter: File → Open Pages… ({Shift}{Cmd}{O}), then pick its folder or its files.": "Với chương của riêng bạn: Tệp → Mở trang… ({Shift}{Cmd}{O}), rồi chọn thư mục hoặc các tệp của nó.",
+  "For your own chapter: File → Open a Chapter… ({Shift}{Cmd}{O}), then pick its folder or its files.": "Với chương của riêng bạn: Tệp → Mở chương… ({Shift}{Cmd}{O}), rồi chọn thư mục hoặc các tệp của nó.",
   "Page 2 still has its original text. Take the Bubble Cleaner ({J}) and click inside bubbles ⑥ and ⑦: their text goes, painted over in each bubble's own colours.": "Trang 2 vẫn còn chữ gốc. Chọn Công cụ làm sạch bong bóng ({J}) rồi nhấp vào trong bong bóng ⑥ và ⑦: chữ biến mất, được tô lại bằng chính màu của từng bong bóng.",
   "{Cmd}{D} deselects. For harder spots, Edit → Generative Fill… redraws the selection, with LaMa Manga for free on this computer.": "{Cmd}{D} để bỏ chọn. Với chỗ khó hơn, Chỉnh sửa → Tô tạo sinh… vẽ lại vùng chọn, bằng LaMa Manga miễn phí ngay trên máy tính này.",
   "Take the Magic Wand ({W}) and click inside bubble ① to select it.": "Chọn Magic Wand ({W}) rồi nhấp vào trong bong bóng ① để chọn nó.",

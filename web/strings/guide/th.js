@@ -111,7 +111,7 @@ window.TYPER_WEB_STRINGS.th = Object.assign(window.TYPER_WEB_STRINGS.th || {}, {
   "Hold {Space} and drag the page to move around it.": "กด {Space} ค้างไว้แล้วลากหน้าเพื่อเลื่อนดู",
   "{Tab} hides every panel, for the page alone. Window → Reset Workspace puts them all back in place.": "{Tab} ซ่อนทุกแผงให้เหลือแค่หน้า ส่วน หน้าต่าง → รีเซ็ตพื้นที่ทำงาน จะจัดทุกแผงกลับเข้าที่",
   "{PageUp} goes back. A page you leave without changes closes by itself: a chapter of 40 pages stays light.": "{PageUp} ย้อนกลับ หน้าที่คุณออกไปโดยไม่ได้แก้อะไรจะปิดเอง: ตอนที่มี 40 หน้าก็ยังเบา",
-  "For your own chapter: File → Open Pages… ({Shift}{Cmd}{O}), then pick its folder or its files.": "สำหรับตอนของคุณเอง: ไฟล์ → เปิดหน้า… ({Shift}{Cmd}{O}) แล้วเลือกโฟลเดอร์หรือไฟล์ของตอนนั้น",
+  "For your own chapter: File → Open a Chapter… ({Shift}{Cmd}{O}), then pick its folder or its files.": "สำหรับตอนของคุณเอง: ไฟล์ → เปิดตอน… ({Shift}{Cmd}{O}) แล้วเลือกโฟลเดอร์หรือไฟล์ของตอนนั้น",
   "Page 2 still has its original text. Take the Bubble Cleaner ({J}) and click inside bubbles ⑥ and ⑦: their text goes, painted over in each bubble's own colours.": "หน้า 2 ยังมีข้อความต้นฉบับอยู่ เลือก ตัวล้างบอลลูนคำพูด ({J}) แล้วคลิกในบอลลูน ⑥ และ ⑦: ข้อความจะหายไป ถูกระบายทับด้วยสีของแต่ละบอลลูนเอง",
   "{Cmd}{D} deselects. For harder spots, Edit → Generative Fill… redraws the selection, with LaMa Manga for free on this computer.": "{Cmd}{D} ยกเลิกการเลือก สำหรับจุดที่ยากกว่า แก้ไข → เติมแบบสร้างสรรค์… จะวาดส่วนที่เลือกขึ้นใหม่ ด้วย LaMa Manga ฟรีบนคอมพิวเตอร์เครื่องนี้",
   "Take the Magic Wand ({W}) and click inside bubble ① to select it.": "เลือก Magic Wand ({W}) แล้วคลิกในบอลลูน ① เพื่อเลือก",

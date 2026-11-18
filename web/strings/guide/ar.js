@@ -111,7 +111,7 @@ window.TYPER_WEB_STRINGS.ar = Object.assign(window.TYPER_WEB_STRINGS.ar || {}, {
   "Hold {Space} and drag the page to move around it.": "اضغط باستمرار على {Space} واسحب الصفحة للتنقل فيها.",
   "{Tab} hides every panel, for the page alone. Window → Reset Workspace puts them all back in place.": "{Tab} يخفي كل اللوحات لتبقى الصفحة وحدها. ونافذة ← إعادة تعيين مساحة العمل تعيدها كلها إلى أماكنها.",
   "{PageUp} goes back. A page you leave without changes closes by itself: a chapter of 40 pages stays light.": "{PageUp} يعود إلى الخلف. الصفحة التي تغادرها دون تعديل تُغلق تلقائيًا: فيبقى فصل من 40 صفحة خفيفًا.",
-  "For your own chapter: File → Open Pages… ({Shift}{Cmd}{O}), then pick its folder or its files.": "لفصلك أنت: ملف ← فتح صفحات… ({Shift}{Cmd}{O})، ثم اختر مجلده أو ملفاته.",
+  "For your own chapter: File → Open a Chapter… ({Shift}{Cmd}{O}), then pick its folder or its files.": "لفصلك أنت: ملف ← فتح فصل… ({Shift}{Cmd}{O})، ثم اختر مجلده أو ملفاته.",
   "Page 2 still has its original text. Take the Bubble Cleaner ({J}) and click inside bubbles ⑥ and ⑦: their text goes, painted over in each bubble's own colours.": "ما زال النص الأصلي في الصفحة 2. اختر منظّف الفقاعات ({J}) وانقر داخل الفقاعتين ⑥ و⑦: يختفي نصهما تحت طلاء بألوان كل فقاعة.",
   "{Cmd}{D} deselects. For harder spots, Edit → Generative Fill… redraws the selection, with LaMa Manga for free on this computer.": "{Cmd}{D} يلغي التحديد. للمواضع الأصعب، تحرير ← التعبئة التوليدية… يعيد رسم التحديد، باستخدام LaMa Manga مجانًا على هذا الحاسوب.",
   "Take the Magic Wand ({W}) and click inside bubble ① to select it.": "اختر العصا السحرية ({W}) وانقر داخل الفقاعة ① لتحديدها.",

@@ -111,7 +111,7 @@ window.TYPER_WEB_STRINGS.ko = Object.assign(window.TYPER_WEB_STRINGS.ko || {}, {
   "Hold {Space} and drag the page to move around it.": "{Space} 키를 누른 채 페이지를 드래그해 이동하세요.",
   "{Tab} hides every panel, for the page alone. Window → Reset Workspace puts them all back in place.": "{Tab} 키를 누르면 모든 패널이 숨겨지고 페이지만 남습니다. 창 → 작업 영역 재설정으로 모두 제자리에 돌려놓을 수 있습니다.",
   "{PageUp} goes back. A page you leave without changes closes by itself: a chapter of 40 pages stays light.": "{PageUp} 키로 이전 페이지로 돌아갑니다. 수정 없이 떠난 페이지는 저절로 닫힙니다. 그래서 40페이지짜리 챕터도 가볍습니다.",
-  "For your own chapter: File → Open Pages… ({Shift}{Cmd}{O}), then pick its folder or its files.": "내 챕터는 파일 → 페이지 열기…({Shift}{Cmd}{O})에서 폴더나 파일을 고르세요.",
+  "For your own chapter: File → Open a Chapter… ({Shift}{Cmd}{O}), then pick its folder or its files.": "내 챕터는 파일 → 챕터 열기…({Shift}{Cmd}{O})에서 폴더나 파일을 고르세요.",
   "Page 2 still has its original text. Take the Bubble Cleaner ({J}) and click inside bubbles ⑥ and ⑦: their text goes, painted over in each bubble's own colours.": "2페이지에는 아직 원래 글자가 있습니다. 말풍선 클리너({J})를 골라 말풍선 ⑥과 ⑦ 안을 클릭하세요. 글자가 사라지고 각 말풍선의 색으로 덮입니다.",
   "{Cmd}{D} deselects. For harder spots, Edit → Generative Fill… redraws the selection, with LaMa Manga for free on this computer.": "{Cmd}{D} 키로 선택을 해제합니다. 더 어려운 곳은 편집 → 생성형 채우기…로 선택 영역을 다시 그립니다. 이 컴퓨터에서 LaMa Manga로 무료입니다.",
   "Take the Magic Wand ({W}) and click inside bubble ① to select it.": "마술봉 도구({W})를 골라 말풍선 ① 안을 클릭해 선택하세요.",

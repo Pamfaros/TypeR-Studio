@@ -111,7 +111,7 @@ window.TYPER_WEB_STRINGS.zh = Object.assign(window.TYPER_WEB_STRINGS.zh || {}, {
   "Hold {Space} and drag the page to move around it.": "按住 {Space} 并拖动页面即可移动视图。",
   "{Tab} hides every panel, for the page alone. Window → Reset Workspace puts them all back in place.": "{Tab} 会隐藏所有面板，只留下页面。“窗口 → 重置工作区”会把它们全部放回原位。",
   "{PageUp} goes back. A page you leave without changes closes by itself: a chapter of 40 pages stays light.": "{PageUp} 返回上一页。没有修改就离开的页面会自动关闭：即使是 40 页的章节也很轻快。",
-  "For your own chapter: File → Open Pages… ({Shift}{Cmd}{O}), then pick its folder or its files.": "打开你自己的章节：“文件 → 打开页面…”（{Shift}{Cmd}{O}），然后选择它的文件夹或文件。",
+  "For your own chapter: File → Open a Chapter… ({Shift}{Cmd}{O}), then pick its folder or its files.": "打开你自己的章节：“文件 → 打开章节…”（{Shift}{Cmd}{O}），然后选择它的文件夹或文件。",
   "Page 2 still has its original text. Take the Bubble Cleaner ({J}) and click inside bubbles ⑥ and ⑦: their text goes, painted over in each bubble's own colours.": "第 2 页还有原文。选择气泡清理（{J}），在气泡 ⑥ 和 ⑦ 内点击：文字消失，被各自气泡的颜色覆盖。",
   "{Cmd}{D} deselects. For harder spots, Edit → Generative Fill… redraws the selection, with LaMa Manga for free on this computer.": "{Cmd}{D} 取消选择。更难处理的地方，可用“编辑 → 创成式填充…”重绘选区，使用 LaMa Manga，在这台电脑上免费运行。",
   "Take the Magic Wand ({W}) and click inside bubble ① to select it.": "选择魔棒工具（{W}），在气泡 ① 内点击以选中它。",
