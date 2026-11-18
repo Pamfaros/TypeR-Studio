@@ -290,6 +290,12 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .box { fill: none; stroke: var(--blue); stroke-width: 1px; shape-rendering: crispEdges; }
 .transform-frame { fill: none; stroke: var(--blue); stroke-width: 1px; }
 .smart-line { fill: none; stroke: #ff00ff; stroke-width: 1px; shape-rendering: crispEdges; }
+/* The room a dragged text has in its bubble: a line to each wall, and its length */
+.room { pointer-events: none; }
+.room__line { fill: none; stroke: var(--blue); stroke-width: 1px; stroke-opacity: 0.55; shape-rendering: crispEdges; }
+.room__gap { fill: var(--blue-dark); font-size: 9px; font-variant-numeric: tabular-nums; stroke: rgb(255 255 255 / 0.85); stroke-width: 2.5px; stroke-linejoin: round; paint-order: stroke; }
+.room.is-even .room__line { stroke: #12a150; stroke-opacity: 0.8; }
+.room.is-even .room__gap { fill: #0b7a3b; }
 .crop-shade { fill: rgba(0, 0, 0, 0.55); fill-rule: evenodd; }
 .crop-grid { fill: none; stroke: rgba(255, 255, 255, 0.45); stroke-width: 1px; shape-rendering: crispEdges; }
 .crop-frame { fill: none; stroke: #fff; stroke-width: 1px; shape-rendering: crispEdges; }

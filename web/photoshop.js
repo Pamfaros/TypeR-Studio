@@ -7422,6 +7422,258 @@
     return splitBubble(whole.bounds, boxes).map((lobe, i) => tightLobe(whole, lobe, boxes[i], doc) || lobe);
   };
 
+  /* ------------------------ the room around a text being moved ----------------------- */
+
+  // For each pixel, the square of how far the nearest pixel of `from` is (huge when there is none)
+  const FAR = 1e20;
+  const squaredDistances = (from, w, h) => {
+    const out = new Float32Array(w * h);
+    for (let i = 0; i < out.length; i++) out[i] = from[i] ? 0 : FAR;
+    const size = Math.max(w, h);
+    const f = new Float64Array(size);
+    const v = new Int32Array(size);
+    const z = new Float64Array(size + 1);
+    // Along a line of pixels, the lower envelope of the parabolas the pixels before left
+    const pass = (offset, step, n) => {
+      for (let q = 0; q < n; q++) f[q] = out[offset + q * step];
+      let k = 0;
+      v[0] = 0;
+      z[0] = -Infinity;
+      z[1] = Infinity;
+      for (let q = 1; q < n; q++) {
+        let s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+        while (s <= z[k]) {
+          k--;
+          s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+        }
+        k++;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = Infinity;
+      }
+      k = 0;
+      for (let q = 0; q < n; q++) {
+        while (z[k + 1] < q) k++;
+        out[offset + q * step] = (q - v[k]) * (q - v[k]) + f[v[k]];
+      }
+    };
+    for (let x = 0; x < w; x++) pass(x, w, h);
+    for (let y = 0; y < h; y++) pass(y * w, 1, w);
+    return out;
+  };
+
+  // The bubble under a point, as the move tool measures a text against it: what the wand takes
+  // there, in a box a pixel wider all around. `filled` has the holes its lettering leaves filled
+  // in, `depth` says how far each of its pixels is from the wall (squared), and `body` is the
+  // same opened by `radius`, as Align does: neither a tail nor the spikes of a shout are part of
+  // it. Kept until the page's pixels change: a drag asks for it again at every step.
+  const ROOM_MOST = 0.3;
+  const ROOM_OWN = 0.5;
+  let roomKept = null;
+  let othersKept = null;
+  const bubbleBodyAt = (doc, x, y) => {
+    const data = sampleData(doc, true);
+    const px = Math.max(0, Math.min(doc.width - 1, Math.floor(x)));
+    const py = Math.max(0, Math.min(doc.height - 1, Math.floor(y)));
+    if (roomKept && roomKept.data === data && roomKept.seen[py * doc.width + px]) return roomKept.bubble;
+    const region = bubbleAt(doc, px, py);
+    roomKept = { data, seen: region ? region.seen : new Uint8Array(0), bubble: null };
+    if (!region) return null;
+    const b = region.bounds;
+    if (b.width * b.height < MIN_BUBBLE_AREA || b.width * b.height > doc.width * doc.height * ROOM_MOST) return null;
+    const w = b.width + 2;
+    const h = b.height + 2;
+    const left = b.left - 1;
+    const top = b.top - 1;
+    // What can be reached from the box's sides without crossing the bubble is outside it
+    const outside = new Uint8Array(w * h);
+    const inside = (i) => {
+      const ix = i % w;
+      const iy = (i - ix) / w;
+      return ix > 0 && iy > 0 && ix < w - 1 && iy < h - 1 && region.seen[(top + iy) * region.w + left + ix] === 1;
+    };
+    const stack = [0];
+    outside[0] = 1;
+    while (stack.length) {
+      const i = stack.pop();
+      const ix = i % w;
+      const reach = (j) => {
+        if (outside[j] || inside(j)) return;
+        outside[j] = 1;
+        stack.push(j);
+      };
+      if (ix > 0) reach(i - 1);
+      if (ix < w - 1) reach(i + 1);
+      if (i >= w) reach(i - w);
+      if (i < w * (h - 1)) reach(i + w);
+    }
+    const filled = new Uint8Array(w * h);
+    let area = 0;
+    let own = 0;
+    for (let i = 0; i < filled.length; i++) {
+      if (outside[i]) continue;
+      filled[i] = 1;
+      area++;
+      if (inside(i)) own++;
+    }
+    // Mostly holes: the lines of a drawing, with what they go around, not a bubble
+    if (own < area * ROOM_OWN) return null;
+    const depth = squaredDistances(outside, w, h);
+    const shortest = Math.min(b.width, b.height);
+    const most = Math.floor(shortest / 2 - 1);
+    let radius = most > 0 ? Math.min(most, Math.max(MIN_OPEN_RADIUS, Math.round(shortest * OPEN_RATIO))) : 0;
+    let body = filled;
+    for (; radius >= 1; radius = Math.floor(radius / 2)) {
+      const core = new Uint8Array(w * h);
+      let any = false;
+      for (let i = 0; i < core.length; i++) {
+        if (depth[i] > radius * radius) {
+          core[i] = 1;
+          any = true;
+        }
+      }
+      if (!any) continue;
+      const reach = squaredDistances(core, w, h);
+      body = new Uint8Array(w * h);
+      for (let i = 0; i < body.length; i++) body[i] = filled[i] && reach[i] <= radius * radius ? 1 : 0;
+      break;
+    }
+    roomKept.bubble = { left, top, width: w, height: h, filled, body, depth, radius: Math.max(0, radius), peaks: new Int32Array(w * h), apart: new Map() };
+    return roomKept.bubble;
+  };
+
+  // The lobes of a bubble: from any of its pixels, going up to where the wall is furthest leads
+  // to the middle of the lobe it's in. `peakOf` is that place (found once for each pixel met on
+  // the way), and two of them are `apart` when they aren't the middle of one same lobe: between
+  // them the bubble gets narrow, and the second one's lobe is big enough to be one.
+  const peakOf = (bubble, start) => {
+    const { peaks, depth, width, height } = bubble;
+    const path = [];
+    let i = start;
+    while (!peaks[i]) {
+      path.push(i);
+      const x = i % width;
+      let best = i;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const j = i + dy * width + dx;
+          if (x + dx < 0 || x + dx >= width || j < 0 || j >= width * height) continue;
+          if (depth[j] > depth[best]) best = j;
+        }
+      }
+      if (best === i) {
+        peaks[i] = i + 1;
+        break;
+      }
+      i = best;
+    }
+    const peak = peaks[i];
+    path.forEach((step) => { peaks[step] = peak; });
+    return peak - 1;
+  };
+  const lobesApart = (bubble, home, other) => {
+    if (home === other) return false;
+    const key = home * bubble.peaks.length + other;
+    if (bubble.apart.has(key)) return bubble.apart.get(key);
+    const { depth, width } = bubble;
+    const here = Math.sqrt(depth[home]);
+    const there = Math.sqrt(depth[other]);
+    let apart = false;
+    if (there >= here * NECK_LOBE) {
+      const x0 = home % width;
+      const y0 = (home - x0) / width;
+      const x1 = other % width;
+      const y1 = (other - x1) / width;
+      const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+      const least = NECK_DIP * NECK_DIP * Math.min(depth[home], depth[other]);
+      for (let n = 1; n < steps && !apart; n++) {
+        apart = depth[Math.round(y0 + ((y1 - y0) * n) / steps) * width + Math.round(x0 + ((x1 - x0) * n) / steps)] <= least;
+      }
+    }
+    bubble.apart.set(key, apart);
+    return apart;
+  };
+
+  // How far a text's box is from its bubble's wall, straight out from the middle of each of its
+  // sides: [{ side, from, to, gap }], page pixels, for the sides where that says something.
+  //  - A tail, or a spike: the wall is where the bubble's body ends, not its tip.
+  //  - A double bubble: towards its other lobe, nothing. Going there the bubble gets narrow, then
+  //    wide again: how far its wall is, from the text's middle on, falls then rises (NECK_DIP of
+  //    what it was, into a lobe NECK_LOBE of this one at least; less is the bump of a cloud). Or
+  //    the line ends up in the other lobe without going through the narrow part, when the two
+  //    are side by side at an angle (see lobesApart).
+  //  - Another text on the way: nothing either, the room that side isn't this text's alone.
+  const NECK_DIP = 0.85;
+  const NECK_LOBE = 1 / 3;
+  const SIDES = [["top", 0, -1], ["bottom", 0, 1], ["left", -1, 0], ["right", 1, 0]];
+  const roomAround = (doc, box, others) => {
+    const bubble = bubbleBodyAt(doc, box.xMid, box.yMid);
+    if (!bubble) return [];
+    const cx = Math.floor(box.xMid);
+    const cy = Math.floor(box.yMid);
+    const edges = { top: Math.round(box.top), bottom: Math.round(box.bottom), left: Math.round(box.left), right: Math.round(box.right) };
+    const at = (x, y) => {
+      const ix = x - bubble.left;
+      const iy = y - bubble.top;
+      return ix < 0 || iy < 0 || ix >= bubble.width || iy >= bubble.height ? -1 : iy * bubble.width + ix;
+    };
+    const rooms = [];
+    const middle = at(cx, cy);
+    const home = middle >= 0 && bubble.filled[middle] ? peakOf(bubble, middle) : -1;
+    SIDES.forEach(([side, ux, uy]) => {
+      // The first pixel past the box that side, and how many steps from the middle it is
+      const start = ux ? (ux < 0 ? cx - (edges.left - 1) : edges.right - cx) : uy < 0 ? cy - (edges.top - 1) : edges.bottom - cy;
+      let peak = 0;
+      let valley = 0;
+      let neck = false;
+      let bodyEnd = -1;
+      let wall = -1;
+      for (let step = 0; ; step++) {
+        const i = at(cx + ux * step, cy + uy * step);
+        if (i < 0 || !bubble.filled[i]) {
+          wall = step;
+          break;
+        }
+        if (step >= start && bodyEnd < 0 && !bubble.body[i]) bodyEnd = step;
+        const deep = Math.sqrt(bubble.depth[i]);
+        if (deep > peak) {
+          peak = deep;
+          valley = deep;
+        } else if (deep < valley) valley = deep;
+        else if (valley <= NECK_DIP * Math.min(peak, deep) && deep >= peak * NECK_LOBE) neck = true;
+        if (!neck && step >= start && home >= 0 && lobesApart(bubble, home, peakOf(bubble, i))) neck = true;
+      }
+      // The text goes past the bubble that side, or what's there is another lobe
+      if (wall < start || neck) return;
+      // What goes on past the body is a tail when it's longer than it is wide halfway (the wall
+      // is then where the body ends), and a bump of the outline otherwise
+      let end = wall;
+      if (bodyEnd >= 0 && wall - bodyEnd >= 3) {
+        const half = (bodyEnd + wall) >> 1;
+        let across = 1;
+        for (let side = -1; side <= 1; side += 2) {
+          for (let n = 1; ; n++) {
+            const i = at(cx + ux * half + uy * side * n, cy + uy * half + ux * side * n);
+            if (i < 0 || !bubble.filled[i]) break;
+            across++;
+          }
+        }
+        if (wall - bodyEnd >= across) end = bodyEnd;
+      }
+      if (end <= start && end !== wall) return;
+      const gap = end - start;
+      const from = ux ? [ux < 0 ? edges.left : edges.right, cy + 0.5] : [cx + 0.5, uy < 0 ? edges.top : edges.bottom];
+      const to = [from[0] + ux * gap, from[1] + uy * gap];
+      const x0 = Math.min(from[0], to[0]);
+      const x1 = Math.max(from[0], to[0]);
+      const y0 = Math.min(from[1], to[1]);
+      const y1 = Math.max(from[1], to[1]);
+      if (others.some((other) => other.left <= x1 && other.right >= x0 && other.top <= y1 && other.bottom >= y0)) return;
+      rooms.push({ side, from, to, gap });
+    });
+    return rooms;
+  };
+
   // What the Magic Eraser reads without Sample All Layers: the active layer's own pixels,
   // transparent where it has none
   const layerPixels = (doc, layer) => {
@@ -10719,6 +10971,26 @@
       } else commitState(doc, name, change, coalesce);
       if (selection === null) emit("selection", null);
       firePanelEvent(activeIds ? EVENT_SELECT : EVENT_HISTORY);
+    },
+    // While a text is dragged, moved by dx, dy so far: how far it is from its bubble's sides
+    // (see roomAround). Nothing for an SFX's letters, which go over the drawing.
+    roomAround(id, dx, dy) {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id);
+      if (!layer || layer.kind !== "text") return [];
+      if (!othersKept || othersKept.layers !== doc.state.layers || othersKept.id !== id) {
+        const byId = new Map(doc.state.layers.map((item) => [item.id, item]));
+        const inSfx = Boolean(layer.sfx || (layer.group && byId.get(layer.group) && byId.get(layer.group).sfx));
+        othersKept = {
+          layers: doc.state.layers,
+          id,
+          box: inSfx ? null : boxOf(layer, doc),
+          boxes: doc.state.layers.filter((item) => item.kind === "text" && item.id !== id && chainOf(item, byId).visible).map((item) => boxOf(item, doc)),
+        };
+      }
+      const b = othersKept.box;
+      if (!b || !(b.width > 0 && b.height > 0)) return [];
+      return roomAround(doc, rectFrom(b.left + dx, b.top + dy, b.right + dx, b.bottom + dy), othersKept.boxes);
     },
     // The live part of a move: only the picture on screen changes until it ends
     beginLiveMove(ids) {

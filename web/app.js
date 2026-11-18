@@ -1377,6 +1377,7 @@
     // Free Transform: while it's dragged, neither frame nor handles, as for a move
     if (turning && !(gesture && gesture.kind === "transform" && gesture.mode === "move" && gesture.moved)) drawTransform(turning);
     drawSmartLines();
+    drawRoom();
     drawStampMark();
     if (window.TypeRRetouch) window.TypeRRetouch.drawOverlay(ui.handles, gesture);
     if (turning) return;
@@ -1640,6 +1641,36 @@
       return `M${Math.round(x0) + 0.5} ${Math.round(y0) + 0.5}L${Math.round(x1) + 0.5} ${Math.round(y1) + 0.5}`;
     }).join("");
     svgEl("path", { class: "smart-line", d }, ui.handles);
+  };
+
+  // While a text is dragged, the room it has in its bubble: from the middle of each of its sides,
+  // a thin line to the bubble's wall, and how long it is. Two facing sides as far as each other
+  // (a pixel apart at most): the text is centred between them, and they say so in green. Towards
+  // the other half of a double bubble, nothing: that wall isn't this text's. Faint, so the page
+  // stays what is looked at; View > Show Bubble Distances turns them off.
+  const FACING = [["top", "bottom"], ["left", "right"]];
+  const drawRoom = () => {
+    const doc = app.doc;
+    const live = doc && doc.live;
+    if (!settings.bubbleRoom || !live || live.ids.size !== 1 || !gesture || gesture.kind !== "move" || !gesture.moved) return;
+    const rooms = ops.roomAround(Array.from(live.ids)[0], Math.round(live.dx), Math.round(live.dy));
+    if (!rooms.length) return;
+    const gaps = new Map(rooms.map((room) => [room.side, room.gap]));
+    const even = new Set();
+    FACING.forEach((pair) => {
+      if (pair.every((side) => gaps.has(side)) && Math.abs(gaps.get(pair[0]) - gaps.get(pair[1])) <= 1) pair.forEach((side) => even.add(side));
+    });
+    rooms.forEach(({ side, from, to, gap }) => {
+      const group = svgEl("g", { class: even.has(side) ? "room is-even" : "room" }, ui.handles);
+      const upright = side === "top" || side === "bottom";
+      const [fx, fy] = toScreen(from[0], from[1]).map((value) => Math.round(value) + 0.5);
+      const [tx, ty] = toScreen(to[0], to[1]).map((value) => Math.round(value) + 0.5);
+      svgEl("path", { class: "room__line", d: `M${fx} ${fy}L${tx} ${ty}` }, group);
+      // The length, in pixels, beside the middle of the line: on neither the line nor the text
+      const x = upright ? (fx + tx) / 2 + 4 : (fx + tx) / 2;
+      const y = upright ? (fy + ty) / 2 + 3.5 : (fy + ty) / 2 - 4;
+      svgEl("text", { class: "room__gap", x: Math.round(x), y: Math.round(y), "text-anchor": upright ? "start" : "middle" }, group).textContent = String(gap);
+    });
   };
 
   /* ---- Free Transform ---- */
@@ -3755,6 +3786,7 @@
     if (saved.snapText === true) settings.snapText = true;
     if (saved.spellcheck === false) settings.spellcheck = false;
     if (saved.transformControls === false) settings.transformControls = false;
+    if (saved.bubbleRoom === false) settings.bubbleRoom = false;
     if (saved.taskBar === false) settings.taskBar = false;
     // Where the contextual task bar was moved: at a distance of the text or selection it follows,
     // above or below it, or pinned to one place in the window
@@ -3918,6 +3950,15 @@
   const setTransformControls = (on) => {
     if (settings.transformControls === on) return;
     settings.transformControls = on;
+    keepSettings();
+    renderOptions();
+    schedule(false);
+  };
+  // Show Bubble Distances: from the Move tool's options, or View > Show Bubble Distances and
+  // its shortcut
+  const setBubbleRoom = (on) => {
+    if (settings.bubbleRoom === on) return;
+    settings.bubbleRoom = on;
     keepSettings();
     renderOptions();
     schedule(false);
@@ -6912,6 +6953,10 @@
           setTransformControls(on);
         }));
       }
+      bar.appendChild(checkbox(T("Show Bubble Distances"), settings.bubbleRoom, (on) => {
+        document.activeElement.blur();
+        setBubbleRoom(on);
+      }));
       const layer = activeLayer();
       const doc = app.doc;
       if (doc && layer && layer.kind !== "group") {
@@ -8789,7 +8834,9 @@
 
   function drawTypeMarks() {
     ui.typeMarks.textContent = "";
-    if (!typingOnPage()) return;
+    // While the text is dragged, neither caret nor selection: they'd stay where it was, and hide
+    // the bubble it's being centred in
+    if (!typingOnPage() || app.doc.live) return;
     const lines = typedLines();
     if (!lines.length) return;
     const { selectionStart: from, selectionEnd: to } = ui.editor;
@@ -18351,6 +18398,7 @@
       { label: "Snap Text", check: () => settings.snapText, enabled: () => settings.smartGuides, action: () => { settings.snapText = !settings.snapText; keepSettings(); } },
       // No keys of its own, as in Photoshop: one can be given in the Shortcuts tab
       { label: "Show Transform Controls", check: () => settings.transformControls, enabled: () => !Shell.touch, action: () => setTransformControls(!settings.transformControls) },
+      { label: "Show Bubble Distances", check: () => settings.bubbleRoom, action: () => setBubbleRoom(!settings.bubbleRoom) },
       { label: "Show Hidden Characters", keys: "Alt+Shift+Cmd+I", anywhere: true, check: () => settings.hiddenChars, action: () => setHiddenChars(!settings.hiddenChars) },
     ]],
     ["Window", [
