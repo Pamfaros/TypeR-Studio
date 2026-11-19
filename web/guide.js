@@ -719,7 +719,7 @@
           text: "Now Edit → Content-Aware Fill… ({Shift}{Backspace}), then OK: TypeR rebuilds what was under the text, from what surrounds it.",
           targets: [{ el: () => menuButton("Edit") }],
           done: (ctx, since) => did(since, ["Content-Aware Fill", "Generative Fill"], 2) > 0,
-          result: "{Cmd}{D} deselects. For harder spots, Edit → Generative Fill… redraws the selection, with LaMa Manga for free on this computer.",
+          result: "{Cmd}{D} deselects. For harder spots, Edit → Generative Fill… redraws the selection with a local inpainting model for free on this computer.",
         },
       ],
     },

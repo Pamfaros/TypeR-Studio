@@ -5153,7 +5153,11 @@
       case "adobeauth": return T("Reconnect to Adobe in Generative Fill settings.");
       case "adobeaccess": return T("Adobe refused access to Firefly. Check your plan and account on the Firefly website.") + detail;
       case "download": return fill(T("{model} couldn't be downloaded. Check the connection and try again."), { model: modelName(settings) }) + detail;
-      case "local": return (Gen.isFlux(Gen.modelOf(settings)) ? fill(T("{model} couldn't run on this computer."), { model: modelName(settings) }) : IN_APP ? T("LaMa Manga couldn't run on this device.") : T("LaMa Manga couldn't run in this browser.")) + detail;
+      case "local": {
+        const model = Gen.modelOf(settings);
+        if (model === "lama-manga") return (IN_APP ? T("LaMa Manga couldn't run on this device.") : T("LaMa Manga couldn't run in this browser.")) + detail;
+        return fill(T("{model} couldn't run on this computer."), { model: modelName(settings) }) + detail;
+      }
       case "key": return fill(T("{service} refused the key. Check it in Generative Fill's settings."), { service }) + detail;
       case "quota": return fill(T("{service} says the quota or the balance is used up."), { service }) + detail;
       case "blocked": return T("The model refused this picture or this prompt.") + detail;
@@ -5922,7 +5926,7 @@
     const promptless = !Gen.takesPrompt(Gen.load());
     const values = await dialog({
       title: T("Generative Fill"),
-      body: promptless ? T("LaMa Manga redraws the selection from what surrounds it, on this device.") : T("Leave the prompt empty to take the text out and redraw what it hid."),
+      body: promptless ? fill(T("{model} redraws the selection from what surrounds it, on this device."), { model: modelName(Gen.load()) }) : T("Leave the prompt empty to take the text out and redraw what it hid."),
       ok: T("Generate"),
       also: T("Settings…"),
       fields: promptless ? [] : [{ id: "prompt", label: T("Prompt"), value: gen.prompt }],
@@ -5989,7 +5993,7 @@
     // A model on this device takes no prompt: it only redraws what the selection hides
     const promptless = !Gen.takesPrompt(Gen.load());
     input.value = promptless ? "" : gen.prompt;
-    input.placeholder = promptless ? T("LaMa Manga redraws the selection, no prompt needed") : T("Describe it, or leave empty to remove the text");
+    input.placeholder = promptless ? fill(T("{model} redraws the selection, no prompt needed"), { model: modelName(Gen.load()) }) : T("Describe it, or leave empty to remove the text");
     input.disabled = promptless;
     input.setAttribute("aria-label", T("Prompt"));
     input.spellcheck = settings.spellcheck;

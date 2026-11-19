@@ -83,12 +83,12 @@
         ["ideogram/v4.5/edit", "Ideogram 4.5 Edit"],
       ],
     },
-    // No key and no bill: the model runs in this browser (lama-worker.js)
-    // In the desktop app, FLUX too: the app runs it outside the browser (desktop/src/local-ai.js)
+    // LaMa runs in the browser; MAT and FLUX use the desktop's localAI IPC.
+    // Adding a model here only exposes it; desktop/src/local-ai.js must implement it.
     local: {
       name: "On this device",
       local: true,
-      models: [["lama-manga", "LaMa Manga"]].concat(window.TypeRDesktop && window.TypeRDesktop.localAI ? [["flux2-klein-4b", "FLUX.2 Klein 4B"], ["flux3-klein", "FLUX 3 Klein"]] : []),
+      models: [["lama-manga", "LaMa Manga"]].concat(window.TypeRDesktop && window.TypeRDesktop.localAI ? [["mat-512", "MAT (Mask-Aware Transformer)"], ["flux2-klein-4b", "FLUX.2 Klein 4B"], ["flux3-klein", "FLUX 3 Klein"]] : []),
     },
   };
   // What the local models draw: a square of this many pixels, nothing else
@@ -110,6 +110,8 @@
   const isLocal = (service) => Boolean(SERVICES[service] && SERVICES[service].local);
   const desktopAI = (window.TypeRDesktop && window.TypeRDesktop.localAI) || null;
   const isFlux = (model) => /^flux/.test(model);
+  const isMat = (model) => model === "mat-512";
+  const isDesktopModel = (model) => isFlux(model) || isMat(model);
 
   // What a picture costs, in US dollars, as the services listed it on 2026-11-05. Google bills
   // tokens: its rates per million (in, text and thinking out, image out) give the cost of each
@@ -292,8 +294,8 @@
   const ready = (settings) => settings.service === "adobe" ? adobeState.connected : isLocal(settings.service) || Boolean((settings.keys[settings.service] || "").trim());
   // A local model takes no prompt: it redraws the selection from what surrounds it
   const takesPrompt = (settings) => !isLocal(settings.service) || isFlux(modelOf(settings));
-  // The size a model draws at, when it's a fixed square: the area sent is chosen for it
-  const fixedSize = (settings) => (isLocal(settings.service) && !isFlux(modelOf(settings)) ? LOCAL_SIZE : 0);
+  // Only browser LaMa is pre-scaled to 512. MAT needs original pixels for adaptive crops.
+  const fixedSize = (settings) => (isLocal(settings.service) && modelOf(settings) === "lama-manga" ? LOCAL_SIZE : 0);
   // The local models draw in place, pixel for pixel: their picture needs no aligning
   const drawsInPlace = (settings) => isLocal(settings.service) || (settings.service === "adobe" && modelOf(settings) === "firefly-fill");
   // FLUX on this computer: its time grows faster than the area, so the area goes no bigger than
@@ -306,7 +308,7 @@
   const knowsLongRatios = (model) => /3\.1-flash|nano-banana-2/.test(model);
   // Models that draw at 1K, 2K or 4K; the others at about one megapixel
   const knowsSizes = (model) => /gemini-3|nano-banana-2|nano-banana-pro/.test(model) && !/lite/.test(model);
-  const ratiosFor = (model) => (model === "lama-manga" ? ["1:1"] : isFlux(model) ? RATIOS.concat(LONG_RATIOS) : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
+  const ratiosFor = (model) => ((model === "lama-manga") ? ["1:1"] : (isMat(model) || isFlux(model)) ? RATIOS.concat(LONG_RATIOS) : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
     .map((label) => {
       const [w, h] = label.split(":").map(Number);
       return { label, value: w / h };
@@ -510,9 +512,13 @@
     }
     if (isLocal(service)) {
       const model = modelOf(settings);
-      if (!isFlux(model)) return viaLocal({ canvas, mask, signal, onProgress });
-      const words = (prompt || "").trim();
-      return viaFlux({ model, canvas, mask, prompt: words ? `${words}\n\n${KEEP_FRAMING}` : FLUX_PROMPT, signal, onProgress });
+      if (model === "lama-manga") return viaLocal({ canvas, mask, signal, onProgress });
+      if (isMat(model)) return viaDesktop({ model, canvas, mask, prompt: "", signal, onProgress });
+      if (isFlux(model)) {
+        const words = (prompt || "").trim();
+        return viaDesktop({ model, canvas, mask, prompt: words ? `${words}\n\n${KEEP_FRAMING}` : FLUX_PROMPT, signal, onProgress });
+      }
+      throw new GenerativeError("local", `Unsupported local model: ${model}`);
     }
     const key = (settings.keys[service] || "").trim();
     if (!key) throw new GenerativeError("nokey");
@@ -641,12 +647,12 @@
     }
   };
 
-  /* -------------------- on this computer: FLUX, in the desktop app -------------------- */
+  /* -------------------- on this computer: MAT / FLUX, in the desktop app -------------------- */
 
-  const fluxJobs = new Map();
-  let fluxCount = 0;
+  const desktopJobs = new Map();
+  let desktopCount = 0;
   if (desktopAI) desktopAI.onProgress((progress) => {
-    const listener = fluxJobs.get(progress.id);
+    const listener = desktopJobs.get(progress.id);
     if (listener) listener(progress);
   });
   const pngOf = async (canvas) => {
@@ -656,8 +662,8 @@
   };
   // A call to the app, stopped by `signal`: what it answers, or the error it says
   const askApp = async (call, signal, onProgress) => {
-    const id = `flux-${++fluxCount}`;
-    fluxJobs.set(id, onProgress || (() => {}));
+    const id = `local-${++desktopCount}`;
+    desktopJobs.set(id, onProgress || (() => {}));
     const stop = () => desktopAI.cancel(id);
     if (signal) signal.addEventListener("abort", stop, { once: true });
     try {
@@ -667,24 +673,25 @@
       if (kind === "cancelled" || (signal && signal.aborted)) throw new DOMException("Aborted", "AbortError");
       throw new GenerativeError(kind === "download" ? "download" : "local", (answer && answer.message) || "");
     } finally {
-      fluxJobs.delete(id);
+      desktopJobs.delete(id);
       if (signal) signal.removeEventListener("abort", stop);
     }
   };
-  // What is still to download for the model in use, in bytes: 0 when it is here, or not a FLUX
+  // Download bytes needed for a desktop model; MAT is installed through desktopAI.install.
   const localDownload = async (settings) => {
     const model = modelOf(settings);
-    if (!desktopAI || !isLocal(settings.service) || !isFlux(model)) return 0;
+    if (!desktopAI || !isLocal(settings.service) || !isDesktopModel(model)) return 0;
     const now = await desktopAI.status();
     return now && now.models[model] && !now.models[model].installed ? now.models[model].download : 0;
   };
   const localStatus = () => (desktopAI ? desktopAI.status() : Promise.resolve(null));
   const localRemove = (model) => (desktopAI ? desktopAI.remove(model) : Promise.resolve(null));
-  const viaFlux = async ({ model, canvas, mask, prompt, signal, onProgress }) => {
-    if (!desktopAI) throw new GenerativeError("local", "FLUX runs only in the desktop app.");
-    // At the model's sizes, in steps of 16 pixels; the mask white where it draws
-    const width = Math.max(64, Math.round(canvas.width / 16) * 16);
-    const height = Math.max(64, Math.round(canvas.height / 16) * 16);
+  const viaDesktop = async ({ model, canvas, mask, prompt, signal, onProgress }) => {
+    if (!desktopAI) throw new GenerativeError("local", "MAT and FLUX require the desktop app.");
+    // MAT receives original selection resolution. Cropping/tiling happens in Python.
+    // FLUX still uses dimensions rounded to multiples of 16.
+    const width = isMat(model) ? canvas.width : Math.max(64, Math.round(canvas.width / 16) * 16);
+    const height = isMat(model) ? canvas.height : Math.max(64, Math.round(canvas.height / 16) * 16);
     const picture = document.createElement("canvas");
     picture.width = width;
     picture.height = height;
@@ -715,7 +722,10 @@
     hctx.putImageData(shades, 0, 0);
     const [image, holeBytes] = await Promise.all([pngOf(picture), pngOf(holes)]);
     const tell = onProgress || (() => {});
-    if (await localDownload({ service: "local", models: { local: model }, custom: {} })) {
+    const state = await desktopAI.status();
+    const entry = state && state.models && state.models[model];
+    if (!entry) throw new GenerativeError("local", `Unknown desktop model: ${model}`);
+    if (!entry.installed) {
       await askApp((id) => desktopAI.install(id, model), signal, tell);
     }
     const bytes = await askApp((id) => desktopAI.generate(id, { model, image, mask: holeBytes, prompt, width, height }), signal, tell);

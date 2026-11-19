@@ -31,7 +31,7 @@ All the tools typesetters and cleaners have always dreamed of, in one place.
 
 - Detect Text finds all the text on the page, and Remove Text clears it in one click.
 - Generative Fill works with a fal.ai or Google key, or without any key right on your device
-  (LaMa Manga, plus FLUX in the desktop app).
+  (LaMa Manga, plus MAT and FLUX in the desktop app).
 - Bubble Cleaner, Spot Healing Brush, Magic Eraser, Content-Aware Fill, Color Range, Levels and
   Auto-Align Layers.
 
