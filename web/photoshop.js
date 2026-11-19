@@ -10550,6 +10550,184 @@
     return reached;
   };
 
+  /* ============================== Patch Tool ============================== */
+
+  const PATCH_MODES = new Set(["normal", "poisson"]);
+  const PATCH_SAMPLES = new Set(["current", "below", "all"]);
+  const PATCH_MAX_PIXELS = 4000000;
+
+  const patchRegion = (doc, selection, dx, dy, feather) => {
+    const bounds = selectionBox(doc, selection);
+    const padding = Math.max(3, Math.ceil(feather * 3) + 2);
+    // Keep both the target ROI and its translated source inside the page.
+    const left = Math.max(0, -dx, bounds.left - padding);
+    const top = Math.max(0, -dy, bounds.top - padding);
+    const right = Math.min(doc.width, doc.width - dx, bounds.right + padding);
+    const bottom = Math.min(doc.height, doc.height - dy, bounds.bottom + padding);
+    const width = right - left;
+    const height = bottom - top;
+    if (width <= 0 || height <= 0) return null;
+    if (width * height > PATCH_MAX_PIXELS) {
+      throw new Error("Patch selection is too large. Divide it into smaller regions.");
+    }
+    return { left, top, right, bottom, width, height };
+  };
+
+  const patchMasks = (doc, selection, region, feather) => {
+    const { width, height, left, top } = region;
+    const hardMask = new Uint8Array(width * height);
+    paintSelection(doc, selection, hardMask, left, top, width, 1);
+    const coverage = new Uint8Array(hardMask.length);
+    if (feather <= 0) {
+      for (let i = 0; i < hardMask.length; i++) coverage[i] = hardMask[i] ? 255 : 0;
+      return { hardMask, coverage };
+    }
+    const hardCanvas = newCanvas(width, height);
+    const hardContext = hardCanvas.getContext("2d", { willReadFrequently: true });
+    const pixels = hardContext.createImageData(width, height);
+    for (let i = 0; i < hardMask.length; i++) {
+      pixels.data[i * 4 + 3] = hardMask[i] ? 255 : 0;
+    }
+    hardContext.putImageData(pixels, 0, 0);
+    const softCanvas = newCanvas(width, height);
+    const softContext = softCanvas.getContext("2d", { willReadFrequently: true });
+    softContext.filter = `blur(${feather}px)`;
+    softContext.drawImage(hardCanvas, 0, 0);
+    softContext.filter = "none";
+    const blurred = softContext.getImageData(0, 0, width, height).data;
+    for (let i = 0; i < hardMask.length; i++) {
+      // Feather stays within the selection, preserving pixels outside it.
+      coverage[i] = hardMask[i] ? blurred[i * 4 + 3] : 0;
+    }
+    return { hardMask, coverage };
+  };
+
+  const patchReadRaster = (doc, layer, region) => {
+    const canvas = newCanvas(region.width, region.height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const visual = rasterVisual(layer, doc);
+    if (visual && visual.canvas) {
+      ctx.drawImage(visual.canvas, visual.x - region.left, visual.y - region.top);
+    }
+    return ctx.getImageData(0, 0, region.width, region.height);
+  };
+
+  const patchReadComposite = (doc, layer, region, sample) => {
+    const canvas = newCanvas(region.width, region.height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const layerIndex = doc.state.layers.indexOf(layer);
+    const visibleIds = sample === "below"
+      ? new Set(doc.state.layers.slice(0, layerIndex + 1).map((item) => item.id))
+      : null;
+    paintDoc(doc, ctx, {
+      x: -region.left,
+      y: -region.top,
+      rect: {
+        left: region.left,
+        top: region.top,
+        right: region.right,
+        bottom: region.bottom
+      },
+      skip: visibleIds ? (item) => !visibleIds.has(item.id) : null
+    });
+    return ctx.getImageData(0, 0, region.width, region.height);
+  };
+
+  const patchReadSource = (doc, layer, region, dx, dy, sample) => {
+    const source = {
+      left: region.left + dx,
+      top: region.top + dy,
+      right: region.right + dx,
+      bottom: region.bottom + dy,
+      width: region.width,
+      height: region.height
+    };
+    return sample === "current"
+      ? patchReadRaster(doc, layer, source)
+      : patchReadComposite(doc, layer, source, sample);
+  };
+
+  const patchNormalBlend = (target, source, coverage) => {
+    const dst = target.data;
+    const src = source.data;
+    const output = new Uint8ClampedArray(dst.length);
+    for (let p = 0, i = 0; i < dst.length; p++, i += 4) {
+      const weight = coverage[p] / 255;
+      if (weight <= 0) {
+        output.set(dst.subarray(i, i + 4), i);
+        continue;
+      }
+      const sourceWeight = (src[i + 3] / 255) * weight;
+      const targetWeight = (dst[i + 3] / 255) * (1 - weight);
+      const alpha = sourceWeight + targetWeight;
+      for (let c = 0; c < 3; c++) {
+        output[i + c] = alpha > 0
+          ? (src[i + c] * sourceWeight + dst[i + c] * targetWeight) / alpha
+          : 0;
+      }
+      output[i + 3] = Math.round(alpha * 255);
+    }
+    return new ImageData(output, target.width, target.height);
+  };
+
+  // Delegate gradient-domain blending to the standalone patch engine.
+  const patchPoissonBlend = (target, source, masks, signal) => {
+    const engine = window.TypeRPatchEngine;
+    if (!engine || typeof engine.poissonBlend !== "function") {
+      throw new Error("Patch Engine is missing. Load patch-engine.js before using Poisson Blend.");
+    }
+    return engine.poissonBlend({
+      width: target.width,
+      height: target.height,
+      target,
+      source,
+      mask: masks.hardMask,
+      coverage: masks.coverage,
+      guidance: "source",
+      signal
+    });
+  };
+
+  const patchApplyAlphaLock = (layer, target, source, result) => {
+    if (!lockOf(layer, "transparency") && !layer.isBackground) return;
+    const dst = target.data;
+    const src = source.data;
+    const out = result.data;
+    for (let i = 0; i < out.length; i += 4) {
+      if (dst[i + 3] === 0 || src[i + 3] === 0) {
+        out.set(dst.subarray(i, i + 4), i);
+      } else {
+        out[i + 3] = dst[i + 3];
+      }
+    }
+  };
+
+  const patchPrepare = ({ doc, layerId, selection, offset, sample = "current", feather = 3 }) => {
+    if (!doc || !app.docs.includes(doc) || app.doc !== doc || !selection || !offset ||
+        doc.state.selection !== selection) return null;
+    if (!PATCH_SAMPLES.has(sample)) throw new Error("Unsupported Patch Tool sample mode.");
+    const dx = Number(offset.dx);
+    const dy = Number(offset.dy);
+    if (!Number.isInteger(dx) || !Number.isInteger(dy) || (!dx && !dy)) return null;
+    const layer = doc.state.layers.find((item) => item.id === layerId && item.kind === "raster" && !item.adjustment);
+    if (!layer) throw new Error("Patch Tool requires an active raster layer.");
+    if (lockOf(layer, "pixels")) {
+      emit("layer-locked");
+      return null;
+    }
+    const box = selectionBox(doc, selection);
+    if (box.left + dx < 0 || box.top + dy < 0 ||
+        box.right + dx > doc.width || box.bottom + dy > doc.height) return null;
+    const radius = Math.max(0, Math.min(32, Math.round(Number(feather) || 0)));
+    const region = patchRegion(doc, selection, dx, dy, radius);
+    if (!region) return null;
+    const masks = patchMasks(doc, selection, region, radius);
+    if (!masks.hardMask.some(Boolean)) return null;
+    const target = patchReadRaster(doc, layer, region);
+    const source = patchReadSource(doc, layer, region, dx, dy, sample);
+    return { doc, layer, selection, region, masks, target, source };
+  };
+
   const ops = {
     // Image > Canvas Size: the page changes around an anchor, 0 to 1 on each side
     resizeCanvas(width, height, ax, ay, fill) {
@@ -10850,6 +11028,86 @@
       const selection = polygonSelection(doc, points);
       if (!selection) return ops.deselect();
       return ops.userSelection(selection, name, mode);
+    },
+    // Create a Patch Tool selection without triggering TypeR's text paste event.
+    patchSelect(points, mode = "new") {
+      const doc = app.doc;
+      if (!doc || !Array.isArray(points) || points.length < 3) return null;
+      const incoming = polygonSelection(doc, points);
+      if (!incoming) return null;
+      if (!["new", "add", "subtract", "intersect"].includes(mode)) {
+        throw new Error("Unsupported Patch Tool selection mode.");
+      }
+      const current = doc.state.selection;
+      const combined = current && mode !== "new"
+        ? combineSelections(doc, current, incoming, mode)
+        : mode === "subtract" || mode === "intersect" ? null : incoming;
+      if (!combined && !current) return null;
+      return ops.quietSelection(combined, "Patch Selection");
+    },
+    // Return a quick, non-destructive Normal preview. No history entry is created.
+    patchSample(options) {
+      if (!options) return null;
+      const prepared = patchPrepare(options);
+      if (!prepared) return null;
+      const { region, target, source, masks } = prepared;
+      const imageData = patchNormalBlend(target, source, masks.coverage);
+      patchApplyAlphaLock(prepared.layer, target, source, imageData);
+      return { region, imageData, hardMask: masks.hardMask, offset: options.offset };
+    },
+    // Apply Normal or Poisson Blend to the active raster layer as one history step.
+    async patchCommit(options) {
+      if (!options) return false;
+      const { doc, selection, layerId, blend = "poisson", signal } = options || {};
+      if (signal && signal.aborted) return false;
+      if (!PATCH_MODES.has(blend)) throw new Error("Unsupported Patch Tool blend mode.");
+      if (!doc || !app.docs.includes(doc) || app.doc !== doc || !selection) return false;
+      const before = doc.state;
+      const width = doc.width;
+      const height = doc.height;
+      const prepared = patchPrepare(options);
+      if (!prepared || (signal && signal.aborted) || doc.state !== before) return false;
+      const { layer, region, target, source, masks } = prepared;
+      let result;
+      if (blend === "normal") {
+        result = patchNormalBlend(target, source, masks.coverage);
+      } else {
+        result = await patchPoissonBlend(target, source, masks, signal);
+      }
+      if (!result || (signal && signal.aborted)) return false;
+      if (result.width !== region.width || result.height !== region.height ||
+          result.data.length !== region.width * region.height * 4) {
+        throw new Error("Invalid Patch Tool output size.");
+      }
+      // A pixels operation replaces its entire ROI, including unselected pixels.
+      for (let p = 0; p < masks.coverage.length; p++) {
+        if (masks.coverage[p]) continue;
+        const at = p * 4;
+        result.data.set(target.data.subarray(at, at + 4), at);
+      }
+      patchApplyAlphaLock(layer, target, source, result);
+      if ((signal && signal.aborted) || app.doc !== doc || !app.docs.includes(doc) ||
+          doc.state !== before || doc.state.selection !== selection ||
+          doc.width !== width || doc.height !== height ||
+          doc.state.layers.find((item) => item.id === layerId) !== layer ||
+          lockOf(layer, "pixels")) {
+        return false;
+      }
+      const canvas = newCanvas(region.width, region.height);
+      canvas.getContext("2d").putImageData(result, 0, 0);
+      const operation = {
+        t: "pixels",
+        pieces: [{
+          x: region.left - (layer.dx || 0),
+          y: region.top - (layer.dy || 0),
+          canvas
+        }]
+      };
+      const layers = replaceLayer(doc, layer, {
+        paint: (layer.paint || NONE).concat([operation])
+      });
+      commitState(doc, "Patch Tool", { layers });
+      return true;
     },
     userSelection(selection, name, mode) {
       const doc = app.doc;

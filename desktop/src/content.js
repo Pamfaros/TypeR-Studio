@@ -9,6 +9,7 @@ const path = require("path");
 const { app, net } = require("electron");
 
 const SEED = path.join(__dirname, "..", "content");
+const MAT_FORK = require("./mat-fork").enabled;
 const SITE = process.env.TYPER_UPDATE_SITE || "https://typer.hayasaku.fr";
 const PARALLEL = 6;
 const PUBLIC_KEY = fs.readFileSync(path.join(__dirname, "update-key.pub.pem"));
@@ -48,6 +49,7 @@ let active = null;
 
 // Called once, before the window opens. A newer installer's own copy beats an older download.
 const choose = () => {
+  if (MAT_FORK) { active = { root: SEED, info: seedInfo() }; return active; }
   const seed = seedInfo();
   const state = readState();
   if (state.id && !state.confirmed && state.tries >= 1) {
@@ -108,6 +110,7 @@ const inside = (root, file) => {
 // this app, "failed" when the site couldn't be reached. Two checks at once are the same check.
 let checking = null;
 const update = () => {
+  if (MAT_FORK) return Promise.resolve("none");
   if (!checking) checking = download().finally(() => { checking = null; });
   return checking;
 };

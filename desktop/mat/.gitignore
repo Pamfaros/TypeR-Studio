@@ -1,0 +1,18 @@
+# Python runtime and environment
+.venv/
+__pycache__/
+*.pyc
+
+# External MAT source
+/MAT/
+
+# Model weights
+/pretrained/
+*.pkl
+
+# Build dependencies
+/uv.exe
+
+# Temporary downloads and logs
+*.part
+*.log

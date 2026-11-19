@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, screen, session, shell } = require("electron");
 const content = require("./content");
+const MAT_FORK = require("./mat-fork").enabled;
 const localAI = require("./local-ai");
 const discord = require("./discord");
 const { createFirefly } = require("./firefly");
@@ -465,6 +466,7 @@ const tellProgress = (percent) => {
 };
 
 const checkContent = async () => {
+  if (MAT_FORK) return;
   if (await content.check()) updateReady();
 };
 
@@ -475,6 +477,7 @@ const checkContent = async () => {
 let shellCheck = null;
 const shellFound = new Set();
 const checkShell = (found) => {
+  if (MAT_FORK) return Promise.resolve("none");
   if (shellReady) return Promise.resolve("ready");
   if (!app.isPackaged || isTest) return Promise.resolve("none");
   if (found) shellFound.add(found);

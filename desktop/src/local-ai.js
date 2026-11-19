@@ -15,6 +15,7 @@ const path = require("path");
 const { spawn, execFile, execFileSync } = require("child_process");
 const { Readable } = require("stream");
 const { app } = require("electron");
+const matEngine = require("./mat-engine");
 
 const RELEASES = "https://github.com/leejet/stable-diffusion.cpp/releases/download/";
 const ENGINES = {
@@ -68,18 +69,24 @@ const filesOf = (model) => {
   return one ? [one.diffusion, one.llm, one.vae] : [];
 };
 const engineReady = () => Boolean(engine) && isChecked(path.join(engineDir(), "engine.zip"), engine) && fs.existsSync(path.join(engineDir(), engine.server));
-const installed = (model) => engineReady() && filesOf(model).every((key) => isChecked(filePath(key), FILES[key]));
+const installed = (model) => Boolean(MODELS[model]) && engineReady() && filesOf(model).every((key) => isChecked(filePath(key), FILES[key]));
 // What is still to download for a model, in bytes
 const missing = (model) => {
   let bytes = engine && !engineReady() ? engine.size : 0;
   filesOf(model).forEach((key) => { if (!isChecked(filePath(key), FILES[key])) bytes += FILES[key].size; });
   return bytes;
 };
-const status = () => ({
-  available: Boolean(engine) && enoughMemory,
-  memory: enoughMemory,
-  models: Object.fromEntries(Object.keys(MODELS).map((model) => [model, { installed: installed(model), download: missing(model), size: filesOf(model).reduce((sum, key) => sum + FILES[key].size, 0) + (engine ? engine.size : 0) }])),
-});
+const status = () => {
+  const mat = matEngine.status();
+  return {
+    available: (Boolean(engine) && enoughMemory) || mat.available,
+    memory: enoughMemory,
+    models: {
+      ...Object.fromEntries(Object.keys(MODELS).map((model) => [model, { installed: installed(model), download: missing(model), size: filesOf(model).reduce((sum, key) => sum + FILES[key].size, 0) + (engine ? engine.size : 0) }])),
+      ...mat.models,
+    },
+  };
+};
 
 class LocalError extends Error {
   constructor(kind, message) {
@@ -174,6 +181,7 @@ const unzip = (archive, folder) => new Promise((resolve, reject) => {
 // One install at a time: two models share the engine and the VAE
 let installing = Promise.resolve();
 const install = (model, signal, onProgress) => {
+  if (model === matEngine.MAT_ID) return matEngine.install(signal, onProgress).then(() => status());
   const run = installing.then(async () => {
     if (!engine || !enoughMemory) throw new LocalError("unsupported");
     if (!MODELS[model]) throw new LocalError("other", "Unknown model.");
@@ -229,6 +237,7 @@ const install = (model, signal, onProgress) => {
 // A model's own files go; the VAE and the engine stay while another model needs them. After any
 // install under way: its files are being written.
 const remove = (model) => {
+  if (model === matEngine.MAT_ID) return matEngine.remove();
   const run = installing.then(() => removeNow(model));
   installing = run.catch(() => {});
   return run;
@@ -354,6 +363,11 @@ let drawing = Promise.resolve();
 const generate = ({ model, image, mask, prompt, width, height }, signal, onProgress) => {
   const run = drawing.then(async () => {
     clearTimeout(idleTimer);
+    if (model === matEngine.MAT_ID) {
+      stopServer(); // Free any FLUX VRAM before loading MAT.
+      return matEngine.generate({ image, mask }, signal, onProgress);
+    }
+    matEngine.stop(); // Free MAT VRAM before loading FLUX.
     if (!installed(model)) throw new LocalError("notinstalled");
     if (signal && signal.aborted) throw new LocalError("cancelled");
     onProgress({ phase: "start" });
@@ -400,10 +414,11 @@ const generate = ({ model, image, mask, prompt, width, height }, signal, onProgr
   return run;
 };
 
-app.on("will-quit", stopServer);
+app.on("will-quit", () => { stopServer(); matEngine.stop(); });
 // app.exit() skips will-quit: the server goes all the same
 process.on("exit", () => {
   if (server && server.proc && server.proc.exitCode === null) server.proc.kill();
+  matEngine.stop();
 });
 // Left by the last session, if it ended badly
 if (engine) app.whenReady().then(killLeftover).catch(() => {});

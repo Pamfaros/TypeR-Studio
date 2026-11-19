@@ -634,8 +634,8 @@
           link.target = "_blank";
           link.rel = "noopener";
         };
-        // On this device: LaMa Manga, and in the desktop app FLUX too, picked in a list. What the
-        // model is follows the pick; FLUX's size and whether it runs here come from the app.
+        // On this device: LaMa Manga, MAT and FLUX, picked from one list.
+        // The description and installation state follow the selected model.
         const locals = {};
         const localModel = (service) => (words) => {
           const models = Gen.modelsOf(saved, service);
@@ -646,8 +646,22 @@
             const model = select ? select.value : models[0][0];
             const name = (models.find(([id]) => id === model) || [model, model])[1];
             const mine = ++turn;
-            if (!Gen.isFlux(model)) {
+            if (model === "lama-manga") {
               about.textContent = T("LaMa Manga, without a key. It downloads once (234 MB) the first time it's used, then works offline. It takes no prompt: it redraws the selection from what surrounds it.");
+              return;
+            }
+            if (Gen.isMat(model)) {
+              about.textContent = "";
+              Gen.localStatus().catch(() => null).then((now) => {
+                if (mine !== turn) return;
+                const here = now && now.models && now.models[model];
+                if (now && !now.available) about.textContent = setup.cantRunText(now, name);
+                else {
+                  about.textContent = fill(T("{model}, without a key. It runs locally in the desktop app at a fixed 512 × 512 size and takes no prompt: it redraws the selection from what surrounds it."), { model: name });
+                  about.textContent += ` ${T("The MAT source and pretrained Places_512_FullData.pkl checkpoint must be installed manually.")}`;
+                  if (here && here.installed) about.textContent += ` ${T("Already downloaded on this device.")}`;
+                }
+              });
               return;
             }
             about.textContent = "";
@@ -674,8 +688,11 @@
             // The room each one takes on the disk, and whether it's already there
             Promise.all([Gen.localStatus().catch(() => null), Gen.localReady().catch(() => false)]).then(([now, lama]) => {
               Array.from(select.options).forEach((option) => {
-                const flux = Gen.isFlux(option.value);
-                const here = flux ? now && now.models && now.models[option.value] : { size: Gen.LAMA_SIZE, installed: lama };
+                const here = Gen.isFlux(option.value)
+                  ? now && now.models && now.models[option.value]
+                  : Gen.isMat(option.value)
+                    ? now && now.models && now.models[option.value]
+                    : { size: Gen.LAMA_SIZE, installed: lama };
                 if (here && here.size) option.textContent += ` · ${setup.sizeText(here.size)}${here.installed ? ` · ${T("Downloaded")}` : ""}`;
               });
             });
