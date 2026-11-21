@@ -1,5 +1,6 @@
 # Tested starting point for Python 3.10 + PyTorch 2.1.2 cu118 on Windows.
 # Torch and torchvision are installed separately from the official PyTorch index.
+setuptools==80.9.0
 numpy==1.26.4
 opencv-python==4.10.0.84
 Pillow==12.3.0
