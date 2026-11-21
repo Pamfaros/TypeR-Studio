@@ -10552,13 +10552,14 @@
 
   /* ============================== Patch Tool ============================== */
 
-  const PATCH_MODES = new Set(["normal", "poisson"]);
+  const PATCH_MODES = new Set(["normal", "poisson", "adaptive", "healing"]);
+  const PATCH_DIRECTIONS = new Set(["source", "target"]);
   const PATCH_SAMPLES = new Set(["current", "below", "all"]);
   const PATCH_MAX_PIXELS = 4000000;
 
-  const patchRegion = (doc, selection, dx, dy, feather) => {
+  const patchRegion = (doc, selection, dx, dy, feather, blend = "normal") => {
     const bounds = selectionBox(doc, selection);
-    const padding = Math.max(3, Math.ceil(feather * 3) + 2);
+    const padding = Math.max(3, Math.ceil(feather * 3) + 2, blend === "adaptive" ? 18 : 0);
     // Keep both the target ROI and its translated source inside the page.
     const left = Math.max(0, -dx, bounds.left - padding);
     const top = Math.max(0, -dy, bounds.top - padding);
@@ -10688,6 +10689,46 @@
     });
   };
 
+  // Adaptive Heal reconstructs the smooth background from unselected pixels,
+  // then transfers fine source texture without mixing damaged target content.
+  const patchAdaptiveBlend = (target, source, masks, feather, signal, preview = false) => {
+    const engine = window.TypeRPatchEngine;
+    if (!engine || typeof engine.adaptiveBlend !== "function") {
+      throw new Error("Adaptive Heal engine is missing. Update patch-engine.js.");
+    }
+    return engine.adaptiveBlend({
+      width: target.width,
+      height: target.height,
+      source,
+      target,
+      mask: masks.hardMask,
+      coverage: masks.coverage,
+      feather,
+      maxShift: preview ? 3 : 5,
+      preview,
+      signal
+    });
+  };
+
+  // Seamless Healing uses source gradients only within a thresholded
+  // mask and target values on its boundary. Keep it independent of legacy
+  // Poisson and Adaptive Heal to allow side-by-side quality comparisons.
+  const patchHealingBlend = (target, source, masks, signal) => {
+    const engine = window.TypeRPatchEngine;
+    if (!engine || typeof engine.healingBlend !== "function") {
+      throw new Error("Healing engine is missing. Update patch-engine.js.");
+    }
+    return engine.healingBlend({
+      width: target.width,
+      height: target.height,
+      source,
+      target,
+      mask: masks.hardMask,
+      coverage: masks.coverage,
+      signal
+    });
+  };
+
   const patchApplyAlphaLock = (layer, target, source, result) => {
     if (!lockOf(layer, "transparency") && !layer.isBackground) return;
     const dst = target.data;
@@ -10702,10 +10743,11 @@
     }
   };
 
-  const patchPrepare = ({ doc, layerId, selection, offset, sample = "current", feather = 3 }) => {
+  const patchPrepare = ({ doc, layerId, selection, offset, sample = "current", feather = 1, blend = "healing", direction = "source" }) => {
     if (!doc || !app.docs.includes(doc) || app.doc !== doc || !selection || !offset ||
         doc.state.selection !== selection) return null;
     if (!PATCH_SAMPLES.has(sample)) throw new Error("Unsupported Patch Tool sample mode.");
+    if (!PATCH_DIRECTIONS.has(direction)) throw new Error("Unsupported Patch Tool direction.");
     const dx = Number(offset.dx);
     const dy = Number(offset.dy);
     if (!Number.isInteger(dx) || !Number.isInteger(dy) || (!dx && !dy)) return null;
@@ -10718,14 +10760,20 @@
     const box = selectionBox(doc, selection);
     if (box.left + dx < 0 || box.top + dy < 0 ||
         box.right + dx > doc.width || box.bottom + dy > doc.height) return null;
+    // Source mode patches the original selection from the dragged-to region.
+    // Target mode pastes the original selection into the dragged-to region.
+    const outputSelection = direction === "target"
+      ? translateSelection(selection, dx, dy) : selection;
+    const sourceDx = direction === "target" ? -dx : dx;
+    const sourceDy = direction === "target" ? -dy : dy;
     const radius = Math.max(0, Math.min(32, Math.round(Number(feather) || 0)));
-    const region = patchRegion(doc, selection, dx, dy, radius);
+    const region = patchRegion(doc, outputSelection, sourceDx, sourceDy, radius, blend);
     if (!region) return null;
-    const masks = patchMasks(doc, selection, region, radius);
+    const masks = patchMasks(doc, outputSelection, region, radius);
     if (!masks.hardMask.some(Boolean)) return null;
     const target = patchReadRaster(doc, layer, region);
-    const source = patchReadSource(doc, layer, region, dx, dy, sample);
-    return { doc, layer, selection, region, masks, target, source };
+    const source = patchReadSource(doc, layer, region, sourceDx, sourceDy, sample);
+    return { doc, layer, selection, outputSelection, region, masks, target, source };
   };
 
   const ops = {
@@ -11045,20 +11093,30 @@
       if (!combined && !current) return null;
       return ops.quietSelection(combined, "Patch Selection");
     },
-    // Return a quick, non-destructive Normal preview. No history entry is created.
+    // Preview never writes to document history or changes the selection.
+    // Adaptive Heal previews asynchronously using a coarser gradient field.
     patchSample(options) {
       if (!options) return null;
       const prepared = patchPrepare(options);
       if (!prepared) return null;
-      const { region, target, source, masks } = prepared;
-      const imageData = patchNormalBlend(target, source, masks.coverage);
-      patchApplyAlphaLock(prepared.layer, target, source, imageData);
-      return { region, imageData, hardMask: masks.hardMask, offset: options.offset };
+      const { region, target, source, masks, layer } = prepared;
+      const packagePreview = (imageData) => {
+        if (!imageData || options.signal?.aborted) return null;
+        patchApplyAlphaLock(layer, target, source, imageData);
+        return { region, imageData, hardMask: masks.hardMask, offset: options.offset };
+      };
+      if (options.blend === "adaptive") {
+        return patchAdaptiveBlend(target, source, masks, options.feather || 0,
+          options.signal, true).then(packagePreview);
+      }
+      // A fast clone preview is shown while the pointer is moving.
+      // Healing is only computed once, at pointer release.
+      return packagePreview(patchNormalBlend(target, source, masks.coverage));
     },
     // Apply Normal or Poisson Blend to the active raster layer as one history step.
     async patchCommit(options) {
       if (!options) return false;
-      const { doc, selection, layerId, blend = "poisson", signal } = options || {};
+      const { doc, selection, layerId, blend = "healing", direction = "source", signal } = options || {};
       if (signal && signal.aborted) return false;
       if (!PATCH_MODES.has(blend)) throw new Error("Unsupported Patch Tool blend mode.");
       if (!doc || !app.docs.includes(doc) || app.doc !== doc || !selection) return false;
@@ -11067,12 +11125,17 @@
       const height = doc.height;
       const prepared = patchPrepare(options);
       if (!prepared || (signal && signal.aborted) || doc.state !== before) return false;
-      const { layer, region, target, source, masks } = prepared;
+      const { layer, region, target, source, masks, outputSelection } = prepared;
       let result;
       if (blend === "normal") {
         result = patchNormalBlend(target, source, masks.coverage);
-      } else {
+      } else if (blend === "poisson") {
         result = await patchPoissonBlend(target, source, masks, signal);
+      } else if (blend === "healing") {
+        result = await patchHealingBlend(target, source, masks, signal);
+      } else {
+        result = await patchAdaptiveBlend(target, source, masks,
+          options.feather || 0, signal);
       }
       if (!result || (signal && signal.aborted)) return false;
       if (result.width !== region.width || result.height !== region.height ||
@@ -11106,7 +11169,14 @@
       const layers = replaceLayer(doc, layer, {
         paint: (layer.paint || NONE).concat([operation])
       });
-      commitState(doc, "Patch Tool", { layers });
+      const label = blend === "adaptive" ? "Adaptive Heal"
+        : blend === "healing" ? "Healing Patch" : "Patch Tool";
+      // Match target-direction behavior: move the active selection to the
+      // destination after the new pixels have been committed.
+      const changes = direction === "target"
+        ? { layers, selection: outputSelection, lastSelection: outputSelection }
+        : { layers };
+      commitState(doc, label, changes);
       return true;
     },
     userSelection(selection, name, mode) {

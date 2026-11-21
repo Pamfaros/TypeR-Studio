@@ -5,8 +5,8 @@
  * pixel preview, options and cancellation. photoshop.js owns mutations,
  * history, raster snapshots and the Poisson engine dispatch.
  *
- * Source offsets are measured from the original target selection to
- * the sampling location. The target selection never moves.
+ * Source mode samples from the dragged-to location into the original area.
+ * Target mode writes the selected source at the dragged-to location.
  */
 (function () {
   "use strict";
@@ -19,18 +19,24 @@
 
   const { app, ops } = PS;
   const SVG_NS = "http://www.w3.org/2000/svg";
-  const STORAGE_KEY = "typer.web.patch.options.v1";
+  const STORAGE_KEY = "typer.web.patch.options.v3";
   const MAX_FEATHER = 32;
   const PREVIEW_INTERVAL = 90;
   const MAX_PREVIEW_PIXELS = 800000;
-  const MODES = new Set(["normal", "poisson"]);
+  const MODES = new Set(["normal", "poisson", "adaptive", "healing"]);
+  const DIRECTIONS = new Set(["source", "target"]);
   const SAMPLES = new Set(["current", "below", "all"]);
 
-  const settings = { blend: "poisson", sample: "current", feather: 3 };
+  const settings = { blend: "healing", direction: "source", sample: "current", feather: 1 };
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    const previous = stored || JSON.parse(
+      localStorage.getItem("typer.web.patch.options.v2") || "null");
+    // Keep the previous sampling preference, but introduce Healing as the
+    // default mode with a narrow edge for existing Adaptive Heal users.
     if (stored && MODES.has(stored.blend)) settings.blend = stored.blend;
-    if (stored && SAMPLES.has(stored.sample)) settings.sample = stored.sample;
+    if (stored && DIRECTIONS.has(stored.direction)) settings.direction = stored.direction;
+    if (previous && SAMPLES.has(previous.sample)) settings.sample = previous.sample;
     if (stored && Number.isInteger(stored.feather)) {
       settings.feather = Math.max(0, Math.min(MAX_FEATHER, stored.feather));
     }
@@ -47,6 +53,7 @@
   let lastPreview = 0;
   let currentGesture = null;
   let previewDisabled = false;
+  let previewController = null;
 
   const docOf = () => app.doc;
   const stageOf = () => document.getElementById("stage");
@@ -100,6 +107,8 @@
 
   function clearPixelPreview() {
     ++previewToken;
+    if (previewController) previewController.abort();
+    previewController = null;
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = 0;
     if (previewImage) {
@@ -188,21 +197,26 @@
     return previewImage;
   }
 
-  function showPixelPreview(gesture, offset, token) {
+  async function showPixelPreview(gesture, offset, token) {
     if (token !== previewToken || !currentGesture || currentGesture !== gesture ||
         app.tool !== "patch" || gesture.doc !== docOf()) return;
     const sample = ops.patchSample;
     if (typeof sample !== "function") return;
     try {
-      const result = sample({
+      const controller = previewController;
+      const result = await sample({
         doc: gesture.doc,
         layerId: gesture.layerId,
         selection: gesture.selection,
         offset: { dx: offset[0], dy: offset[1] },
         sample: gesture.options.sample,
-        feather: gesture.options.feather
+        blend: gesture.options.blend,
+        direction: gesture.options.direction,
+        feather: gesture.options.feather,
+        signal: controller?.signal
       });
-      if (!result || token !== previewToken) return;
+      if (!result || token !== previewToken || controller?.signal.aborted ||
+          gesture.doc !== docOf() || app.tool !== "patch") return;
       const { region, imageData, hardMask } = result;
       if (!hardMask || imageData.width * imageData.height > MAX_PREVIEW_PIXELS) {
         return;
@@ -222,6 +236,8 @@
       image.setAttribute("y", region.top);
       image.setAttribute("width", region.width);
       image.setAttribute("height", region.height);
+      // A translucent overlay would reveal the unwanted target text again.
+      image.style.opacity = "1";
       image.setAttribute("href", canvas.toDataURL("image/png"));
     } catch (error) {
       if (!previewDisabled) console.warn("Patch Tool pixel preview unavailable:", error);
@@ -240,6 +256,8 @@
       return;
     }
     const token = ++previewToken;
+    if (previewController) previewController.abort();
+    previewController = new AbortController();
     if (previewTimer) clearTimeout(previewTimer);
     const delay = Math.max(0, PREVIEW_INTERVAL - (performance.now() - lastPreview));
     previewTimer = setTimeout(() => {
@@ -258,7 +276,10 @@
       ops.selectionContains(point[0], point[1]));
     clearPreview();
     previewDisabled = false;
-    if (inside) {
+    // Shift / Alt choose how a newly drawn contour combines with the
+    // existing selection instead of unexpectedly dragging the current patch.
+    const combining = event.shiftKey || event.altKey;
+    if (inside && !combining) {
       const layer = rasterLayer();
       if (!layer) {
         report("Select an unlocked raster layer before applying a patch.", true);
@@ -276,6 +297,8 @@
     const gesture = {
       ...base, kind: "patch", phase: "selecting", doc,
       points: [clampPoint(doc, point)],
+      selectionMode: event.shiftKey && event.altKey ? "intersect"
+        : event.shiftKey ? "add" : event.altKey ? "subtract" : "new",
       lastScreen: [event.clientX, event.clientY]
     };
     currentGesture = gesture;
@@ -311,7 +334,7 @@
     if (typeof ops.patchSelect !== "function") {
       throw new Error("Missing ops.patchSelect() in photoshop.js.");
     }
-    return Boolean(ops.patchSelect(gesture.points));
+    return Boolean(ops.patchSelect(gesture.points, gesture.selectionMode || "new"));
   }
 
   async function finishDrag(gesture, event, point) {
@@ -438,8 +461,13 @@
     }
 
     field("Mode", settings.blend,
-      [["normal", "Normal"], ["poisson", "Poisson Blend"]],
+      [["healing", "Seamless Healing"],
+       ["normal", "Normal"], ["poisson", "Legacy Poisson"],
+       ["adaptive", "Adaptive Heal (Experimental)"]],
       (value) => { if (MODES.has(value)) settings.blend = value; });
+    field("Direction", settings.direction,
+      [["source", "Source"], ["target", "Target"]],
+      (value) => { if (DIRECTIONS.has(value)) settings.direction = value; });
     field("Sample", settings.sample,
       [["current", "Current Layer"], ["below", "Current and Below"],
        ["all", "All Layers"]],
