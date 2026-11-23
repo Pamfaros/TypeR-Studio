@@ -6,14 +6,14 @@ const base = require("./package.json").build;
 module.exports = {
   ...base,
 
-  appId: "local.typerstudio.mat",
-  productName: "TypeR Studio MAT",
+  appId: "local.typerstudio.nemed",
+  productName: "TypeR Studio Nemesis Edition",
 
   // Marks the packaged application as the MAT fork.
   extraMetadata: {
     ...base.extraMetadata,
     matFork: true,
-    productName: "TypeR Studio MAT",
+    productName: "TypeR Studio Nemesis Edition",
   },
 
   directories: {
@@ -34,7 +34,7 @@ module.exports = {
     include: null,
 
     artifactName:
-      "TypeR-Studio-MAT-Setup-${version}.${ext}",
+      "TypeR-Studio-NemEd-Setup-${version}.${ext}",
   },
 
   extraResources: [

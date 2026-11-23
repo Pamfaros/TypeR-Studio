@@ -16920,61 +16920,6 @@
 
   // Each one always leads to the latest release
   const EXTENSION_ZIP = "https://github.com/ScanR/TypeR/releases/latest/download/TypeR.zip";
-  const STUDIO_RELEASE = "https://github.com/ScanR/TypeR-Studio/releases/latest/download/";
-  const showDownloads = () => {
-    const body = document.createElement("div");
-    body.className = "downloads";
-    const option = (name, text, links) => {
-      const box = document.createElement("section");
-      box.className = "downloads__option";
-      const title = document.createElement("h3");
-      title.textContent = name;
-      box.appendChild(title);
-      if (text) {
-        const about = document.createElement("p");
-        about.textContent = text;
-        box.appendChild(about);
-      }
-      const row = document.createElement("div");
-      row.className = "downloads__links";
-      const anchors = links.map(([label, file]) => {
-        const link = document.createElement("a");
-        link.className = "btn";
-        link.href = file;
-        link.target = "_blank";
-        link.rel = "noopener";
-        link.textContent = label;
-        row.appendChild(link);
-        return link;
-      });
-      box.appendChild(row);
-      body.appendChild(box);
-      return anchors;
-    };
-    const [appleChip, intel, windows, linux] = option("TypeR Studio", T("A lightweight, Photoshop-like experience made for typesetters. The same as the web version, as an app."), [
-      [T("Mac (Apple chip)"), `${STUDIO_RELEASE}TypeR-Studio-arm64.dmg`],
-      ["Mac (Intel)", `${STUDIO_RELEASE}TypeR-Studio-x64.dmg`],
-      ["Windows", `${STUDIO_RELEASE}TypeR-Studio-Setup.exe`],
-      ["Linux (AppImage)", `${STUDIO_RELEASE}TypeR-Studio-x86_64.AppImage`],
-      ["Linux (.deb)", `${STUDIO_RELEASE}TypeR-Studio-amd64.deb`],
-    ]);
-    const [extension] = option(T("TypeR extension for Photoshop"), "", [[T("Download the .zip"), EXTENSION_ZIP]]);
-    extension.classList.add("btn--main");
-    // This computer's own download stands out, when the browser can tell which it is
-    if (/win/i.test(navigator.platform || "")) windows.classList.add("btn--main");
-    else if (/linux/i.test(navigator.platform || "") && !/android/i.test(navigator.userAgent)) linux.classList.add("btn--main");
-    else if (IS_MAC) {
-      appleChip.classList.add("btn--main");
-      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
-        navigator.userAgentData.getHighEntropyValues(["architecture"]).then(({ architecture }) => {
-          if (architecture !== "x86") return;
-          appleChip.classList.remove("btn--main");
-          intel.classList.add("btn--main");
-        }).catch(() => {});
-      }
-    }
-    return dialog({ title: T("Download"), body, ok: T("Close"), cancel: false });
-  };
 
   // Edit > Auto-Align Layers, with Photoshop's projections. The last one chosen is kept.
   const ALIGN_STORE = "typer.web.autoAlign";
@@ -18740,22 +18685,15 @@
         ? { label: "Practice Page", action: () => $("start-practice").click() }
         : { label: "TypeR Tutorial", action: () => (window.TypeRGuide ? window.TypeRGuide.show() : startPanel({ tour: true })) },
       { label: "Setup Assistant…", action: () => setupAgain() },
-      { label: "What's New", action: () => window.TypeRWhatsNew && window.TypeRWhatsNew.show() },
       { label: "Keyboard Shortcuts", action: () => showShortcuts() },
       ...(Shell.touch ? [] : [{ label: "SFX Guide", action: () => window.TypeRSFXGuide && window.TypeRSFXGuide.show() }]),
       null,
       // Nothing to download from the phone app: the computer's apps and the plugin are a computer's
-      ...(IN_APP ? [] : [DESKTOP
-        ? { label: "Download the Photoshop Plugin", action: () => window.open(EXTENSION_ZIP, "_blank", "noopener") }
-        : { label: "Download…", action: () => showDownloads() }]),
-      { label: "Send Feedback…", action: () => window.TypeRFeedback && window.TypeRFeedback.show() },
-      { label: "Report a Problem", action: () => window.open("https://github.com/ScanR/TypeR/issues/new", "_blank", "noopener") },
+      ...(DESKTOP && !IN_APP ? [{ label: "Download the Photoshop Plugin", action: () => window.open(EXTENSION_ZIP, "_blank", "noopener") }] : []),
       // The desktop app's log, to send with a problem (an app too old to keep one doesn't offer it)
       ...(DESKTOP && window.TypeRDesktop.showLog ? [{ label: "Show Log File", action: () => window.TypeRDesktop.showLog() }] : []),
       { label: "Discord Server", action: () => window.open(DISCORD, "_blank", "noopener") },
       { label: "Support the Project", action: () => window.open(KOFI, "_blank", "noopener") },
-      // The desktop app looks for a new version now (desktop.js); an app too old to do it doesn't offer it
-      ...(DESKTOP && window.TypeRDesktop.checkForUpdates ? [{ label: "Check for Updates…", action: () => window.TypeRStudio.checkForUpdates() }] : []),
       { label: "About TypeR Studio…", action: () => showAbout() },
       ...(DESKTOP || IN_APP ? [] : [{ label: "Back to the Site", action: () => { window.location.href = "../"; } }]),
     ]],
@@ -20963,11 +20901,7 @@
     window.location.href = url.href;
   });
 
-  $("get-plugin-text").textContent = T("Download TypeR Studio");
-  $("get-plugin").addEventListener("click", (event) => {
-    event.preventDefault();
-    showDownloads();
-  });
+  $("get-plugin").style.display = "none";
   $("support-text").textContent = T("Support the project");
   $("support").title = T("Support the project");
   $("support").setAttribute("aria-label", T("Support the project"));
@@ -21122,7 +21056,6 @@
     // first, since it says nothing on the very first start, when the beta is said.
     // Not in the phone app: these notes and their demos show a computer's screen, mouse and
     // keys. They stay in Help.
-    if (window.TypeRWhatsNew && !IN_APP) await window.TypeRWhatsNew.atStart().catch((error) => console.warn("TypeR web: what's new", error));
     // Someone new is walked through the choices that matter (onboarding.js): it says the beta
     // and offers TypeR for Photoshop's settings itself
     const Onboarding = window.TypeROnboarding;

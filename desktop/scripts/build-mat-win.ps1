@@ -44,7 +44,7 @@ npx electron-builder `
     --config .\electron-builder.mat.cjs `
     --publish never
 if ($LASTEXITCODE -ne 0) { throw "Electron builder failed" }
-Write-Host "Look for installer in desktop\dist-mat\TypeR-Studio-MAT-Setup-*.exe"
+Write-Host "Look for installer in desktop\dist-mat\TypeR-Studio-NemEd-Setup-*.exe"
 
 # Verify that the packaged application really contains its bootstrap tools.
 $resourceDir = Join-Path (Get-Location) 'dist-mat\win-unpacked\resources\mat'

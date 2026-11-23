@@ -9,6 +9,11 @@
 (function () {
   "use strict";
 
+  // Disable upstream rating prompts and feedback collection
+  // in TypeR Studio Nemesis Edition.
+  const ENABLE_UPSTREAM_FEEDBACK = false;
+  if (!ENABLE_UPSTREAM_FEEDBACK) return;
+
   const ENDPOINT = "https://feedback.teamscanr.fr/";
   const DISCORD = "https://discord.gg/dsHn3xQQTC";
   const STORE = "typer.web.feedback";

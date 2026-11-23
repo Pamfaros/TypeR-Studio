@@ -487,7 +487,14 @@ const checkShell = (found) => {
   if (shellCheck) return shellCheck;
   shellCheck = (async () => {
     try {
-      const { autoUpdater } = require("electron-updater");
+      // Nemesis Edition: team-managed updates only; never contact the original update feed.
+const autoUpdater = Object.assign(new (require("node:events").EventEmitter)(), {
+  checkForUpdates: async () => null,
+  checkForUpdatesAndNotify: async () => null,
+  downloadUpdate: async () => null,
+  quitAndInstall() {},
+  setFeedURL() {},
+});
       if (!shellUpdater) {
         shellUpdater = autoUpdater;
         // Each step in the log (Help > Show Log File): an update that never installs on some

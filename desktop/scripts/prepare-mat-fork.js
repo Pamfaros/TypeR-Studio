@@ -2,13 +2,16 @@
 "use strict";
 
 /**
- * TypeR Studio MAT Edition — build preparation.
+ * TypeR Studio Nemesis Edition - build preparation.
  *
- * Validates the separate MAT build configuration without
- * modifying the official TypeR Studio package.json.
+ * Validates the dedicated Nemesis Edition build configuration,
+ * including MAT integration and Patch Tool resources.
  *
- * MAT integration changes in main.js and content.js are
- * maintained in Git, not generated during packaging.
+ * Nemesis Edition is an extended fork of TypeR Studio.
+ * MAT is one of its features, not a separate product edition.
+ *
+ * Integration changes are maintained in Git and are not
+ * generated or overwritten during packaging.
  */
 
 const fs = require("node:fs");
@@ -17,7 +20,14 @@ const assert = require("node:assert/strict");
 
 const desktop = path.resolve(__dirname, "..");
 
-const resolve = (file) => path.join(desktop, file);
+const EDITION = {
+  name: "TypeR Studio Nemesis Edition",
+  appId: "local.typerstudio.nemed",
+  configFile: "electron-builder.mat.cjs",
+  outputDirectory: "dist-mat"
+};
+
+const resolve = (file) => path.resolve(desktop, file);
 
 function read(file) {
   const target = resolve(file);
@@ -35,7 +45,7 @@ function validateMarkers(file, markers) {
   for (const marker of markers) {
     if (!source.includes(marker)) {
       throw new Error(
-        `${file}: missing required MAT integration: ${marker}`
+        `${file}: missing required integration: ${marker}`
       );
     }
   }
@@ -46,39 +56,65 @@ function validateMarkers(file, markers) {
 function validateBuildConfig() {
   const pkg = JSON.parse(read("package.json"));
 
-  // Official TypeR Studio configuration must stay intact.
+  // Preserve the upstream package as the base configuration.
+  // The final product identity is defined by the Nemesis config.
   assert.equal(
     pkg.productName,
     "TypeR Studio",
-    "The original package.json productName was modified."
+    "Unexpected base package productName."
   );
 
   assert.equal(
     pkg.build.appId,
     "fr.hayasaku.typer-studio",
-    "The original package.json appId was modified."
+    "Unexpected base package appId."
   );
 
-  const configFile = "electron-builder.mat.cjs";
+  const configFile = EDITION.configFile;
 
   read(configFile);
 
   const config = require(resolve(configFile));
 
-  assert.equal(config.appId, "local.typerstudio.mat");
-  assert.equal(config.productName, "TypeR Studio MAT");
-  assert.equal(config.extraMetadata?.matFork, true);
-  assert.equal(config.directories?.output, "dist-mat");
+  assert.equal(
+    config.appId,
+    EDITION.appId,
+    "Incorrect Nemesis Edition appId."
+  );
 
-  // A fork must not publish artifacts to ScanR's repository.
-  assert.deepEqual(config.publish, []);
+  assert.equal(
+    config.productName,
+    EDITION.name,
+    "Incorrect Nemesis Edition productName."
+  );
 
-  // Do not replace the official URL protocol registration.
+  // Keep the MAT runtime feature flag enabled.
+  assert.equal(
+    config.extraMetadata?.matFork,
+    true,
+    "MAT runtime integration must remain enabled."
+  );
+
+  assert.equal(
+    config.directories?.output,
+    EDITION.outputDirectory,
+    "Unexpected build output directory."
+  );
+
+  // Nemesis releases are distributed manually.
+  assert.deepEqual(
+    config.publish,
+    [],
+    "Automatic publishing must be disabled."
+  );
+
+  // Do not register the upstream URL protocol.
   assert.deepEqual(config.protocols, []);
 
   // Do not execute upstream NSIS registration hooks.
   assert.equal(config.nsis?.include, null);
 
+  // Required MAT backend resources.
   const resources = config.extraResources || [];
 
   for (const target of ["mat", "mat/MAT"]) {
@@ -88,11 +124,13 @@ function validateBuildConfig() {
     );
   }
 
-  console.log("[OK] Official package.json is unchanged");
-  console.log("[OK] Separate MAT build configuration");
+  console.log("[OK] Nemesis Edition identity");
+  console.log("[OK] Dedicated Electron build configuration");
+  console.log("[OK] MAT packaging resources");
+  console.log("[OK] Automatic publishing disabled");
 }
 
-function validateIntegration() {
+function validateMatIntegration() {
   validateMarkers("src/mat-fork.js", [
     "pkg.matFork === true",
     "TYPER_MAT_FORK"
@@ -100,7 +138,7 @@ function validateIntegration() {
 
   validateMarkers("src/content.js", [
     'require("./mat-fork").enabled',
-    "if (MAT_FORK)",
+    "if (MAT_FORK)"
   ]);
 
   validateMarkers("src/main.js", [
@@ -108,7 +146,6 @@ function validateIntegration() {
     "if (MAT_FORK)"
   ]);
 
-  // Files required by the packaged MAT backend.
   for (const file of [
     "src/mat-engine.js",
     "src/mat-installer.js",
@@ -118,27 +155,47 @@ function validateIntegration() {
     read(file);
     console.log(`[OK] ${file}`);
   }
+
+  console.log("[OK] MAT integration");
+}
+
+function validatePatchTool() {
+  const files = [
+    "../web/patch-tool.js",
+    "../web/patch-engine.js",
+    "../web/photoshop.js",
+    "../web/app.js",
+    "../web/index.html"
+  ];
+
+  for (const file of files) {
+    read(file);
+    console.log(`[OK] ${file}`);
+  }
+
+  console.log("[OK] Patch Tool files");
 }
 
 function main() {
-  console.log("Validating TypeR Studio MAT Edition...\n");
+  console.log("Validating TypeR Studio Nemesis Edition...\n");
 
   validateBuildConfig();
-  validateIntegration();
+  validateMatIntegration();
+  validatePatchTool();
 
   console.log(
-    "\nMAT configuration validated successfully."
+    "\nNemesis Edition configuration validated successfully."
   );
 
   console.log(
-    "The original TypeR Studio configuration was not modified."
+    "MAT and Patch Tool resources are present."
   );
 }
 
 try {
   main();
 } catch (error) {
-  console.error("\nMAT build preparation failed:");
+  console.error("\nNemesis build preparation failed:");
   console.error(error.message);
   process.exitCode = 1;
 }
