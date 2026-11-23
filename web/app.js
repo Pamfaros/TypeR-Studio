@@ -99,6 +99,7 @@
     stamp: SVG('<path d="M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-6 0c0 2 1 2 1 3.5V13"/> <path d="M20 15.5a2.5 2.5 0 0 0-2.5-2.5h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1z"/> <path d="M5 22h14"/>'),
     // Lucide's bandage, turned as Photoshop's
     heal: SVG('<g transform="rotate(-45 12 12) translate(1.2 1.2) scale(0.9)"><path d="M10 10.01h.01"/><path d="M10 14.01h.01"/><path d="M14 10.01h.01"/><path d="M14 14.01h.01"/><path d="M18 6v12"/><path d="M6 6v12"/><rect x="2" y="6" width="20" height="12" rx="2"/></g>'),
+    patch: SVG('<path d="M4 7L9 3L17 5L21 12L16 20L8 21L3 15Z"/><path d="M9 9L15 15M15 9L9 15"/>'),
     // Photoshop's three: Lucide's droplet, a narrow cone on its grid, and its pointer, turned
     blur: SVG('<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 10.1 5 12 5 15a7 7 0 0 0 7 7z"/>'),
     sharpen: SVG('<path d="M11.1 3.6a1 1 0 0 1 1.8 0l5.6 16a1 1 0 0 1-.9 1.4H6.4a1 1 0 0 1-.9-1.4z"/>'),
@@ -1388,6 +1389,8 @@
     drawRoom();
     drawStampMark();
     if (window.TypeRRetouch) window.TypeRRetouch.drawOverlay(ui.handles, gesture);
+    // Optional vector overlay for Patch Tool. Pixel preview is owned by patch-tool.js.
+    if (window.TypeRPatchTool && typeof window.TypeRPatchTool.drawOverlay === "function") window.TypeRPatchTool.drawOverlay(ui.handles, gesture);
     if (turning) return;
     const surface = warpedLayer();
     if (surface) {
@@ -2422,6 +2425,8 @@
     ["clean", "Bubble Cleaner", "J"],
     // Shift+J, as in Photoshop
     ["heal", "Spot Healing Brush", "Shift+J"],
+    // Separate toolbar slot: not a Brush/Selection tool, and no forced shortcut.
+    ["patch", "Patch Tool", ""],
     // Photoshop gives them no key either: one can be given in Keyboard Shortcuts
     ["blur", "Blur Tool", ""],
     ["sharpen", "Sharpen Tool", ""],
@@ -2458,6 +2463,7 @@
     magicEraser: "Click: the area of that colour on the active pixel layer goes transparent, as the Magic Wand would select it. A Background becomes a normal layer.",
     stamp: "Alt + click: where to clone from. Then paint. [ and ] change the size. Alt + right-drag: size / hardness.",
     heal: "Paint over a spot, a letter or a line: it is filled with what surrounds it. Shift + click: a straight line from the last stroke. [ ]: size. With no pixel layer active, it heals on TypeR Clean.",
+    patch: "Draw a selection around the damaged area, then drag the selection to a clean source and release to heal. Esc cancels. Patch does not trigger TypeR Paste.",
     blur: "Paint to soften what is under the brush: each pass blurs a little more. Alt: Sharpen. Shift + click: a straight line. [ ]: size. With no pixel layer active, it works on TypeR Clean.",
     sharpen: "Paint to sharpen what is under the brush, without halos: each pass a little more. Alt: Blur. Shift + click: a straight line. [ ]: size. With no pixel layer active, it works on TypeR Clean.",
     smudge: "Drag to pull the colour under the brush along: the higher the Strength, the further it goes. Alt: Finger Painting. Shift + click: a straight line. [ ]: size. With no pixel layer active, it works on TypeR Clean.",
@@ -2518,7 +2524,29 @@
     settleShapeHold();
   };
 
+  // Keep the active patch gesture in app.js, while patch-tool.js owns its internal state.
+  // This helper is shared by tool switching, pinch zoom, Escape and document switching.
+  let gesture = null;
+  const cancelPatchGesture = (reason = "cancel") => {
+    if (!gesture || gesture.kind !== "patch") return false;
+    const current = gesture;
+    gesture = null;
+    try {
+      if (window.TypeRPatchTool && typeof window.TypeRPatchTool.cancel === "function") window.TypeRPatchTool.cancel(current, reason);
+    } catch (error) {
+      console.error("TypeR Patch Tool: cancel failed", error);
+    }
+    if (ui.stage.hasPointerCapture(current.id)) ui.stage.releasePointerCapture(current.id);
+    // A pinch owns both pointers; every other cancellation releases the tool's pointer record.
+    if (reason !== "pinch") pointers.delete(current.id);
+    ui.stage.classList.remove("is-over-selection", "is-marquee");
+    setDrag("");
+    schedule(false);
+    return true;
+  };
+
   const setTool = (tool) => {
+    if (app.tool === "patch" && tool !== "patch") cancelPatchGesture("tool-change");
     if (!ui.editor.hidden && tool !== "text") endEdit();
     // A frame worked on is cropped on the way out. One that only opened on a selection isn't.
     commitTransform();
@@ -2549,6 +2577,7 @@
     if (window.TypeRReshapeTool) window.TypeRReshapeTool.toolChosen(tool);
     if (window.TypeRPerspectiveTool) window.TypeRPerspectiveTool.toolChosen(tool);
     if (window.TypeRRetouch) window.TypeRRetouch.toolChosen(tool);
+    if (window.TypeRPatchTool && typeof window.TypeRPatchTool.toolChosen === "function") window.TypeRPatchTool.toolChosen(tool);
     renderOptions();
     renderStatus();
     schedule(false);
@@ -6998,6 +7027,8 @@
     if (tool === "sfx" && window.TypeRSFX) window.TypeRSFX.options(bar);
     if (tool === "reshape" && window.TypeRReshapeTool) window.TypeRReshapeTool.options(bar);
     if (tool === "perspective" && window.TypeRPerspectiveTool) window.TypeRPerspectiveTool.options(bar);
+    // Patch manages its own options (sample mode, feather, blend), not brush size or selection paste.
+    if (tool === "patch" && window.TypeRPatchTool && typeof window.TypeRPatchTool.options === "function") window.TypeRPatchTool.options(bar);
     if (SELECTION_TOOLS.has(tool)) {
       const modes = document.createElement("span");
       modes.className = "obar__group";
@@ -7154,7 +7185,6 @@
 
   /* ------------------------------- gestures ------------------------------- */
 
-  let gesture = null;
   let gestureCount = 0;
   let spacing = false;
   // Ctrl or Cmd with Space lends the zoom, as in Photoshop. On a Mac, Cmd + Space is Spotlight's
@@ -7202,7 +7232,7 @@
   // and fingers pan.
   let multi = null;
   let penSeen = false;
-  const DRAWN_TOOLS = new Set(["brush", "eraser", "rectangle", "ellipse", "lasso", "polygon", "heal", "gradient", "blur", "sharpen", "smudge"]);
+  const DRAWN_TOOLS = new Set(["brush", "eraser", "rectangle", "ellipse", "lasso", "polygon", "heal", "patch", "gradient", "blur", "sharpen", "smudge"]);
   const isFinger = (event) => Shell.touch && event.pointerType !== "mouse";
 
   const selectionMode = (event) => {
@@ -7873,6 +7903,7 @@
       if (gesture && gesture.kind === "stroke") ops.endStroke();
       if (gesture && gesture.kind === "move") ops.endLiveMove(false);
       if (gesture && gesture.kind === "retouch") window.TypeRRetouch.cancel(gesture);
+      if (gesture && gesture.kind === "patch") cancelPatchGesture("pinch");
       gesture = null;
       setDrag("");
       hud(null);
@@ -8032,6 +8063,27 @@
         event.preventDefault();
         return;
       }
+    }
+    if (tool === "patch") {
+      const patch = window.TypeRPatchTool;
+      if (!patch || typeof patch.down !== "function") {
+        toast(T("Patch Tool is not loaded. Check patch-tool.js."), true);
+      } else {
+        try {
+          const made = patch.down(event, point, base);
+          if (made) {
+            // The controller returns a gesture; app.js owns its pointer capture.
+            gesture = Object.assign(base, made, { kind: "patch" });
+            ui.stage.setPointerCapture(event.pointerId);
+            schedule(false);
+          }
+        } catch (error) {
+          console.error("TypeR Patch Tool: pointer down failed", error);
+          toast(T("Patch Tool failed."), true);
+        }
+      }
+      event.preventDefault();
+      return;
     }
     if (tool === "reshape" && window.TypeRReshapeTool) {
       const made = window.TypeRReshapeTool.down(event, point, base);
@@ -8236,6 +8288,7 @@
     if (tool === "sfx" && !gesture && app.doc && window.TypeRSFX) window.TypeRSFX.hover(event, toDoc(event));
     if (tool === "reshape" && !gesture && app.doc && window.TypeRReshapeTool) window.TypeRReshapeTool.hover(event, toDoc(event));
     if (tool === "perspective" && !gesture && app.doc && window.TypeRPerspectiveTool) window.TypeRPerspectiveTool.hover(event, toDoc(event));
+    if (tool === "patch" && !gesture && app.doc && window.TypeRPatchTool && typeof window.TypeRPatchTool.hover === "function") window.TypeRPatchTool.hover(event, toDoc(event));
     if (tool === "gradient" && !gesture && app.doc && window.TypeRRetouch) window.TypeRRetouch.hover(event, toDoc(event));
     if (!gesture || event.pointerId !== gesture.id) {
       const adding = app.selectionMode === "add" || app.selectionMode === "subtract";
@@ -8265,6 +8318,19 @@
     }
     if (current.kind === "retouch") {
       window.TypeRRetouch.move(current, event, toDoc(event));
+      return;
+    }
+    if (current.kind === "patch") {
+      const point = toDoc(event);
+      if (Math.hypot(event.clientX - current.x, event.clientY - current.y) > current.slop) current.moved = true;
+      current.last = point; // Pointercancel needs the latest document position.
+      try {
+        window.TypeRPatchTool.move(current, event, point);
+      } catch (error) {
+        console.error("TypeR Patch Tool: pointer move failed", error);
+        cancelPatchGesture("move-error");
+        toast(T("Patch Tool failed."), true);
+      }
       return;
     }
     if (current.kind === "brushAdjust") {
@@ -8539,6 +8605,20 @@
       window.TypeRRetouch.up(current, event, point, cancelled);
       return;
     }
+    if (kind === "patch") {
+      // The engine applies the final patch once; app.js never commits on pointermove.
+      try {
+        const result = window.TypeRPatchTool.up(current, event, point, cancelled);
+        if (result && typeof result.catch === "function") result.catch((error) => {
+          console.error("TypeR Patch Tool: apply failed", error);
+          toast(T("Patch Tool failed."), true);
+        });
+      } catch (error) {
+        console.error("TypeR Patch Tool: apply failed", error);
+        toast(T("Patch Tool failed."), true);
+      }
+      return;
+    }
     if (kind === "transform") {
       const t = transformOf();
       if (t && cancelled) {
@@ -8624,6 +8704,7 @@
   };
   ui.stage.addEventListener("pointerup", finishGesture);
   ui.stage.addEventListener("pointercancel", finishGesture);
+  window.addEventListener("blur", () => cancelPatchGesture("window-blur"));
   ["pointerup", "pointercancel"].forEach((type) => ui.stage.addEventListener(type, settleSpring));
   ["pointerup", "pointercancel"].forEach((type) => ui.stage.addEventListener(type, settleShapeHold));
   ui.stage.addEventListener("pointerleave", () => {
@@ -19965,6 +20046,16 @@
       event.preventDefault();
       return;
     }
+    if (!fromPanel && !inMenu && !isField(event.target) && app.tool === "patch" && window.TypeRPatchTool) {
+      if (event.key === "Escape" && cancelPatchGesture("escape")) {
+        event.preventDefault();
+        return;
+      }
+      if (typeof window.TypeRPatchTool.key === "function" && window.TypeRPatchTool.key(event)) {
+        event.preventDefault();
+        return;
+      }
+    }
     const turning = !fromPanel && !isField(event.target) && transformOf();
     if (turning) {
       if (event.key === "Enter" || event.key === "Escape" || (key === "z" && command)) {
@@ -20441,6 +20532,8 @@
     else if (type === "confirm") {
       dialog({ title: "TypeR", body: detail.text }).then((answer) => detail.answer(Boolean(answer)));
     } else if (type === "document") {
+      cancelPatchGesture("document-change");
+      if (window.TypeRPatchTool && typeof window.TypeRPatchTool.documentChanged === "function") window.TypeRPatchTool.documentChanged(detail);
       layersKey = "";
       historyKey = "";
       characterKey = "";
@@ -21047,7 +21140,7 @@
   // unless the user would rather not, what is being done on it, where it is in the chapter.
   // Null: nothing shown. Moving around or zooming doesn't change what was being done.
   const TYPESETTING = new Set(["text", "sfx", "wand", "perspective"]);
-  const CLEANING = new Set(["brush", "eraser", "magicEraser", "stamp", "clean", "heal", "reshape", "blur", "sharpen", "smudge"]);
+  const CLEANING = new Set(["brush", "eraser", "magicEraser", "stamp", "clean", "heal", "patch", "reshape", "blur", "sharpen", "smudge"]);
   let presenceWork = "";
   const presence = () => {
     if (settings.discord === "off") return null;
@@ -21185,6 +21278,9 @@
     facesOf,
     mainFace,
     working,
+    // Patch UI contract: controller uses these to draw its drag outline and request repaint.
+    // The target selection itself still belongs to photoshop.js / ops.quietSelection().
+    setDrag,
     // For the Spot Healing Brush and the Gradient tool (retouch.js)
     maskPainting,
     pixelsOnly,
