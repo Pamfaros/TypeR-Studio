@@ -204,6 +204,7 @@
   const UPDATE_ENGLISH = ["Update installed. Restart TypeR Studio?", "Restart", "Later"];
 
   const showUpdateNote = () => {
+    putBehindAway();
     const shown = document.getElementById("update-note");
     if (shown && !shown.classList.contains("update-note--downloading")) return;
     if (shown) shown.remove();
@@ -236,6 +237,8 @@
   let progressPutAway = false;
   const showUpdateProgress = (percent) => {
     const App = window.TypeRApp;
+    updateSeen = true;
+    putBehindAway();
     let note = document.getElementById("update-note");
     if (note && !note.classList.contains("update-note--downloading")) return;
     if (!note) {
@@ -293,7 +296,14 @@
           showUpdateProgress(0);
         } else App.toast(App.T("Downloading the update…"), true);
       });
-      if (result === "none") App.toast(App.T("TypeR Studio is up to date."));
+      // The app couldn't update itself while a newer one is out: the note offers it to download
+      const latest = result === "ready" ? null : await latestRelease();
+      if (latest) {
+        const progress = document.getElementById("update-note");
+        if (progress && progress.classList.contains("update-note--downloading")) progress.remove();
+        showBehind(latest, true);
+      }
+      else if (result === "none") App.toast(App.T("TypeR Studio is up to date."));
       else if (result !== "ready") App.toast(App.T("Couldn't check for updates. Check your connection and try again."), true);
     } catch (error) {
       console.warn("TypeR Studio: update check", error);
@@ -303,6 +313,195 @@
     }
   };
   window.TypeRStudio.checkForUpdates = checkForUpdates;
+
+  /* ------------------------- an app left behind by its own updates ---------------------- */
+
+  // The page follows the site in every installed app, whatever its version; the app itself updates
+  // on its own, but on some computers that never happens. Then, once the app has had its chance,
+  // a note says a newer version is out: the app downloads it when it can, otherwise the installer
+  // is downloaded in the browser. The page is the only part sure to reach these apps.
+  const RELEASES = "https://github.com/ScanR/TypeR-Studio/releases/latest";
+  const RELEASE_API = "https://api.github.com/repos/ScanR/TypeR-Studio/releases/latest";
+  const LATEST_STORE = "typer.studio.latestRelease";
+  const LATER_STORE = "typer.studio.behindLater";
+  const LATEST_EVERY = 6 * 3600 * 1000;
+  const LATER_FOR = 24 * 3600 * 1000;
+  // The app's own automatic check runs a few seconds after the page is up
+  const BEHIND_WAIT = 45 * 1000;
+  // The installer each system downloads; a Mac's depends on its chip
+  const INSTALLERS = { windows: ["TypeR-Studio-Setup.exe"], mac: ["TypeR-Studio-arm64.dmg", "TypeR-Studio-x64.dmg"], linux: [] };
+
+  // { version, files } of the latest release, or null when it can't be told
+  let updateSeen = false;
+  const appVersion = () => {
+    const found = /TypeRStudio\/(\d+)\.(\d+)\.(\d+)/.exec(navigator.userAgent || "");
+    return found ? found.slice(1).map(Number) : null;
+  };
+  const versionOf = (text) => {
+    const found = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(String(text || ""));
+    return found ? found.slice(1).map(Number) : null;
+  };
+  const newer = (a, b) => {
+    for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+    return false;
+  };
+  const readStore = (key) => {
+    try {
+      return JSON.parse(window.localStorage.getItem(key) || "null");
+    } catch (error) {
+      return null;
+    }
+  };
+  const writeStore = (key, value) => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      // Nothing kept: it's asked again next time
+    }
+  };
+  // Only a release newer than this app, with this system's installer in it
+  const latestRelease = async () => {
+    const mine = appVersion();
+    if (!mine || Desktop.releaseCheck === false) return null;
+    let known = readStore(LATEST_STORE);
+    if (!known || !Array.isArray(known.files) || !(Date.now() - known.at < LATEST_EVERY)) {
+      try {
+        const response = await fetch(RELEASE_API, { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" });
+        if (!response.ok) return null;
+        const release = await response.json();
+        known = { at: Date.now(), version: String(release.tag_name || ""), files: (release.assets || []).map((asset) => asset.name) };
+        writeStore(LATEST_STORE, known);
+      } catch (error) {
+        return null;
+      }
+    }
+    const latest = versionOf(known.version);
+    if (!latest || !newer(latest, mine)) return null;
+    const wanted = INSTALLERS[Desktop.platform] || [];
+    if (wanted.length && !wanted.some((name) => known.files.includes(name))) return null;
+    return { version: latest.join("."), files: known.files };
+  };
+
+  const BEHIND_WORDS = {
+    fr: ["TypeR Studio {v} est disponible (vous avez la {mine}).", "Mettre à jour", "Plus tard", "Une fois le fichier téléchargé, fermez TypeR Studio et ouvrez-le pour installer la mise à jour. Vos pages et vos réglages sont conservés."],
+    es: ["TypeR Studio {v} está disponible (tienes la {mine}).", "Actualizar", "Más tarde", "Cuando termine la descarga, cierra TypeR Studio y abre el archivo para instalar la actualización. Tus páginas y ajustes se conservan."],
+    it: ["È disponibile TypeR Studio {v} (hai la {mine}).", "Aggiorna", "Più tardi", "Al termine del download, chiudi TypeR Studio e apri il file per installare l'aggiornamento. Pagine e impostazioni vengono mantenute."],
+    de: ["TypeR Studio {v} ist verfügbar (du hast {mine}).", "Aktualisieren", "Später", "Wenn der Download fertig ist, schließe TypeR Studio und öffne die Datei, um das Update zu installieren. Deine Seiten und Einstellungen bleiben erhalten."],
+    pt: ["O TypeR Studio {v} está disponível (você tem a {mine}).", "Atualizar", "Mais tarde", "Quando o download terminar, feche o TypeR Studio e abra o arquivo para instalar a atualização. Suas páginas e configurações são mantidas."],
+    ru: ["Доступна версия TypeR Studio {v} (у вас {mine}).", "Обновить", "Позже", "Когда файл загрузится, закройте TypeR Studio и откройте его, чтобы установить обновление. Страницы и настройки сохранятся."],
+    uk: ["Доступна версія TypeR Studio {v} (у вас {mine}).", "Оновити", "Пізніше", "Коли файл завантажиться, закрийте TypeR Studio і відкрийте його, щоб установити оновлення. Сторінки й налаштування збережуться."],
+    pl: ["Dostępny jest TypeR Studio {v} (masz {mine}).", "Aktualizuj", "Później", "Po pobraniu pliku zamknij TypeR Studio i otwórz go, aby zainstalować aktualizację. Strony i ustawienia zostaną zachowane."],
+    nl: ["TypeR Studio {v} is beschikbaar (je hebt {mine}).", "Bijwerken", "Later", "Sluit TypeR Studio zodra het bestand is gedownload en open het om de update te installeren. Je pagina's en instellingen blijven bewaard."],
+    tr: ["TypeR Studio {v} çıktı (sizdeki {mine}).", "Güncelle", "Sonra", "Dosya indirilince TypeR Studio'yu kapatın ve güncellemeyi yüklemek için dosyayı açın. Sayfalarınız ve ayarlarınız korunur."],
+    ar: ["يتوفر TypeR Studio {v} (لديك {mine}).", "تحديث", "لاحقًا", "بعد اكتمال التنزيل، أغلق TypeR Studio وافتح الملف لتثبيت التحديث. تبقى صفحاتك وإعداداتك كما هي."],
+    vi: ["Đã có TypeR Studio {v} (bạn đang dùng {mine}).", "Cập nhật", "Để sau", "Khi tải xong, hãy đóng TypeR Studio rồi mở tệp để cài bản cập nhật. Các trang và cài đặt của bạn được giữ nguyên."],
+    id: ["TypeR Studio {v} sudah tersedia (Anda memakai {mine}).", "Perbarui", "Nanti", "Setelah berkas selesai diunduh, tutup TypeR Studio lalu buka berkas itu untuk memasang pembaruan. Halaman dan pengaturan Anda tetap ada."],
+    th: ["TypeR Studio {v} พร้อมให้ใช้แล้ว (ของคุณคือ {mine})", "อัปเดต", "ไว้ทีหลัง", "เมื่อดาวน์โหลดเสร็จ ให้ปิด TypeR Studio แล้วเปิดไฟล์เพื่อติดตั้งอัปเดต หน้างานและการตั้งค่าของคุณจะยังอยู่ครบ"],
+    ja: ["TypeR Studio {v} が公開されています（現在は {mine}）。", "アップデート", "あとで", "ダウンロードが終わったら TypeR Studio を閉じ、ファイルを開いてアップデートをインストールしてください。ページと設定はそのまま残ります。"],
+    ko: ["TypeR Studio {v}이(가) 나왔습니다(현재 {mine}).", "업데이트", "나중에", "다운로드가 끝나면 TypeR Studio를 닫고 파일을 열어 업데이트를 설치하세요. 페이지와 설정은 그대로 유지됩니다."],
+    zh: ["TypeR Studio {v} 已发布（你的版本是 {mine}）。", "更新", "稍后", "下载完成后，请关闭 TypeR Studio 并打开该文件来安装更新。你的页面和设置都会保留。"],
+  };
+  const BEHIND_ENGLISH = ["TypeR Studio {v} is available (you have {mine}).", "Update", "Later", "Once it has downloaded, close TypeR Studio and open the file to install the update. Your pages and settings are kept."];
+  const behindWords = () => {
+    const lang = window.TYPER_I18N && window.TYPER_I18N.lang;
+    return BEHIND_WORDS[lang] || BEHIND_ENGLISH;
+  };
+
+  const installerLink = async (files) => {
+    let wanted = INSTALLERS[Desktop.platform] || [];
+    if (Desktop.platform === "mac") {
+      try {
+        const { architecture } = await navigator.userAgentData.getHighEntropyValues(["architecture"]);
+        if (architecture === "x86") wanted = wanted.slice().reverse();
+      } catch (error) {
+        // Apple chips are most of them
+      }
+    }
+    const file = wanted.find((name) => files.includes(name));
+    return file ? `${RELEASES}/download/${file}` : RELEASES;
+  };
+  // The installer, downloaded in the browser: it installs over this app and keeps everything
+  const downloadInstaller = async (latest) => {
+    window.open(await installerLink(latest.files), "_blank", "noopener");
+    window.TypeRApp.toast(behindWords()[3], true);
+  };
+
+  const putBehindAway = () => {
+    const note = document.getElementById("update-note");
+    if (note && note.classList.contains("update-note--behind")) note.remove();
+  };
+  // `asked`: from Help > Check for Updates…, where the app already tried: straight to the download
+  const showBehind = (latest, asked) => {
+    const shown = document.getElementById("update-note");
+    if (shown && !shown.classList.contains("update-note--behind")) return;
+    if (shown) shown.remove();
+    const mine = appVersion();
+    const [text, update, later] = behindWords();
+    const lang = window.TYPER_I18N && window.TYPER_I18N.lang;
+    const note = document.createElement("div");
+    note.id = "update-note";
+    note.className = "update-note update-note--behind";
+    note.setAttribute("role", "status");
+    if (lang === "ar") note.dir = "rtl";
+    const label = document.createElement("span");
+    label.className = "update-note__text";
+    label.textContent = text.replace("{v}", latest.version).replace("{mine}", mine ? mine.join(".") : "?");
+    const now = document.createElement("button");
+    now.type = "button";
+    now.className = "btn btn--small btn--main";
+    now.textContent = update;
+    now.addEventListener("click", async () => {
+      note.remove();
+      // Help > Check for Updates… exists from 0.1.5: the app tries once more, with its own note
+      if (!asked && Desktop.checkForUpdates && !checkingUpdates) {
+        checkingUpdates = true;
+        let result = "failed";
+        try {
+          result = await Desktop.checkForUpdates(() => {
+            progressPutAway = false;
+            if (Desktop.onUpdateProgress) showUpdateProgress(0);
+          });
+        } catch (error) {
+          console.warn("TypeR Studio: update check", error);
+        } finally {
+          checkingUpdates = false;
+        }
+        if (result === "ready") return;
+        const progress = document.getElementById("update-note");
+        if (progress && progress.classList.contains("update-note--downloading")) progress.remove();
+      }
+      downloadInstaller(latest);
+    });
+    const notNow = document.createElement("button");
+    notNow.type = "button";
+    notNow.className = "btn btn--small";
+    notNow.textContent = later;
+    notNow.addEventListener("click", () => {
+      writeStore(LATER_STORE, { version: latest.version, until: Date.now() + LATER_FOR });
+      note.remove();
+    });
+    note.append(label, now, notNow);
+    document.body.appendChild(note);
+  };
+
+  // Once the app has had time to find the update itself, and not again the day after Later. The
+  // note of an update of the page (Restart) goes first: this one waits for it to be put away.
+  // An app that shows how far its own download has gone is on its way: nothing then.
+  const watchBehind = () => {
+    const look = async () => {
+      if (updateSeen) return;
+      if (document.getElementById("update-note")) {
+        setTimeout(look, BEHIND_WAIT);
+        return;
+      }
+      const latest = await latestRelease();
+      if (!latest || updateSeen || document.getElementById("update-note")) return;
+      const later = readStore(LATER_STORE);
+      if (later && later.version === latest.version && Date.now() < later.until) return;
+      showBehind(latest, false);
+    };
+    setTimeout(look, BEHIND_WAIT);
+  };
 
   /* ----------------------------------- once it's up ------------------------------------ */
 
@@ -433,6 +632,7 @@
       showUpdateNote();
     });
     if (Desktop.onUpdateProgress) Desktop.onUpdateProgress(showUpdateProgress);
+    watchBehind();
     Desktop.alive();
   };
 

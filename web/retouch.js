@@ -242,6 +242,13 @@
       return [];
     }
   };
+  // "Gradient 1", "Gradient 2"…: the first one no preset has
+  const newPresetName = () => {
+    const taken = new Set(readPresets().map((item) => item.name));
+    let n = readPresets().length + 1;
+    while (taken.has(`${T("Gradient")} ${n}`)) n++;
+    return `${T("Gradient")} ${n}`;
+  };
   const keepPresets = (list) => {
     try {
       window.localStorage.setItem(STORE_PRESETS, JSON.stringify(list.slice(0, MAX_PRESETS)));
@@ -693,12 +700,7 @@
     save.type = "button";
     make("p", "grad-editor__hint", el, window.TypeRShell.touch ? T("Tap under the bar to add a color, drag one down off it to remove it.") : T("Click under the bar to add a color, drag one down off it to remove it. Alt + click on the page gives the selected color the page's color."));
 
-    const defaultName = () => {
-      const taken = new Set(readPresets().map((item) => item.name));
-      let n = readPresets().length + 1;
-      while (taken.has(`${T("Gradient")} ${n}`)) n++;
-      return `${T("Gradient")} ${n}`;
-    };
+    const defaultName = newPresetName;
     const keep = () => {
       const label = name.value.trim() || defaultName();
       const list = readPresets().filter((item) => item.name !== label);
@@ -1100,6 +1102,21 @@
     },
     // The gradients kept in the Gradient Editor, for Layer Style's Gradient Overlay (app.js)
     gradientPresets: () => readPresets(),
+    // Kept there too, or deleted, under its name (a name taken is replaced); the name a new one
+    // gets when none is typed
+    keepGradientPreset(name, stops) {
+      const label = String(name || "").trim().slice(0, 60) || newPresetName();
+      const clean = sorted(cleanStops(stops));
+      if (clean.length < 2) return null;
+      keepPresets(readPresets().filter((item) => item.name !== label).concat([{ name: label, stops: clean }]));
+      App().renderOptions();
+      return label;
+    },
+    deleteGradientPreset(name) {
+      keepPresets(readPresets().filter((item) => item.name !== name));
+      App().renderOptions();
+    },
+    newGradientPresetName: () => newPresetName(),
     // For the tutorial (guide.js): the options, a gradient being dragged, one whose ends show
     prefs: () => Object.assign({}, prefs),
     dragging: () => dragging,

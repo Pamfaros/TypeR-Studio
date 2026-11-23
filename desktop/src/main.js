@@ -343,6 +343,9 @@ const createWindow = () => {
       nodeIntegration: false,
       sandbox: true,
       devTools: !app.isPackaged || isTest,
+      // Run from its sources or in a test, the app doesn't look for a newer version of itself:
+      // the page doesn't either (web/desktop.js)
+      additionalArguments: [`--typer-release-check=${(app.isPackaged && !isTest) || process.env.TYPER_TEST_RELEASE_CHECK === "1" ? "on" : "off"}`],
     },
   });
   if (saved && saved.maximized) win.maximize();
@@ -487,9 +490,18 @@ const checkShell = (found) => {
       const { autoUpdater } = require("electron-updater");
       if (!shellUpdater) {
         shellUpdater = autoUpdater;
+        // Each step in the log (Help > Show Log File): an update that never installs on some
+        // computer can only be understood from there
+        autoUpdater.logger = {
+          info: (...args) => writeLog("info", ["App update:", ...args]),
+          warn: (...args) => console.warn("App update:", ...args),
+          error: (...args) => console.error("App update:", ...args),
+          debug: () => {},
+        };
         autoUpdater.autoDownload = true;
         autoUpdater.autoInstallOnAppQuit = true;
-        autoUpdater.on("error", (error) => console.warn("App update:", error.message));
+        // Already in the log through the logger above
+        autoUpdater.on("error", () => {});
         autoUpdater.on("download-progress", (progress) => tellProgress(progress.percent));
         autoUpdater.on("update-downloaded", () => {
           shellReady = true;

@@ -17760,11 +17760,15 @@
         inputs.place.value = String(Math.round(item.at * 100));
         inputs.remove.disabled = state.stops.length <= 2;
       };
+      // The gradients kept (shared with the Gradient tool's Gradient Editor): saved from here
+      // under a name, deleted with their cross
+      const kept = window.TypeRRetouch && window.TypeRRetouch.keepGradientPreset ? window.TypeRRetouch : null;
       const showPresets = () => {
         presets.textContent = "";
-        const own = window.TypeRRetouch && window.TypeRRetouch.gradientPresets ? window.TypeRRetouch.gradientPresets() : [];
-        FX_GRADIENTS.map(([label, stops]) => [T(label), stops()]).concat(own.map((item) => [item.name, item.stops])).forEach(([label, stops]) => {
-          const swatch = make("button", "fxgrad__preset", presets);
+        const own = kept ? kept.gradientPresets() : [];
+        FX_GRADIENTS.map(([label, stops]) => [T(label), stops(), false]).concat(own.map((item) => [item.name, item.stops, true])).forEach(([label, stops, ours]) => {
+          const holder = ours ? make("span", "fxgrad__own", presets) : presets;
+          const swatch = make("button", "fxgrad__preset", holder);
           swatch.type = "button";
           swatch.title = label;
           swatch.setAttribute("aria-label", label);
@@ -17776,8 +17780,47 @@
             showChosen();
             changed();
           });
+          if (!ours) return;
+          const remove = make("button", "fxgrad__unkeep", holder);
+          remove.type = "button";
+          remove.title = `${T("Delete Preset")} (${label})`;
+          remove.setAttribute("aria-label", remove.title);
+          remove.innerHTML = ICON.close;
+          remove.addEventListener("click", () => {
+            kept.deleteGradientPreset(label);
+            showPresets();
+            showName();
+          });
         });
       };
+      // The gradient shown, kept under the name typed (or "Gradient 3"): Enter keeps it too,
+      // without closing the dialog
+      const saveRow = kept ? make("div", "fxgrad__save", box) : null;
+      const presetName = saveRow ? make("input", "", saveRow) : null;
+      const showName = () => {
+        if (presetName) presetName.placeholder = kept.newGradientPresetName();
+      };
+      if (saveRow) {
+        presetName.type = "text";
+        presetName.maxLength = 60;
+        presetName.setAttribute("aria-label", T("Name"));
+        const keep = () => {
+          if (!kept.keepGradientPreset(presetName.value, effective())) return;
+          presetName.value = "";
+          showName();
+          showPresets();
+        };
+        const save = make("button", "btn", saveRow, T("Save as Preset"));
+        save.type = "button";
+        save.addEventListener("click", keep);
+        presetName.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" || event.isComposing) return;
+          event.preventDefault();
+          event.stopPropagation();
+          keep();
+        });
+        showName();
+      }
       const grab = (event) => {
         if (event.button !== 0) return;
         event.preventDefault();

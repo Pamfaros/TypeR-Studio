@@ -1448,6 +1448,14 @@ body.is-dragging-tool, body.is-dragging-tool * { cursor: grabbing !important; }
 .fxgrad__preset:hover { background: var(--ui-3); }
 .fxgrad__preset.is-on { background: var(--blue); }
 .fxgrad__preset i, .fxgrad__bar { background-color: #fff; background-image: linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%); background-size: 8px 8px; background-position: 0 0, 4px 4px; }
+.fxgrad__own { position: relative; display: inline-flex; }
+.fxgrad__unkeep { position: absolute; top: -4px; right: -4px; display: none; width: 14px; height: 14px; padding: 1px; border-radius: 50%; background: var(--ui-dark); border: 1px solid var(--line); line-height: 0; color: var(--text); }
+.fxgrad__unkeep svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
+.fxgrad__own:hover .fxgrad__unkeep, .fxgrad__unkeep:focus-visible { display: block; }
+.fxgrad__unkeep:hover { background: var(--red, #c0392b); color: #fff; }
+@media (hover: none) { .fxgrad__unkeep { display: block; } }
+.fxgrad__save { display: flex; flex-wrap: wrap; gap: 6px; }
+.fxgrad__save input { flex: 1 1 120px; min-width: 0; height: 24px; }
 .fxgrad__preset i { display: block; width: 30px; height: 18px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25); }
 .fxgrad__bar { position: relative; height: 22px; margin-top: 3px; border-radius: 4px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); cursor: copy; touch-action: none; }
 .fxgrad__bar canvas { display: block; width: 100%; height: 100%; }

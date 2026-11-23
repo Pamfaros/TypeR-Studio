@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
   // A script sent by TypeR for Photoshop with the pages it opens here: { name, text }
   onImportScript: (listener) => ipcRenderer.on("import-script", (event, script) => listener(script)),
   reloadForUpdate: () => ipcRenderer.send("reload-for-update"),
+  // False when run from its sources or in a test: the page doesn't ask GitHub for the latest
+  // version then. Apps before 0.1.7 don't say, and are all installed ones.
+  releaseCheck: !process.argv.includes("--typer-release-check=off"),
   // Help > Check for Updates…: "ready" (update-ready follows), "none" or "failed". `downloading`
   // is told when a new version of the app itself starts downloading, which takes a while.
   checkForUpdates: async (downloading) => {
