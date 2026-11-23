@@ -16,3 +16,4 @@ __pycache__/
 # Temporary downloads and logs
 *.part
 *.log
+runtime.json
