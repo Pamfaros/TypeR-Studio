@@ -83,13 +83,11 @@
         ["ideogram/v4.5/edit", "Ideogram 4.5 Edit"],
       ],
     },
-    // LaMa runs in the browser; MAT and FLUX use the desktop's localAI IPC.
-    // Adding a model here only exposes it; desktop/src/local-ai.js must implement it.
-    local: {
+    ...(window.TypeRDesktop?.localAI ? { local: {
       name: "On this device",
       local: true,
-      models: [["lama-manga", "LaMa Manga"]].concat(window.TypeRDesktop && window.TypeRDesktop.localAI ? [["mat-512", "MAT (Mask-Aware Transformer)"], ["flux2-klein-4b", "FLUX.2 Klein 4B"], ["flux3-klein", "FLUX 3 Klein"]] : []),
-    },
+      models: [["mat-512", "MAT (Mask-Aware Transformer)"], ["flux2-klein-4b", "FLUX.2 Klein 4B"], ["flux3-klein", "FLUX 3 Klein"]],
+    } } : {}),
   };
   // What the local models draw: a square of this many pixels, nothing else
   if (adobe) SERVICES.adobe = { name: "Adobe Firefly", account: true, models: [
@@ -104,9 +102,6 @@
     ["gemini-3.1-flash-image", "Gemini 3.1 (Nano Banana 2)"],
     ["gemini-3-pro-image", "Gemini 3.0 (Nano Banana Pro)"],
   ] };
-  const LOCAL_SIZE = 512;
-  // LaMa Manga's download, in bytes: its three files, as lama-worker.js fetches them
-  const LAMA_SIZE = 234e6;
   const isLocal = (service) => Boolean(SERVICES[service] && SERVICES[service].local);
   const desktopAI = (window.TypeRDesktop && window.TypeRDesktop.localAI) || null;
   const isFlux = (model) => /^flux/.test(model);
@@ -294,8 +289,6 @@
   const ready = (settings) => settings.service === "adobe" ? adobeState.connected : isLocal(settings.service) || Boolean((settings.keys[settings.service] || "").trim());
   // A local model takes no prompt: it redraws the selection from what surrounds it
   const takesPrompt = (settings) => !isLocal(settings.service) || isFlux(modelOf(settings));
-  // Only browser LaMa is pre-scaled to 512. MAT needs original pixels for adaptive crops.
-  const fixedSize = (settings) => (isLocal(settings.service) && modelOf(settings) === "lama-manga" ? LOCAL_SIZE : 0);
   // The local models draw in place, pixel for pixel: their picture needs no aligning
   const drawsInPlace = (settings) => isLocal(settings.service) || (settings.service === "adobe" && modelOf(settings) === "firefly-fill");
   // FLUX on this computer: its time grows faster than the area, so the area goes no bigger than
@@ -308,7 +301,7 @@
   const knowsLongRatios = (model) => /3\.1-flash|nano-banana-2/.test(model);
   // Models that draw at 1K, 2K or 4K; the others at about one megapixel
   const knowsSizes = (model) => /gemini-3|nano-banana-2|nano-banana-pro/.test(model) && !/lite/.test(model);
-  const ratiosFor = (model) => ((model === "lama-manga") ? ["1:1"] : (isMat(model) || isFlux(model)) ? RATIOS.concat(LONG_RATIOS) : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
+  const ratiosFor = (model) => ((isMat(model) || isFlux(model)) ? RATIOS.concat(LONG_RATIOS) : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
     .map((label) => {
       const [w, h] = label.split(":").map(Number);
       return { label, value: w / h };
@@ -512,7 +505,6 @@
     }
     if (isLocal(service)) {
       const model = modelOf(settings);
-      if (model === "lama-manga") return viaLocal({ canvas, mask, signal, onProgress });
       if (isMat(model)) return viaDesktop({ model, canvas, mask, prompt: "", signal, onProgress });
       if (isFlux(model)) {
         const words = (prompt || "").trim();
@@ -550,101 +542,6 @@
     if (!black || !white) return null;
     const blob = await new Promise((resolve) => mask.toBlob(resolve, "image/png"));
     return blob ? { mime: "image/png", data: await base64Of(blob) } : null;
-  };
-
-  /* ------------------------- on this device: LaMa Manga ------------------------- */
-
-  // One worker for the app, kept while it's used, let go after a while without (its model holds
-  // about a gigabyte of memory, on the graphics card or not)
-  const LOCAL_IDLE = 5 * 60 * 1000;
-  const MODEL_URL = "https://huggingface.co/mayocream/lama-manga-onnx/resolve/b55497aadbfcb9740e1ed16f008268d71b4f3f79/lama-manga.onnx";
-  let worker = null;
-  let workerJobs = 0;
-  let idleTimer = 0;
-  let nextId = 0;
-  const pending = new Map();
-  const startWorker = () => {
-    clearTimeout(idleTimer);
-    if (worker) return worker;
-    try {
-      worker = new Worker("lama-worker.js");
-    } catch (error) {
-      throw new GenerativeError("local", "This browser can't run the model in the background.");
-    }
-    worker.onmessage = (event) => {
-      const answer = event.data || {};
-      const job = pending.get(answer.id);
-      if (!job) return;
-      if (answer.progress) {
-        job.onProgress(answer.progress);
-        return;
-      }
-      pending.delete(answer.id);
-      if (answer.error) job.reject(new GenerativeError(answer.error.kind === "download" ? "download" : "local", answer.error.message));
-      else job.resolve(answer);
-    };
-    worker.onerror = (event) => {
-      console.warn("TypeR web: LaMa Manga's worker stopped", event.message || event);
-      pending.forEach((job) => job.reject(new GenerativeError("local", event.message || "")));
-      pending.clear();
-      worker = null;
-    };
-    return worker;
-  };
-  const releaseWorker = () => {
-    workerJobs -= 1;
-    if (workerJobs > 0) return;
-    clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      if (workerJobs > 0 || !worker) return;
-      worker.terminate();
-      worker = null;
-    }, LOCAL_IDLE);
-  };
-  const viaLocal = async ({ canvas, mask, signal, onProgress }) => {
-    // The area, square, at the model's size: what is under the black of the mask gets drawn
-    const square = document.createElement("canvas");
-    square.width = LOCAL_SIZE;
-    square.height = LOCAL_SIZE;
-    const sctx = square.getContext("2d", { willReadFrequently: true });
-    sctx.imageSmoothingQuality = "high";
-    sctx.fillStyle = "#fff";
-    sctx.fillRect(0, 0, LOCAL_SIZE, LOCAL_SIZE);
-    sctx.drawImage(canvas, 0, 0, LOCAL_SIZE, LOCAL_SIZE);
-    const image = sctx.getImageData(0, 0, LOCAL_SIZE, LOCAL_SIZE).data;
-    const hole = new Uint8Array(LOCAL_SIZE * LOCAL_SIZE);
-    if (mask) {
-      sctx.drawImage(mask, 0, 0, LOCAL_SIZE, LOCAL_SIZE);
-      const m = sctx.getImageData(0, 0, LOCAL_SIZE, LOCAL_SIZE).data;
-      // Any grey at the edge of the mask counts, so no stroke of a letter stays half there
-      for (let i = 0; i < hole.length; i++) hole[i] = m[i * 4] < 250 ? 1 : 0;
-    } else hole.fill(1);
-    if (signal && signal.aborted) throw new DOMException("Aborted", "AbortError");
-    const id = ++nextId;
-    const thread = startWorker();
-    workerJobs += 1;
-    try {
-      const answer = await new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject, onProgress: onProgress || (() => {}) });
-        // A stopped job's answer is let go: the run itself can't be stopped halfway
-        if (signal) signal.addEventListener("abort", () => {
-          if (pending.delete(id)) reject(new DOMException("Aborted", "AbortError"));
-        }, { once: true });
-        thread.postMessage({ id, image: image.buffer, mask: hole.buffer }, [image.buffer, hole.buffer]);
-      });
-      console.info(`TypeR web: LaMa Manga drew in ${answer.ms} ms on ${answer.device === "webgpu" ? "the graphics card" : "the processor"}`);
-      return await createImageBitmap(new ImageData(new Uint8ClampedArray(answer.image), LOCAL_SIZE, LOCAL_SIZE));
-    } finally {
-      releaseWorker();
-    }
-  };
-  // Whether the model is already on this device (its download done)
-  const localReady = async () => {
-    try {
-      return Boolean(await (await caches.open("typer-models-1")).match(MODEL_URL));
-    } catch (error) {
-      return false;
-    }
   };
 
   /* -------------------- on this computer: MAT / FLUX, in the desktop app -------------------- */
@@ -798,5 +695,5 @@
     }
   };
 
-  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, LOCAL_SIZE, LAMA_SIZE, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isFlux, takesPrompt, fixedSize, drawsInPlace, longestFor, localReady, localDownload, localStatus, localRemove, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent, adobeStatus, adobeConnect, adobeDisconnect, adobeCredits };
+  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isMat, isFlux, takesPrompt, drawsInPlace, longestFor, localDownload, localStatus, localRemove, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent, adobeStatus, adobeConnect, adobeDisconnect, adobeCredits };
 })();

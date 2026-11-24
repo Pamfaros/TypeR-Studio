@@ -634,7 +634,7 @@
           link.target = "_blank";
           link.rel = "noopener";
         };
-        // On this device: LaMa Manga, MAT and FLUX, picked from one list.
+        // On this device: MAT and FLUX, picked from one list.
         // The description and installation state follow the selected model.
         const locals = {};
         const localModel = (service) => (words) => {
@@ -646,10 +646,6 @@
             const model = select ? select.value : models[0][0];
             const name = (models.find(([id]) => id === model) || [model, model])[1];
             const mine = ++turn;
-            if (model === "lama-manga") {
-              about.textContent = T("LaMa Manga, without a key. It downloads once (234 MB) the first time it's used, then works offline. It takes no prompt: it redraws the selection from what surrounds it.");
-              return;
-            }
             if (Gen.isMat(model)) {
               about.textContent = "";
               Gen.localStatus().catch(() => null).then((now) => {
@@ -686,13 +682,9 @@
             });
             select.value = Gen.modelOf(saved, service);
             // The room each one takes on the disk, and whether it's already there
-            Promise.all([Gen.localStatus().catch(() => null), Gen.localReady().catch(() => false)]).then(([now, lama]) => {
+            Gen.localStatus().catch(() => null).then((now) => {
               Array.from(select.options).forEach((option) => {
-                const here = Gen.isFlux(option.value)
-                  ? now && now.models && now.models[option.value]
-                  : Gen.isMat(option.value)
-                    ? now && now.models && now.models[option.value]
-                    : { size: Gen.LAMA_SIZE, installed: lama };
+                const here = now?.models?.[option.value];
                 if (here && here.size) option.textContent += ` · ${setup.sizeText(here.size)}${here.installed ? ` · ${T("Downloaded")}` : ""}`;
               });
             });

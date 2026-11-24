@@ -4883,12 +4883,6 @@
           } else return;
           price.append(" ", line);
         });
-      } else if (one && one.free) {
-        // Free, after a download: says whether it's done
-        price.textContent = IN_APP ? T("Free, without a key: the model runs on this device and takes no prompt, it redraws the selection from what surrounds it. It downloads once (234 MB), then works offline.") : T("Free, without a key: the model runs in this browser and takes no prompt, it redraws the selection from what surrounds it. It downloads once (234 MB), then works offline.");
-        Gen.localReady().then((here) => {
-          if (here && price.isConnected && Gen.isLocal(service)) price.textContent += ` ${T("Already downloaded on this device.")}`;
-        });
       } else if (!one) price.textContent = T("Price unknown for this model: see its page at the service.");
       else if (one.unit !== "image") price.textContent = fill(T("{price} per {unit}."), { price: money(one.usd), unit: one.unit });
       else if (Math.abs(one.large - one.usd) > 1e-9) price.textContent = fill(T("{price} per picture, {large} for a large selection (sent at 2K)."), { price: money(one.usd), large: money(one.large) });
@@ -5184,7 +5178,6 @@
       case "download": return fill(T("{model} couldn't be downloaded. Check the connection and try again."), { model: modelName(settings) }) + detail;
       case "local": {
         const model = Gen.modelOf(settings);
-        if (model === "lama-manga") return (IN_APP ? T("LaMa Manga couldn't run on this device.") : T("LaMa Manga couldn't run in this browser.")) + detail;
         return fill(T("{model} couldn't run on this computer."), { model: modelName(settings) }) + detail;
       }
       case "key": return fill(T("{service} refused the key. Check it in Generative Fill's settings."), { service }) + detail;
@@ -5266,7 +5259,6 @@
         hide: job.hide,
         name: job.name || (job.prompt ? job.prompt.replace(/\s+/g, " ").slice(0, 60) : T("Generative Fill")),
         ratios: Gen.ratiosFor(model),
-        fixed: Gen.fixedSize(job.account),
         inPlace: Gen.drawsInPlace(job.account),
         matchTones: job.account.matchTones !== false,
         longest: Gen.longestFor(job.account),
