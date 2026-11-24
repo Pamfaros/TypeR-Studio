@@ -1,6 +1,7 @@
 // TypeR: Web Version's interface in this language, by its English wording.
 window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
   uk: {
+    "Detect Text in Selection": "Знайти текст у виділенні",
     "Diameter": "Діаметр",
     "Hardness": "Жорсткість",
     "Like Photoshop": "Як у Photoshop",

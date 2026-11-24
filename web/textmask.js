@@ -87,19 +87,15 @@
 
   const blobOf = (canvas, type, quality) => new Promise((resolve) => canvas.toBlob(resolve, type, quality));
   // The page as the service takes it: PNG, or JPEG when too heavy, or smaller as a last resort
-  const encode = async (page) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = page.width;
-    canvas.height = page.height;
-    canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(page.data), page.width, page.height), 0, 0);
+  const encode = async (canvas) => {
     let blob = await blobOf(canvas, "image/png");
     if (blob && blob.size <= MAX_BYTES) return blob;
     blob = await blobOf(canvas, "image/jpeg", 0.92);
     if (blob && blob.size <= MAX_BYTES) return blob;
     const scale = Math.sqrt(MAX_BYTES / ((blob && blob.size) || MAX_BYTES * 2)) * 0.9;
     const small = document.createElement("canvas");
-    small.width = Math.max(1, Math.round(page.width * scale));
-    small.height = Math.max(1, Math.round(page.height * scale));
+    small.width = Math.max(1, Math.round(canvas.width * scale));
+    small.height = Math.max(1, Math.round(canvas.height * scale));
     const sctx = small.getContext("2d");
     sctx.imageSmoothingQuality = "high";
     sctx.drawImage(canvas, 0, 0, small.width, small.height);
@@ -132,7 +128,7 @@
 
   // Where the letters are on `page` ({ data: RGBA, width, height }): one byte a pixel over the
   // page, 1 on a letter. Resolves with { mask, count, seconds }.
-  const detect = async (page, { signal, confidence } = {}) => {
+  const detectTile = async (page, { signal, confidence } = {}) => {
     const config = load();
     const blob = await encode(page);
     const wanted = Number.isFinite(confidence) ? confidence : config.confidence;
@@ -181,6 +177,57 @@
     const count = response.headers.get("x-detections");
     const seconds = response.headers.get("x-seg-seconds");
     return { mask, count: count === null ? null : Number(count), seconds: seconds === null ? null : Number(seconds) };
+  };
+
+  // Evenly space the windows so the final strip has the same context as its neighbours.
+  const tileStarts = (start, end, size) => {
+    if (end <= start) return [];
+    const travel = Math.max(0, end - start - size);
+    const steps = Math.ceil(travel / (size - 512));
+    return Array.from({ length: steps + 1 }, (_, i) => start + (steps ? Math.round(i * travel / steps) : 0));
+  };
+
+  const detect = async (page, options = {}) => {
+    const { bounds, scope } = page;
+    const width = bounds.right - bounds.left;
+    const height = bounds.bottom - bounds.top;
+    const mask = new Uint8Array(page.width * page.height);
+    const size = 2048;
+    const w = Math.min(width, size);
+    const h = Math.min(height, size);
+    for (const top of tileStarts(bounds.top, bounds.bottom, size)) {
+      for (const left of tileStarts(bounds.left, bounds.right, size)) {
+        options.signal?.throwIfAborted();
+        const offset = (top - bounds.top) * width + left - bounds.left;
+        if (scope && !Array.from({ length: h }).some((_, y) =>
+          scope.subarray(offset + y * width, offset + y * width + w).includes(1))) continue;
+        const canvas = page.read(left, top, w, h);
+        try {
+          if (scope) {
+            const ctx = canvas.getContext("2d");
+            const pixels = ctx.getImageData(0, 0, w, h);
+            for (let y = 0; y < h; y++) {
+              for (let x = 0; x < w; x++) {
+                const i = (y * w + x) * 4;
+                if (!scope[offset + y * width + x]) pixels.data.fill(255, i, i + 4);
+              }
+            }
+            ctx.putImageData(pixels, 0, 0);
+          }
+          const result = await detectTile(canvas, options);
+          // Union in page coordinates before growing the letters or grouping words.
+          for (let y = 0; y < h; y++) {
+            const row = (top + y) * page.width + left;
+            for (let x = 0; x < w; x++) {
+              if (result.mask[y * w + x] && (!scope || scope[offset + y * width + x])) mask[row + x] = 1;
+            }
+          }
+        } finally {
+          canvas.width = canvas.height = 0;
+        }
+      }
+    }
+    return { mask };
   };
 
   /* ------------------------------ the mask's areas ------------------------------ */

@@ -12638,6 +12638,23 @@
       return { ok: true, painted: plan.painted, colour: plan.colour, hidden };
     },
     /* ---- the Bubble Reshaper (reshape-tool.js) ---- */
+    textDetectionPage(doc, selection) {
+      const bounds = selection ? selectionBox(doc, selection) : { left: 0, top: 0, right: doc.width, bottom: doc.height };
+      const scope = selection ? boxMaskOf(doc, selection, bounds) : null;
+      return {
+        width: doc.width, height: doc.height, bounds, scope,
+        read(left, top, width, height) {
+          const canvas = newCanvas(width, height);
+          const ctx = canvas.getContext("2d", { willReadFrequently: true });
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(0, 0, width, height);
+          paintDoc(doc, ctx, { keep: true, x: -left, y: -top,
+            rect: { left, top, right: left + width, bottom: top + height },
+            skip: (layer) => layer.kind === "text" });
+          return canvas;
+        },
+      };
+    },
     // The page as the Reshaper reads it: every pixel layer on white, never the text, and
     // without the bubble layer being shaped again
     // `of`: another open page than the one shown (Remove Text on several pages)
@@ -12713,6 +12730,7 @@
       const doc = of || app.doc;
       return doc && selection ? fullMaskOf(doc, selection) : null;
     },
+    selectionFromBox: fromBoxMask,
     fullMaskSelection(full, source, of) {
       const doc = of || app.doc;
       return doc ? fromFullMask(doc, full, source) : null;

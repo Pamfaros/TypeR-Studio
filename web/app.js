@@ -5468,7 +5468,7 @@
   // Select > Text: the page, without its texts, goes to the text detection model; where it
   // finds letters becomes the selection, a little grown so their edges and outlines go too. Its
   // answer is kept while the page's pixels don't change: asking again costs nothing.
-  const textFind = { running: false, landing: false, doc: null, data: null, confidence: null, mask: null };
+  const textFind = { running: false, landing: false };
   // Where the detection found a page's letters, before they were grown: what tells apart two
   // texts the selection joins, so a click leaves out only the one under it
   const textCores = new WeakMap();
@@ -5505,9 +5505,11 @@
     }
     const doc = app.doc;
     if (!doc || doc.state.quickMask) return;
-    const page = ops.reshapePage();
+    const selection = doc.state.selection;
+    const layers = doc.state.layers;
+    const page = ops.textDetectionPage(doc, selection);
     const { confidence } = TextMask.load();
-    let mask = textFind.doc === doc && textFind.data === page.data && textFind.confidence === confidence ? textFind.mask : null;
+    let mask = textFind.doc === doc && textFind.layers === layers && textFind.selection === selection && textFind.width === page.width && textFind.height === page.height && textFind.confidence === confidence ? textFind.mask : null;
     if (!mask) {
       textFind.running = true;
       const task = background(onPage(T("Finding the text…"), doc));
@@ -5517,8 +5519,7 @@
       try {
         const found = await TextMask.detect(page, { confidence });
         mask = found.mask;
-        Object.assign(textFind, { doc, data: page.data, confidence, mask });
-        console.info(`TypeR web: the text detection found ${found.count === null ? "?" : found.count} texts in ${found.seconds === null ? "?" : found.seconds} s`);
+        Object.assign(textFind, { doc, layers, selection, width: page.width, height: page.height, confidence, mask });
       } catch (error) {
         if (!error || error.name !== "AbortError") {
           console.warn("TypeR web: Detect Text failed", error);
@@ -5543,16 +5544,32 @@
       toast(fill(T("The text of {name} is found: choose Detect Text again on it."), { name: doc.name }));
       return;
     }
-    const grown = TextMask.dilate(mask, doc.width, doc.height, textGrow(doc));
-    const areas = selectionAreas(doc, grown, page);
-    if (!areas.length) {
+    if (doc.state.layers !== layers || doc.state.selection !== selection || doc.width !== page.width || doc.height !== page.height) return;
+    let result;
+    if (page.scope) {
+      const { left, top, right, bottom } = page.bounds;
+      const w = right - left;
+      const h = bottom - top;
+      if (w && h) {
+        const local = new Uint8Array(w * h);
+        for (let y = 0; y < h; y++) {
+          const start = (top + y) * doc.width + left;
+          local.set(mask.subarray(start, start + w), y * w);
+        }
+        const grown = TextMask.dilate(local, w, h, textGrow(doc));
+        for (let i = 0; i < grown.length; i++) grown[i] &= page.scope[i];
+        result = ops.selectionFromBox(grown, left, top, w, h, "text");
+      }
+    } else {
+      const grown = TextMask.dilate(mask, doc.width, doc.height, textGrow(doc));
+      result = ops.fullMaskSelection(grown, "text");
+    }
+    if (!result) {
       toast(T("No text found on this page."));
       return;
     }
-    ops.quietSelection(ops.fullMaskSelection(grown, "text"), "Detect Text");
+    ops.quietSelection(result, "Detect Text");
     textCores.set(doc, mask);
-    const plain = areas.filter((area) => area.plain).length;
-    toast(fill(T("{count} text areas: {plain} on a plain background, {art} over the art."), { count: areas.length, plain, art: areas.length - plain }), true);
     gen.open = false;
     taskBarKey = "";
     schedule(false);
@@ -6084,7 +6101,7 @@
     const find = document.createElement("button");
     find.type = "button";
     find.className = "btn btn--small";
-    find.textContent = textFind.running ? T("Finding the text…") : T("Detect Text");
+    find.textContent = textFind.running ? T("Finding the text…") : app.doc?.state.selection ? T("Detect Text in Selection") : T("Detect Text");
     find.disabled = textFind.running;
     if (!TextMask.available()) {
       find.classList.add("is-unavailable");
@@ -6570,12 +6587,12 @@
       renderGenTray();
       schedule(false);
       try {
-        const pixels = ops.reshapePage(null, doc);
+        const pixels = ops.textDetectionPage(doc, null);
+        const found = await TextMask.detect(pixels, { confidence: TextMask.load().confidence, signal: batch.controller.signal });
         if (detached) {
           ops.dropDetached(detached);
           detached = null;
         }
-        const found = await TextMask.detect(pixels, { confidence: TextMask.load().confidence, signal: batch.controller.signal });
         if (textBatch !== batch) return;
         // Skipped meanwhile, or closed
         if (page.state !== "finding") continue;
@@ -6964,7 +6981,34 @@
       const full = ops.selectionFullMask(selection);
       // Each text on its own, told apart by where the detection found its letters
       const cores = doc === app.doc ? textCores.get(doc) : null;
-      const areas = Mask.textAreas(full, cores ? ops.reshapePage().data : null, doc.width, doc.height, textLink(doc), cores);
+      const link = textLink(doc);
+      let areas;
+      if (!cores || Math.max(doc.width, doc.height) <= 2048) {
+        areas = Mask.textAreas(full, cores ? ops.reshapePage().data : null, doc.width, doc.height, link, cores);
+      } else {
+        const source = ops.textDetectionPage(doc, null);
+        areas = Mask.split(full, doc.width, doc.height, link).flatMap((area) => {
+          const pad = Math.max(32, link + 2);
+          const left = Math.max(0, area.left - pad);
+          const top = Math.max(0, area.top - pad);
+          const w = Math.min(doc.width, area.left + area.width + pad) - left;
+          const h = Math.min(doc.height, area.top + area.height + pad) - top;
+          if (w > 2048 || h > 2048) return [area];
+          const local = new Uint8Array(w * h);
+          const core = new Uint8Array(w * h);
+          for (let y = 0; y < area.height; y++) {
+            const dst = (area.top - top + y) * w + area.left - left;
+            const src = (area.top + y) * doc.width + area.left;
+            local.set(area.data.subarray(y * area.width, (y + 1) * area.width), dst);
+            core.set(cores.subarray(src, src + area.width), dst);
+          }
+          const canvas = source.read(left, top, w, h);
+          const rgba = canvas.getContext("2d").getImageData(0, 0, w, h).data;
+          canvas.width = canvas.height = 0;
+          return Mask.textAreas(local, rgba, w, h, link, core).map((part) =>
+            ({ ...part, left: part.left + left, top: part.top + top }));
+        });
+      }
       marks = { selection, areas, hover: null, review: Boolean(page) };
     }
     reviewMarks.hidden = false;
