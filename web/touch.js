@@ -816,9 +816,11 @@
     action("trash", T("Delete"), () => ops.deleteLayers()),
   ];
   const selectionActions = () => [
+    app.doc?.state.selection?.source === "text" ? action("clean", T("Remove Text"), () => runMenu("Edit", "Remove Text"), "tact--main") : null,
     action("paste", T("Paste the line"), () => pressInPanel('[data-tour="paste"]'), "tact--main"),
     // Right after the paste: a sound effect selected is most often to be taken out of the art
     window.TypeRGenerative ? action("sparkles", T("Generative Fill"), () => runMenu("Edit", "Generative Fill…")) : null,
+    window.TypeRNemesis ? action("clean", T("Nemesis Manhwa"), () => runMenu("Edit", "Nemesis Manhwa")) : null,
     action("inverse", T("Inverse"), () => runMenu("Select", "Inverse")),
     action("grow", T("Expand…"), () => runMenu("Select", "Expand…")),
     action("shrink", T("Contract…"), () => runMenu("Select", "Contract…")),
@@ -831,10 +833,20 @@
   // of a text would paste the line there.
   // Done with a text, it's done with its bubble's selection too.
   const ctxDone = button("tctx__done", "close", T("Deselect"), () => {
-    if (ctxKey === "text") ops.clearActiveLayers();
+    if (ctxMode === "text") ops.clearActiveLayers();
     if (app.doc && app.doc.state.selection) runMenu("Select", "Deselect");
   });
   ctx.appendChild(ctxDone);
+
+  let showSelectionOptions = false;
+  let optionsDoc;
+  let optionsTool;
+  const ctxOptions = button("tctx__done", "settings", T("Tool options"), () => {
+    showSelectionOptions = !showSelectionOptions;
+    renderCtx();
+  });
+  ctxOptions.setAttribute("aria-controls", "options");
+  ctx.insertBefore(ctxOptions, ctxDone);
 
   // A row, or a column, longer than the screen: its ends fade where there's more to scroll to
   const fadeEdges = (node, vertical) => {
@@ -853,10 +865,17 @@
 
   const HINT = "Tap a bubble to paste the line. Two fingers zoom and pan; a two-finger tap undoes.";
   let ctxKey = "";
+  let ctxMode = "";
   const renderCtx = () => {
     renderSize();
     const doc = app.doc;
     const tool = app.tool;
+    const selection = doc?.state.selection;
+    if (doc !== optionsDoc || tool !== optionsTool) {
+      optionsDoc = doc;
+      optionsTool = tool;
+      showSelectionOptions = false;
+    }
     const options = $("options");
     let mode = "hint";
     if (!doc || App.isEditing()) mode = "none";
@@ -864,13 +883,19 @@
     else if ((tool === "wand" || tool === "move" || tool === "text") && App.activeTexts().length) mode = "text";
     else if (doc.state.selection) mode = "selection";
     else if (tool !== "wand" || Shell.kind === "tablet") mode = "options";
-    if (mode === ctxKey) return;
-    ctxKey = mode;
-    options.hidden = mode !== "options";
+    const canToggle = mode === "selection";
+    if (!canToggle) showSelectionOptions = false;
+    const key = [mode, showSelectionOptions, selection?.source, tool].join("|");
+    if (key === ctxKey) return;
+    ctxKey = key;
+    ctxMode = mode;
+    ctxOptions.hidden = !canToggle;
+    ctxOptions.setAttribute("aria-expanded", String(showSelectionOptions));
+    options.hidden = mode !== "options" && !showSelectionOptions;
     ctxHint.hidden = mode !== "hint";
     ctxHint.textContent = T(HINT);
-    ctxActions.hidden = mode !== "text" && mode !== "selection";
-    ctxDone.hidden = ctxActions.hidden;
+    ctxActions.hidden = showSelectionOptions || (mode !== "text" && mode !== "selection");
+    ctxDone.hidden = mode !== "text" && mode !== "selection";
     ctxActions.textContent = "";
     ctxActions.scrollLeft = 0;
     if (mode === "text") ctxActions.append(...textActions());
@@ -1266,7 +1291,7 @@
     if (Shell.touch && !optionsMoved) {
       home.parent = options.parentNode;
       home.before = options.nextSibling;
-      ctx.appendChild(options);
+      ctx.insertBefore(options, ctxOptions);
       optionsMoved = true;
       ctxKey = "";
     } else if (!Shell.touch && optionsMoved) {

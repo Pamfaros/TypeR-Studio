@@ -125,6 +125,10 @@ html[data-shell="tablet"] .tctx, html[data-sheet="right"] .tctx { flex: 1 1 0; b
 .tctx__actions::-webkit-scrollbar { display: none; }
 .tact { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px; background: var(--ui-2); border-radius: 20px; color: var(--text); font-size: 14px; white-space: nowrap; }
 .tact svg { width: 20px; height: 20px; }
+html.touch .tact, html.touch .gentray__actions button { min-height: 44px; }
+html.touch .gentray__actions button { min-width: 44px; }
+html.touch .stamp-source { min-height: 44px; padding-inline: 12px; white-space: nowrap; }
+html.touch .stamp-source[aria-pressed="true"] { color: #fff; background: var(--blue); }
 .tact:active { background: var(--ui-3); }
 .tact--main { background: var(--blue); color: #fff; }
 /* what scrolls fades at the ends where there's more */
@@ -149,7 +153,7 @@ html.touch .tctx__done[hidden], html.touch .tsize[hidden] { display: none; }
 .tctx__hint { flex: 1; margin: 0; padding: 0 12px; align-self: center; color: var(--muted); font-size: 13px; line-height: 1.25; }
 html.touch .obar { flex: 1; min-width: 0; height: auto; background: none; border: 0; padding: 0 8px; gap: 10px; font-size: 14px; }
 html.touch .obar__tool, html.touch .obar__end { display: none; }
-html.touch .obar .icon-btn { width: 42px; height: 40px; }
+html.touch .obar .icon-btn { width: 44px; height: 44px; }
 html.touch .obar input[type="number"] { width: 64px; }
 html.touch .obar select { max-width: 130px; }
 html.touch .font-field { height: 40px; padding: 0 10px; font-size: 15px; }

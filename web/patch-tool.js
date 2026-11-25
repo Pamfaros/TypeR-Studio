@@ -276,10 +276,11 @@
       ops.selectionContains(point[0], point[1]));
     clearPreview();
     previewDisabled = false;
-    // Shift / Alt choose how a newly drawn contour combines with the
-    // existing selection instead of unexpectedly dragging the current patch.
-    const combining = event.shiftKey || event.altKey;
-    if (inside && !combining) {
+    // Keyboard modifiers override the touch toolbar's selection mode for this stroke.
+    const touchMode = window.TypeRShell?.touch ? app.selectionMode : "new";
+    const selectionMode = event.shiftKey && event.altKey ? "intersect"
+      : event.shiftKey ? "add" : event.altKey ? "subtract" : touchMode;
+    if (inside && selectionMode === "new") {
       const layer = rasterLayer();
       if (!layer) {
         report("Select an unlocked raster layer before applying a patch.", true);
@@ -297,8 +298,7 @@
     const gesture = {
       ...base, kind: "patch", phase: "selecting", doc,
       points: [clampPoint(doc, point)],
-      selectionMode: event.shiftKey && event.altKey ? "intersect"
-        : event.shiftKey ? "add" : event.altKey ? "subtract" : "new",
+      selectionMode,
       lastScreen: [event.clientX, event.clientY]
     };
     currentGesture = gesture;

@@ -1,6 +1,9 @@
 // TypeR: Web Version's interface in this language, by its English wording.
 window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
   uk: {
+    "Set clone source": "Вибрати джерело штампа",
+    "Tap the artwork to set the clone source.": "Торкніться малюнка, щоб вибрати джерело штампа.",
+    "Tool options": "Параметри інструмента",
     "Detect Text in Selection": "Знайти текст у виділенні",
     "Diameter": "Діаметр",
     "Hardness": "Жорсткість",

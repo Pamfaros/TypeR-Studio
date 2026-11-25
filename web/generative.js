@@ -6,6 +6,9 @@
   "use strict";
 
   const STORE = "typer.web.generative";
+  const nemesis = window.TypeRNemesis;
+  const NEMESIS_ID = "nemesis-manhwa";
+  const desktopAI = window.TypeRDesktop?.localAI || null;
   const adobe = window.TypeRDesktop && window.TypeRDesktop.firefly;
   let adobeState = { connected: false, connecting: false };
   let adobeBalance = { status: "signedout" };
@@ -83,10 +86,13 @@
         ["ideogram/v4.5/edit", "Ideogram 4.5 Edit"],
       ],
     },
-    ...(window.TypeRDesktop?.localAI ? { local: {
+    ...(nemesis || desktopAI ? { local: {
       name: "On this device",
       local: true,
-      models: [["mat-512", "MAT (Mask-Aware Transformer)"], ["flux2-klein-4b", "FLUX.2 Klein 4B"], ["flux3-klein", "FLUX 3 Klein"]],
+      models: [
+        ...(nemesis ? [[NEMESIS_ID, "Nemesis Manhwa"]] : []),
+        ...(desktopAI ? [["mat-512", "MAT (Mask-Aware Transformer)"], ["flux2-klein-4b", "FLUX.2 Klein 4B"], ["flux3-klein", "FLUX 3 Klein"]] : []),
+      ],
     } } : {}),
   };
   // What the local models draw: a square of this many pixels, nothing else
@@ -103,7 +109,6 @@
     ["gemini-3-pro-image", "Gemini 3.0 (Nano Banana Pro)"],
   ] };
   const isLocal = (service) => Boolean(SERVICES[service] && SERVICES[service].local);
-  const desktopAI = (window.TypeRDesktop && window.TypeRDesktop.localAI) || null;
   const isFlux = (model) => /^flux/.test(model);
   const isMat = (model) => model === "mat-512";
   const isDesktopModel = (model) => isFlux(model) || isMat(model);
@@ -138,7 +143,7 @@
   })();
 
   const load = () => {
-    const out = { service: "google", keys: {}, models: {}, custom: {}, quality: {}, matchTones: true };
+    const out = { service: nemesis && window.TypeRMobile ? "local" : "google", keys: {}, models: {}, custom: {}, quality: {}, matchTones: true };
     try {
       const saved = JSON.parse(window.localStorage.getItem(STORE)) || {};
       if (SERVICES[saved.service]) out.service = saved.service;
@@ -301,7 +306,7 @@
   const knowsLongRatios = (model) => /3\.1-flash|nano-banana-2/.test(model);
   // Models that draw at 1K, 2K or 4K; the others at about one megapixel
   const knowsSizes = (model) => /gemini-3|nano-banana-2|nano-banana-pro/.test(model) && !/lite/.test(model);
-  const ratiosFor = (model) => ((isMat(model) || isFlux(model)) ? RATIOS.concat(LONG_RATIOS) : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
+  const ratiosFor = (model) => ((model === NEMESIS_ID || isMat(model) || isFlux(model)) ? RATIOS.concat(LONG_RATIOS) : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
     .map((label) => {
       const [w, h] = label.split(":").map(Number);
       return { label, value: w / h };
@@ -505,6 +510,14 @@
     }
     if (isLocal(service)) {
       const model = modelOf(settings);
+      if (model === NEMESIS_ID) {
+        try {
+          return await nemesis.run(canvas, mask, signal, onProgress);
+        } catch (error) {
+          if (error.name === "AbortError") throw error;
+          throw new GenerativeError("local", error.message);
+        }
+      }
       if (isMat(model)) return viaDesktop({ model, canvas, mask, prompt: "", signal, onProgress });
       if (isFlux(model)) {
         const words = (prompt || "").trim();
@@ -695,5 +708,5 @@
     }
   };
 
-  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isMat, isFlux, takesPrompt, drawsInPlace, longestFor, localDownload, localStatus, localRemove, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent, adobeStatus, adobeConnect, adobeDisconnect, adobeCredits };
+  window.TypeRGenerative = { SERVICES, NEMESIS_ID, DEFAULT_PROMPT, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isMat, isFlux, takesPrompt, drawsInPlace, longestFor, localDownload, localStatus, localRemove, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent, adobeStatus, adobeConnect, adobeDisconnect, adobeCredits };
 })();

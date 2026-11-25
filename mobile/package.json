@@ -9,8 +9,10 @@
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
-    "content": "node scripts/build-content.js",
+    "content": "node scripts/build-content.js --nemesis-runtime",
     "sync": "npm run content && cap sync",
+    "android:prepare": "npm run content && cap sync android",
+    "android:apk": "node scripts/android-apk.js",
     "ios": "npm run sync && cap open ios",
     "android": "npm run sync && cap open android",
     "icons": "swift scripts/make-icons.swift"

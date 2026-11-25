@@ -1,2 +1,4 @@
 www/
+www-build-*/
+.build-export/
 ios/build/

@@ -13178,8 +13178,10 @@
     // `folder`: { name, id }, for Remove Text: the layer goes in that folder, made under the
     // texts the first time (its id kept in `folder.id`) and made again if it was deleted.
     // `matchTones`: the inside then brought to the brightness of the page that borders it.
-    async generativeFill({ draw, ratios, name, settle, doc: wanted, selection: chosen, activeIds, hide, fixed, inPlace: drawnInPlace, longest, folder, matchTones: tones }, progress = () => {}) {
+    // `nativePixels`: keep the original resolution and the exact selection for tiled inpainting.
+    async generativeFill({ draw, ratios, name, settle, doc: wanted, selection: chosen, activeIds, hide, fixed, inPlace: drawnInPlace, nativePixels, longest, folder, matchTones: tones }, progress = () => {}) {
       const inPlace = Boolean(fixed || drawnInPlace);
+      const adjustLevels = !fixed && !nativePixels;
       const doc = wanted || app.doc;
       if (!doc || !app.docs.includes(doc)) return { outcome: "gone" };
       const selection = chosen || doc.state.selection;
@@ -13188,18 +13190,18 @@
       const activeAtStart = (activeIds || doc.state.activeIds).slice();
       const sizeAtStart = [doc.width, doc.height];
       // Enough around the selection for the model to see the art it continues
-      const reach = Math.max(48, Math.round(Math.max(b.width, b.height) * 0.4));
+      const reach = nativePixels ? 128 : Math.max(48, Math.round(Math.max(b.width, b.height) * 0.4));
       let x0 = b.left - reach;
       let y0 = b.top - reach;
       let x1 = b.right + reach;
       let y1 = b.bottom + reach;
       // Grown to the model's nearest shape, then slid inside the page, then cut by it
       const shape = (ratios || [{ label: "1:1", value: 1 }]).reduce((best, one) => (Math.abs(Math.log(one.value / ((x1 - x0) / (y1 - y0)))) < Math.abs(Math.log(best.value / ((x1 - x0) / (y1 - y0)))) ? one : best));
-      if ((x1 - x0) / (y1 - y0) < shape.value) {
+      if (!nativePixels && (x1 - x0) / (y1 - y0) < shape.value) {
         const grow = (y1 - y0) * shape.value - (x1 - x0);
         x0 -= grow / 2;
         x1 += grow / 2;
-      } else {
+      } else if (!nativePixels) {
         const grow = (x1 - x0) / shape.value - (y1 - y0);
         y0 -= grow / 2;
         y1 += grow / 2;
@@ -13234,11 +13236,12 @@
       const drawn = newCanvas(width, height);
       paintDoc(doc, drawn.getContext("2d"), { x: -x0, y: -y0, skip: (item) => item.kind === "text" || Boolean(hide && hide.includes(item.id)) });
       actx.drawImage(drawn, 0, 0);
+      drawn.width = 1;
       // A big area goes smaller, a small one bigger: the models draw at one to four megapixels
       // anyway, and some refuse a picture under 256 pixels a side
       const LONGEST = fixed || longest || 2048;
       const SHORTEST = fixed || 512;
-      const scale = Math.min(LONGEST / Math.max(width, height), Math.max(1, SHORTEST / Math.min(width, height)));
+      const scale = nativePixels ? 1 : Math.min(LONGEST / Math.max(width, height), Math.max(1, SHORTEST / Math.min(width, height)));
       let sent = area;
       if (scale !== 1) {
         sent = newCanvas(Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
@@ -13251,28 +13254,36 @@
       const hole = newCanvas(width, height);
       const hctx = hole.getContext("2d", { willReadFrequently: true });
       const clip = selectionCanvas(selection);
-      const grow = Math.max(3, Math.round(Math.max(b.width, b.height) * 0.02));
-      for (let step = 0; step < 16; step++) {
-        const turn = (step / 16) * Math.PI * 2;
-        hctx.drawImage(clip, b.left - x0 + Math.round(Math.cos(turn) * grow), b.top - y0 + Math.round(Math.sin(turn) * grow));
+      if (!nativePixels) {
+        const grow = Math.max(3, Math.round(Math.max(b.width, b.height) * 0.02));
+        for (let step = 0; step < 16; step++) {
+          const turn = (step / 16) * Math.PI * 2;
+          hctx.drawImage(clip, b.left - x0 + Math.round(Math.cos(turn) * grow), b.top - y0 + Math.round(Math.sin(turn) * grow));
+        }
       }
       hctx.drawImage(clip, b.left - x0, b.top - y0);
-      const holeData = hctx.getImageData(0, 0, width, height).data;
-      const mask = newCanvas(sent.width, sent.height);
-      const kctx = mask.getContext("2d", { willReadFrequently: true });
-      const black = newCanvas(width, height);
-      const bctx = black.getContext("2d");
-      bctx.drawImage(hole, 0, 0);
-      bctx.globalCompositeOperation = "source-in";
-      bctx.fillStyle = "#000";
-      bctx.fillRect(0, 0, width, height);
-      kctx.fillStyle = "#fff";
-      kctx.fillRect(0, 0, mask.width, mask.height);
-      kctx.drawImage(black, 0, 0, mask.width, mask.height);
+      const holeData = (!inPlace || adjustLevels || tones) ? hctx.getImageData(0, 0, width, height).data : null;
+      let mask = hole;
+      if (nativePixels) {
+        // The selection canvas already paints in black. Keep one mask at native resolution.
+        hctx.globalCompositeOperation = "destination-over";
+        hctx.fillStyle = "#fff";
+        hctx.fillRect(0, 0, width, height);
+        hctx.globalCompositeOperation = "source-over";
+      } else {
+        mask = newCanvas(sent.width, sent.height);
+        const kctx = mask.getContext("2d", { willReadFrequently: true });
+        kctx.fillStyle = "#fff";
+        kctx.fillRect(0, 0, mask.width, mask.height);
+        kctx.drawImage(hole, 0, 0, mask.width, mask.height);
+      }
       const size = Math.max(width, height) > 1400 ? "2K" : "1K";
       const picture = await draw(sent, { ratio: shape.label, size, mask, inside: { left: (b.left - x0) * scale, top: (b.top - y0) * scale, width: b.width * scale, height: b.height * scale } });
       // Meanwhile the page may have closed
-      if (!app.docs.includes(doc)) return { outcome: "gone" };
+      if (!app.docs.includes(doc)) {
+        picture.close?.();
+        return { outcome: "gone" };
+      }
       progress(0.05);
       // First laid over the area as it is, stretched to it
       const made = newCanvas(width, height);
@@ -13335,19 +13346,21 @@
       if (!app.docs.includes(doc)) return { outcome: "gone" };
       progress(0.9);
       // The picture laid on the area: the aligned one over the stretched one, so no edge shows through
-      const laid = newCanvas(width, height);
+      const laid = placed.canvas === made ? made : newCanvas(width, height);
       const lctx = laid.getContext("2d", { willReadFrequently: true });
-      lctx.drawImage(made, 0, 0);
-      if (placed.canvas !== made) lctx.drawImage(placed.canvas, placed.left - x0, placed.top - y0);
+      if (laid !== made) {
+        lctx.drawImage(made, 0, 0);
+        lctx.drawImage(placed.canvas, placed.left - x0, placed.top - y0);
+      }
       // Models shift the tones (a cream paper, a grain, greys a little off): around the selection,
       // the picture's levels are matched to the page's, and the same levels go inside. FLUX shifts
       // them too, even drawing in place: only LaMa's pixels keep the page's own.
       // Then, unless turned off, the inside brought to the brightness of the page at its edge:
       // LaMa's too, whose inside is its own guess.
-      if (!fixed || tones) {
+      if (adjustLevels || tones) {
         const laidData = lctx.getImageData(0, 0, width, height);
         const pageData = actx.getImageData(0, 0, width, height).data;
-        if (!fixed) matchLevels(laidData.data, pageData, holeData);
+        if (adjustLevels) matchLevels(laidData.data, pageData, holeData);
         if (tones) matchTones(laidData.data, pageData, holeData, width, height);
         lctx.putImageData(laidData, 0, 0);
       }

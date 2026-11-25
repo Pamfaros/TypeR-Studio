@@ -50,4 +50,4 @@ const describe = (ref) => {
   return { id, files };
 };
 
-module.exports = { REPO, listFiles, describe };
+module.exports = { REPO, listFiles, describe, hashOf };

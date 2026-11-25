@@ -5257,10 +5257,11 @@
         selection: job.selection,
         activeIds: job.activeIds,
         hide: job.hide,
-        name: job.name || (job.prompt ? job.prompt.replace(/\s+/g, " ").slice(0, 60) : T("Generative Fill")),
+        name: job.name || (model === Gen.NEMESIS_ID ? "Nemesis Manhwa" : job.prompt ? job.prompt.replace(/\s+/g, " ").slice(0, 60) : T("Generative Fill")),
         ratios: Gen.ratiosFor(model),
         inPlace: Gen.drawsInPlace(job.account),
-        matchTones: job.account.matchTones !== false,
+        nativePixels: model === Gen.NEMESIS_ID,
+        matchTones: model !== Gen.NEMESIS_ID && job.account.matchTones !== false,
         longest: Gen.longestFor(job.account),
         folder: job.folder,
         settle: settleFor(job),
@@ -5277,7 +5278,9 @@
             signal: job.controller.signal,
             // On this device, the first time: the model's download, then its start
             onProgress: (step) => {
-              if (step.phase === "download") job.download = step.total ? step.loaded / step.total : 0;
+              if (step.phase === "inference") {
+                job.inference = step.total ? step.loaded / step.total : 0;
+              } else if (step.phase === "download") job.download = step.total ? step.loaded / step.total : 0;
               else if (step.phase === "start") {
                 job.download = null;
                 job.started = Date.now();
@@ -5388,19 +5391,24 @@
     schedule(false);
     return true;
   };
-  const runGenerative = async () => {
+  const runGenerative = async (modelOverride) => {
     if (!Gen || pixelsOnly()) return;
     const doc = app.doc;
     const selection = doc && doc.state.selection;
     if (!selection || doc.state.quickMask) return;
     let account = Gen.load();
+    const nemesisOnly = modelOverride === Gen.NEMESIS_ID;
+    if (nemesisOnly) {
+      account.service = "local";
+      account.models.local = modelOverride;
+    }
     // Each separate part of the selection gets its own generation, on its own layer, as Remove
     // Text does: the model sees one place at a time. Nothing to describe: the parts on a plain
     // background are filled with that colour at once, as the Bubble Cleaner does, and only the
     // rest goes to the model.
     let plain = [];
     let targets = [selection];
-    if (Mask) {
+    if (Mask && !nemesisOnly) {
       const described = Gen.takesPrompt(account) && gen.prompt.trim();
       const full = ops.selectionFullMask(selection);
       const areas = described ? Mask.split(full, doc.width, doc.height, textLink(doc)) : selectionAreas(doc, full, ops.reshapePage());
@@ -5816,6 +5824,7 @@
   };
   const genFraction = (job) => {
     if (job.state === "drawing" && job.download !== null && job.download !== undefined) return job.download * 0.9;
+    if (job.state === "drawing" && job.inference != null) return job.inference * 0.9;
     if (job.state === "drawing") return Math.min(0.9, ((Date.now() - job.started) / expectedTime(Gen.modelOf(job.account))) * 0.85);
     if (job.state === "aligning") return 0.9 + job.percent * 0.08;
     if (job.state === "settling") return 0.98;
@@ -7065,7 +7074,7 @@
     if (tool === "perspective" && window.TypeRPerspectiveTool) window.TypeRPerspectiveTool.options(bar);
     // Patch manages its own options (sample mode, feather, blend), not brush size or selection paste.
     if (tool === "patch" && window.TypeRPatchTool && typeof window.TypeRPatchTool.options === "function") window.TypeRPatchTool.options(bar);
-    if (SELECTION_TOOLS.has(tool)) {
+    if (SELECTION_TOOLS.has(tool) || (Shell.touch && tool === "patch")) {
       const modes = document.createElement("span");
       modes.className = "obar__group";
       [["new", "modeNew", "New selection"], ["add", "modeAdd", "Add to selection"], ["subtract", "modeSub", "Subtract from selection"], ["intersect", "modeInt", "Intersect with selection"]].forEach(([value, icon, title]) => {
@@ -7173,6 +7182,20 @@
       if (tool === "heal" || (tool === "brush" && window.TypeRLibrary && window.TypeRLibrary.chosen())) bar.append(labelled(T("Size"), size), number);
       else bar.append(labelled(T("Size"), size), number, labelled(T("Hardness"), hardness), percent);
       if (tool === "stamp") {
+        if (Shell.touch) {
+          const source = document.createElement("button");
+          source.type = "button";
+          source.className = "btn btn--small stamp-source";
+          source.textContent = T("Set clone source");
+          source.setAttribute("aria-pressed", String(stamp.pick === app.doc && Boolean(app.doc)));
+          source.disabled = !app.doc;
+          source.addEventListener("click", () => {
+            stamp.pick = stamp.pick === app.doc ? null : app.doc;
+            source.setAttribute("aria-pressed", String(Boolean(stamp.pick)));
+            if (stamp.pick) toast(T("Tap the artwork to set the clone source."));
+          });
+          bar.appendChild(source);
+        }
         bar.appendChild(checkbox(T("Aligned"), stamp.aligned, (on) => {
           stamp.aligned = on;
           stamp.offset = null;
@@ -7472,10 +7495,11 @@
 
   // Alt + click sets the source. Aligned, the first stroke fixes how far the source is from the
   // brush, for all the strokes after it. Not aligned, each stroke starts from the source again.
-  const stamp = { doc: null, x: 0, y: 0, offset: null, aligned: true, sample: "below", pointer: null };
+  const stamp = { doc: null, x: 0, y: 0, offset: null, aligned: true, sample: "below", pointer: null, pick: null };
   const hasStampSource = () => stamp.doc === app.doc && Boolean(app.doc);
   const setStampSource = ([x, y]) => {
-    Object.assign(stamp, { doc: app.doc, x, y, offset: null });
+    Object.assign(stamp, { doc: app.doc, x, y, offset: null, pointer: null, pick: null });
+    ui.options.querySelector(".stamp-source")?.setAttribute("aria-pressed", "false");
     schedule(false);
   };
   // In whole pixels: between two of them, the browser would blend the source to place it. The
@@ -8207,6 +8231,12 @@
         setStampSource(point);
         return;
       }
+      if (Shell.touch && (stamp.pick === doc || !hasStampSource())) {
+        gesture = Object.assign(base, { kind: "stampSource" });
+        ui.stage.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
       if (!hasStampSource()) {
         toast(T("Alt + click first, on what you want to clone."));
         return;
@@ -8702,6 +8732,8 @@
       cleanAt(current, point, event);
     } else if (kind === "magicErase") {
       if (!current.moved) magicEraseAt(point);
+    } else if (kind === "stampSource") {
+      if (!current.moved) setStampSource(point);
     } else if (kind === "textBox") {
       const doc = app.doc;
       if (current.moved) {
@@ -18532,6 +18564,8 @@
       { label: "Fill with Background Colour", keys: "Cmd+Backspace", enabled: () => hasSelection() || Boolean(maskPainting()), action: () => fillSelectionCheck(toRgb(app.bg)) },
       { label: "Content-Aware Fill…", keys: "Shift+Backspace", enabled: hasSelection, action: contentAwareFill },
       { label: "Generative Fill…", enabled: () => Boolean(Gen) && hasSelection(), action: openGenerative },
+      ...(window.TypeRNemesis ? [{ label: "Nemesis Manhwa", enabled: hasSelection, action: () => runGenerative(Gen.NEMESIS_ID) }] : []),
+      ...(TextMask ? [{ label: "Remove Text", enabled: textSelection, action: () => removeText() }] : []),
       ...(TextMask ? [{ label: "Remove Text on Several Pages…", enabled: hasDoc, action: startTextBatch }] : []),
       { label: "Clear", keys: "Backspace", enabled: () => hasSelection() || hasLayer(), action: () => clearOrDelete() },
       null,

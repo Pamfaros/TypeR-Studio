@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">TypeR Studio</string>
-    <string name="title_activity_main">TypeR Studio</string>
+    <string name="app_name">TypeR Studio Nemesis</string>
+    <string name="title_activity_main">TypeR Studio Nemesis</string>
     <string name="package_name">fr.scanr.typerstudio</string>
     <string name="custom_url_scheme">fr.scanr.typerstudio</string>
 </resources>

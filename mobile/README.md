@@ -32,6 +32,30 @@ npm run android      # la même chose, puis ouvre Android Studio
 npm run icons        # redessine icônes et écrans de lancement depuis assets/brand/
 ```
 
+## APK Android avec Nemesis Manhwa
+
+Avec Node.js 22 ou plus récent, le JDK 21 et le SDK Android 36, lancez ces commandes
+depuis `mobile/`. Le SDK doit être accessible via `ANDROID_HOME` ou `android/local.properties`.
+
+```sh
+npm ci
+npm run android:apk
+```
+
+L’APK de test signé par Gradle est écrit dans `android/app/build/outputs/apk/debug/app-debug.apk`.
+Le workflow GitHub Actions « Android APK » vérifie la signature et la présence du modèle
+et du moteur WASM avant de produire l’artifact. La compilation récupère ONNX Runtime Web
+depuis npm. Une fois l’application installée, Nemesis Manhwa peut traiter une sélection hors ligne.
+Sur Android, le moteur utilise un WebView à jour avec les workers de modules et WebAssembly SIMD.
+Le workflow lance aussi un test d’inférence sur un émulateur Android. Avec un appareil ou
+un émulateur connecté, le même test se lance depuis `android/` avec `./gradlew connectedDebugAndroidTest`.
+
+Pour traiter une zone sur tablette, dessinez une sélection, puis touchez **Nemesis Manhwa**
+dans la barre contextuelle. Après **Detect Text**, **Remove Text** utilise le modèle choisi
+dans les paramètres de Generative Fill. Le **Clone Stamp** peut choisir sa source au premier
+toucher sur la page. Le bouton **Set clone source** permet de la choisir à nouveau.
+L’outil **Patch** utilise les commandes tactiles d’ajout, de soustraction et d’intersection de la sélection.
+
 Sans passer par Xcode ni Android Studio :
 
 ```sh
