@@ -4855,6 +4855,14 @@
       }
       if (service === Gen.HF_SERVICE) {
         price.textContent = T("Uses your Hugging Face account's ZeroGPU quota. The selection and nearby artwork are uploaded to the selected model's Space.");
+      } else if (Gen.isLocal(service) && Gen.androidPort(model)) {
+        price.textContent = fill(T("Runs on this device through Termux. Start the model on port {port}."), { port: Gen.androidPort(model) });
+        const status = document.createElement("span");
+        status.className = "gensettings__local";
+        price.append(" ", status);
+        Gen.androidReady(model).then((ready) => {
+          status.textContent = T(ready ? "Local runtime is ready." : "Local runtime is offline or has the wrong model.");
+        });
       } else if (service === "adobe") {
         price.textContent = model !== "firefly-fill"
           ? fill(T("{model} edits the image from your prompt; TypeR keeps the result inside your selection. With no prompt, it removes lettering. Uses Adobe premium generative credits. Photoshop can stay closed."), { model: modelName({ service, custom }, model) })
@@ -5291,9 +5299,10 @@
       case "adobeauth": return T("Reconnect to Adobe in Generative Fill settings.");
       case "adobeaccess": return T("Adobe refused access to Firefly. Check your plan and account on the Firefly website.") + detail;
       case "download": return fill(T("{model} couldn't be downloaded. Check the connection and try again."), { model: modelName(settings) }) + detail;
+      case "androidruntime": return fill(T("Start the matching Android runtime in Termux on port {port} and retry."), { port: error.detail });
       case "local": {
-        const model = Gen.modelOf(settings);
-        return fill(T("{model} couldn't run on this computer."), { model: modelName(settings) }) + detail;
+        const android = Gen.androidPort(Gen.modelOf(settings));
+        return fill(T(android ? "{model} couldn't run on this device." : "{model} couldn't run on this computer."), { model: modelName(settings) }) + detail;
       }
       case "hfpending": return T("ZeroGPU has reserved GPU time for other requests. Wait for them to finish and try again.");
       case "hfduration": return T("This Space requested more GPU time than ZeroGPU allows per job.") + detail;

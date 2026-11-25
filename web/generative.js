@@ -13,6 +13,7 @@
   const HF_MODEL = "flux-1-fill-dev";
   const SDXL = huggingFace?.SDXL;
   const desktopAI = window.TypeRDesktop?.localAI || null;
+  const androidAI = window.TypeRAndroidInpainting;
   const adobe = window.TypeRDesktop && window.TypeRDesktop.firefly;
   let adobeState = { connected: false, connecting: false };
   let adobeBalance = { status: "signedout" };
@@ -96,12 +97,12 @@
       account: true,
       models: huggingFace.models,
     } } : {}),
-    ...(nemesis || desktopAI ? { local: {
+    ...(nemesis || desktopAI || androidAI ? { local: {
       name: "On this device",
       local: true,
       models: [
         ...(nemesis ? [[NEMESIS_ID, "Nemesis Manhwa"]] : []),
-        ...(desktopAI ? [["mat-512", "MAT (Mask-Aware Transformer)"], ["flux2-klein-4b", "FLUX.2 Klein 4B"], ["flux3-klein", "FLUX 3 Klein"]] : []),
+        ...(desktopAI || androidAI ? [["mat-512", "MAT (Mask-Aware Transformer)"], ["flux2-klein-4b", "FLUX.2 Klein 4B"], ["flux3-klein", "FLUX 3 Klein"]] : []),
       ],
     } } : {}),
   };
@@ -551,10 +552,10 @@
           throw new GenerativeError("local", error.message);
         }
       }
-      if (isMat(model)) return viaDesktop({ model, canvas, mask, prompt: "", signal, onProgress });
+      if (isMat(model)) return viaLocal({ model, canvas, mask, prompt: "", signal, onProgress });
       if (isFlux(model)) {
         const words = (prompt || "").trim();
-        return viaDesktop({ model, canvas, mask, prompt: words ? `${words}\n\n${KEEP_FRAMING}` : FLUX_PROMPT, signal, onProgress });
+        return viaLocal({ model, canvas, mask, prompt: words ? `${words}\n\n${KEEP_FRAMING}` : FLUX_PROMPT, signal, onProgress });
       }
       throw new GenerativeError("local", `Unsupported local model: ${model}`);
     }
@@ -590,7 +591,7 @@
     return blob ? { mime: "image/png", data: await base64Of(blob) } : null;
   };
 
-  /* -------------------- on this computer: MAT / FLUX, in the desktop app -------------------- */
+  /* -------------------- local MAT / FLUX -------------------- */
 
   const desktopJobs = new Map();
   let desktopCount = 0;
@@ -598,11 +599,12 @@
     const listener = desktopJobs.get(progress.id);
     if (listener) listener(progress);
   });
-  const pngOf = async (canvas) => {
+  const pngBlob = async (canvas) => {
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
     if (!blob) throw new GenerativeError("other", "The picture could not be encoded.");
-    return new Uint8Array(await blob.arrayBuffer());
+    return blob;
   };
+  const pngOf = async (canvas) => new Uint8Array(await (await pngBlob(canvas)).arrayBuffer());
   // A call to the app, stopped by `signal`: what it answers, or the error it says
   const askApp = async (call, signal, onProgress) => {
     const id = `local-${++desktopCount}`;
@@ -629,8 +631,8 @@
   };
   const localStatus = () => (desktopAI ? desktopAI.status() : Promise.resolve(null));
   const localRemove = (model) => (desktopAI ? desktopAI.remove(model) : Promise.resolve(null));
-  const viaDesktop = async ({ model, canvas, mask, prompt, signal, onProgress }) => {
-    if (!desktopAI) throw new GenerativeError("local", "MAT and FLUX require the desktop app.");
+  const viaLocal = async ({ model, canvas, mask, prompt, signal, onProgress }) => {
+    if (!desktopAI && !androidAI) throw new GenerativeError("local", "The local runtime is unavailable.");
     // MAT receives original selection resolution. Cropping/tiling happens in Python.
     // FLUX still uses dimensions rounded to multiples of 16.
     const width = isMat(model) ? canvas.width : Math.max(64, Math.round(canvas.width / 16) * 16);
@@ -663,6 +665,17 @@
       shades.data[i + 3] = 255;
     }
     hctx.putImageData(shades, 0, 0);
+    if (androidAI) {
+      try {
+        const [image, mask] = await Promise.all([picture, holes].map(async (canvas) => base64Of(await pngBlob(canvas))));
+        const png = await androidAI.run({ model, image, mask, prompt, width, height, signal, onProgress });
+        return await toBitmap(new Blob([bytesOf(png)], { type: "image/png" }));
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (error.name === "AbortError") throw error;
+        throw new GenerativeError(error.kind || "local", error.port ? String(error.port) : error.message);
+      }
+    }
     const [image, holeBytes] = await Promise.all([pngOf(picture), pngOf(holes)]);
     const tell = onProgress || (() => {});
     const state = await desktopAI.status();
@@ -741,5 +754,5 @@
     }
   };
 
-  window.TypeRGenerative = { SERVICES, NEMESIS_ID, HF_SERVICE, DEFAULT_PROMPT, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isMat, isFlux, takesPrompt, drawsInPlace, longestFor, localDownload, localStatus, localRemove, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent, adobeStatus, adobeConnect, adobeDisconnect, adobeCredits };
+  window.TypeRGenerative = { SERVICES, NEMESIS_ID, HF_SERVICE, DEFAULT_PROMPT, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isMat, isFlux, takesPrompt, drawsInPlace, longestFor, localDownload, localStatus, localRemove, androidPort: (model) => androidAI?.portFor(model), androidReady: (model) => androidAI?.check(model), ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent, adobeStatus, adobeConnect, adobeDisconnect, adobeCredits };
 })();

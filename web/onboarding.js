@@ -646,6 +646,15 @@
             const model = select ? select.value : models[0][0];
             const name = (models.find(([id]) => id === model) || [model, model])[1];
             const mine = ++turn;
+            const port = Gen.androidPort(model);
+            if (port) {
+              about.textContent = fill(T("Runs on this device through Termux. Start the model on port {port}."), { port });
+              return;
+            }
+            if (model === Gen.NEMESIS_ID) {
+              about.textContent = T("Nemesis Manhwa runs on this device without an account.");
+              return;
+            }
             if (Gen.isMat(model)) {
               about.textContent = "";
               Gen.localStatus().catch(() => null).then((now) => {
