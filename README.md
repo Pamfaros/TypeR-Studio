@@ -30,8 +30,8 @@ All the tools typesetters and cleaners have always dreamed of, in one place.
 **Cleaning**
 
 - Detect Text finds all the text on the page, and Remove Text clears it in one click.
-- Generative Fill works with a fal.ai or Google key, or without any key right on your device
-  (LaMa Manga, plus MAT and FLUX in the desktop app).
+- Generative Fill works with Hugging Face ZeroGPU, fal.ai and Google, and with on-device models
+  (Nemesis Manhwa, plus MAT and FLUX in the desktop app).
 - Bubble Cleaner, Spot Healing Brush, Magic Eraser, Content-Aware Fill, Color Range, Levels and
   Auto-Align Layers.
 
@@ -48,6 +48,27 @@ All the tools typesetters and cleaners have always dreamed of, in one place.
 - PSD files that open in Photoshop, InDesign documents (.idml, .indd), WebP export and Batch Save.
 - Send your pages and script to TypeR for Photoshop, and bring them back.
 - Works on tablets, and offline with the desktop app.
+
+## Hugging Face ZeroGPU
+
+In **Settings → Generative Fill**, select **Hugging Face ZeroGPU**. Use **Get a token** to create
+a [personal Hugging Face token](https://huggingface.co/settings/tokens), enter it in TypeR Studio,
+and select **Connect with a token**. Save the settings. Each teammate uses their own account's quota.
+TypeR keeps the token in memory for the current app session.
+Hugging Face applies a run-count limit to free accounts alongside the GPU-time quota shown in
+Billing. TypeR sends nearby text masks in one request when they fit in the same crop.
+
+For browser sign-in, register a public OAuth app (without a client secret) in
+[Hugging Face OAuth settings](https://huggingface.co/settings/applications/new).
+Allow the `openid`, `profile`, and `inference-api` scopes. Enter the public client ID under
+**Sign in through Hugging Face**, get a code, and approve it in the browser. The public client ID
+can be saved in the editor settings.
+
+Choose **SDXL Inpainting 0.1** to restore a selection. Describe the art that should fill the hole,
+or leave the prompt blank to continue the surrounding colors and lines. The editor sends the crop
+and mask to the [Diffusers SDXL Space](https://huggingface.co/spaces/diffusers/stable-diffusion-xl-inpainting).
+**FLUX.1 Fill [dev]** uses the [Black Forest Labs Space](https://huggingface.co/spaces/black-forest-labs/FLUX.1-Fill-dev).
+See the [FLUX model license](https://bfl.ai/legal/non-commercial-license-terms) for permitted uses.
 
 ## Contributing
 

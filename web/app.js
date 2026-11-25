@@ -4853,7 +4853,9 @@
         options(qualitySelect, qualities.map(([value, usd]) => [value, `${QUALITY_NAMES[value] || value} · ${money(usd)}`]));
         qualitySelect.value = Gen.qualityOf({ quality }, service, model);
       }
-      if (service === "adobe") {
+      if (service === Gen.HF_SERVICE) {
+        price.textContent = T("Uses your Hugging Face account's ZeroGPU quota. The selection and nearby artwork are uploaded to the selected model's Space.");
+      } else if (service === "adobe") {
         price.textContent = model !== "firefly-fill"
           ? fill(T("{model} edits the image from your prompt; TypeR keeps the result inside your selection. With no prompt, it removes lettering. Uses Adobe premium generative credits. Photoshop can stay closed."), { model: modelName({ service, custom }, model) })
           : T("Uses your Adobe plan's generative credits. Photoshop can stay closed. Experimental connection to Firefly web.");
@@ -4951,6 +4953,114 @@
     const used = card();
     used.append(field(T("Service"), serviceSelect), field(T("Model"), modelSelect), price, qualityField, total);
     pane.append(hint(T("Generative Fill sends the selection and its surroundings to the service you choose. Connect your account or enter that service's API key below.")), used);
+    let hfFocus;
+    let saveHF;
+    if (Gen.SERVICES[Gen.HF_SERVICE]) {
+      const hf = window.TypeRHuggingFace;
+      const oauthStore = "typer.web.huggingface.client-id";
+      const account = card();
+      const status = hint("");
+      status.setAttribute("role", "status");
+      const button = (text) => {
+        const node = document.createElement("button");
+        node.type = "button";
+        node.className = "btn btn--small";
+        node.textContent = T(text);
+        return node;
+      };
+      const token = document.createElement("input");
+      token.type = "password";
+      token.placeholder = "hf_…";
+      token.autocomplete = "off";
+      token.spellcheck = false;
+      const connect = button("Connect with a token");
+      const disconnect = button("Disconnect Hugging Face");
+      const tokenLink = document.createElement("a");
+      tokenLink.href = "https://huggingface.co/settings/tokens";
+      tokenLink.target = "_blank";
+      tokenLink.rel = "noopener noreferrer";
+      tokenLink.textContent = T("Get a token");
+
+      const oauth = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = T("Sign in through Hugging Face");
+      const clientId = document.createElement("input");
+      clientId.type = "text";
+      clientId.autocomplete = "off";
+      clientId.spellcheck = false;
+      try { clientId.value = window.localStorage.getItem(oauthStore) || ""; } catch (error) { /* Optional setting. */ }
+      saveHF = () => {
+        try { window.localStorage.setItem(oauthStore, clientId.value.trim()); } catch (error) { /* Optional setting. */ }
+      };
+      const signIn = button("Get sign-in code");
+      const cancel = button("Cancel");
+      cancel.hidden = true;
+      const code = hint("");
+      const browser = document.createElement("a");
+      browser.target = "_blank";
+      browser.rel = "noopener noreferrer";
+      browser.textContent = T("Open Hugging Face");
+      browser.hidden = true;
+      oauth.append(summary, field(T("Public OAuth client ID"), clientId), signIn, cancel, code, browser);
+      account.append(status, field(T("Personal access token"), token), tokenLink, connect, oauth, disconnect);
+      pane.appendChild(account);
+
+      let attempt;
+      const render = (message = "") => {
+        account.hidden = service !== Gen.HF_SERVICE;
+        const profile = hf.account();
+        status.textContent = message || (profile
+          ? fill(T("Connected as {name} for this session."), { name: profile.name })
+          : T("Connect your own Hugging Face account to use its ZeroGPU quota."));
+        connect.disabled = Boolean(attempt) || !token.value.trim();
+        signIn.disabled = Boolean(attempt) || !clientId.value.trim();
+        token.disabled = clientId.disabled = Boolean(attempt);
+        disconnect.hidden = !profile;
+        disconnect.disabled = Boolean(attempt);
+        cancel.hidden = !attempt;
+      };
+      const authorize = async (action) => {
+        if (attempt) return;
+        attempt = new AbortController();
+        render(T("Connecting to Hugging Face…"));
+        try {
+          await action(attempt.signal);
+          render();
+        } catch (error) {
+          render(error.name === "AbortError" ? "" : T(error.message));
+        } finally {
+          attempt = null;
+          code.textContent = "";
+          browser.hidden = true;
+          browser.removeAttribute("href");
+          connect.disabled = !token.value.trim();
+          signIn.disabled = !clientId.value.trim();
+          token.disabled = clientId.disabled = disconnect.disabled = false;
+          cancel.hidden = true;
+        }
+      };
+      token.addEventListener("input", () => render());
+      clientId.addEventListener("input", () => render());
+      connect.addEventListener("click", () => {
+        const secret = token.value;
+        token.value = "";
+        authorize((signal) => hf.connect(secret, signal));
+      });
+      signIn.addEventListener("click", () => authorize((signal) => hf.signIn(clientId.value, signal, (value, url) => {
+        code.textContent = fill(T("Enter this code on Hugging Face: {code}"), { code: value });
+        browser.href = url;
+        browser.hidden = false;
+      })));
+      cancel.addEventListener("click", () => attempt?.abort());
+      disconnect.addEventListener("click", () => {
+        hf.disconnect();
+        render();
+      });
+      listeners.signal.addEventListener("abort", () => attempt?.abort(), { once: true });
+      serviceSelect.addEventListener("change", () => render());
+      hfFocus = () => { if (!hf.account()) token.focus(); };
+      render();
+    }
     let adobeButton = null;
     if (Gen.SERVICES.adobe) {
       const account = card();
@@ -5153,11 +5263,13 @@
       pane,
       dispose: () => listeners.abort(),
       focusKey: () => {
+        if (service === Gen.HF_SERVICE) hfFocus?.();
         if (service === "adobe" && adobeButton && !adobeButton.hidden) adobeButton.focus();
         const input = keyInputs[service];
         if (input && !input.value) input.focus();
       },
       save: () => {
+        saveHF?.();
         Object.keys(keyInputs).forEach((name) => { keys[name] = keyInputs[name].value.trim(); });
         models[service] = modelSelect.value;
         if (!Gen.save({ service, keys, models, custom, quality, matchTones: tonesSwitch.checked })) toast(keyNotKeptText(), true);
@@ -5173,6 +5285,9 @@
     const service = serviceName(settings.service);
     const detail = error && error.detail ? ` (${error.detail})` : "";
     switch (error && error.kind) {
+      case "key":
+        if (settings.service === Gen.HF_SERVICE) return T("Reconnect your Hugging Face account in Generative Fill settings.");
+        return fill(T("{service} refused the key. Check it in Generative Fill's settings."), { service }) + detail;
       case "adobeauth": return T("Reconnect to Adobe in Generative Fill settings.");
       case "adobeaccess": return T("Adobe refused access to Firefly. Check your plan and account on the Firefly website.") + detail;
       case "download": return fill(T("{model} couldn't be downloaded. Check the connection and try again."), { model: modelName(settings) }) + detail;
@@ -5180,8 +5295,17 @@
         const model = Gen.modelOf(settings);
         return fill(T("{model} couldn't run on this computer."), { model: modelName(settings) }) + detail;
       }
-      case "key": return fill(T("{service} refused the key. Check it in Generative Fill's settings."), { service }) + detail;
-      case "quota": return fill(T("{service} says the quota or the balance is used up."), { service }) + detail;
+      case "hfpending": return T("ZeroGPU has reserved GPU time for other requests. Wait for them to finish and try again.");
+      case "hfduration": return T("This Space requested more GPU time than ZeroGPU allows per job.") + detail;
+      case "hfspacequota": return T("This Hugging Face Space has reached its shared GPU limit.");
+      case "hfrate": return T("Hugging Face is limiting requests. Try again shortly.");
+      case "hfruns":
+        return fill(T("ZeroGPU's run limit was reached for @{name}. GPU minutes may still be available."), { name: settings.huggingFaceAccount.name });
+      case "quota":
+        if (settings.service === Gen.HF_SERVICE && settings.huggingFaceAccount) {
+          return fill(T("ZeroGPU rejected this run. This request used the Hugging Face token for @{name}."), { name: settings.huggingFaceAccount.name }) + detail;
+        }
+        return fill(T("{service} says the quota or the balance is used up."), { service }) + detail;
       case "blocked": return T("The model refused this picture or this prompt.") + detail;
       case "noimage": return T("The model sent no picture back.") + detail;
       case "network": return fill(T("{service} couldn't be reached."), { service });
@@ -5193,6 +5317,7 @@
   // and the page shows where each one is going.
   const GEN_AT_ONCE = 3;
   const genJobs = [];
+  const hfRunLimited = new WeakSet();
   // What the pictures made since the app opened cost
   let genSpent = 0;
   let genJobCount = 0;
@@ -5261,6 +5386,7 @@
         ratios: Gen.ratiosFor(model),
         inPlace: Gen.drawsInPlace(job.account),
         nativePixels: model === Gen.NEMESIS_ID,
+        restoreLettering: job.account.service === Gen.HF_SERVICE && !job.prompt?.trim(),
         matchTones: model !== Gen.NEMESIS_ID && job.account.matchTones !== false,
         longest: Gen.longestFor(job.account),
         folder: job.folder,
@@ -5328,6 +5454,17 @@
       job.state = "failed";
       job.kind = error && error.kind;
       job.message = generativeMessage(error, job.account);
+      if (job.kind === "hfruns") {
+        hfRunLimited.add(job.account);
+        // Stop queued jobs for this account. Text batches can still enqueue more with the
+        // same settings. A manual retry reloads settings and lets the service check again.
+        const profile = job.account.huggingFaceAccount;
+        for (const pending of genJobs) {
+          if (pending.state === "waiting" && pending.account.service === Gen.HF_SERVICE && pending.account.huggingFaceAccount === profile) {
+            hfRunLimited.add(pending.account);
+          }
+        }
+      }
     } finally {
       startJobs();
       renderGenTray();
@@ -5343,16 +5480,25 @@
       }
     });
     let running = genJobs.filter((job) => job.state === "drawing" || job.state === "aligning").length;
+    // ZeroGPU reserves time for queued work. Submit one Hugging Face job at a time.
+    let hfRunning = genJobs.some((job) => job.state === "drawing" && job.account.service === Gen.HF_SERVICE);
     const now = Date.now();
     let next = Infinity;
     genJobs.forEach((job) => {
-      if (job.state !== "waiting" || running >= GEN_AT_ONCE) return;
+      if (job.state !== "waiting") return;
+      const huggingFace = job.account.service === Gen.HF_SERVICE;
+      if (huggingFace && hfRunLimited.has(job.account)) {
+        Object.assign(job, { state: "failed", kind: "hfruns", message: T("This job was held back because ZeroGPU reached its run limit.") });
+        return;
+      }
+      if (running >= GEN_AT_ONCE || (huggingFace && hfRunning)) return;
       const until = genPaused[job.account.service] || 0;
       if (until > now) {
         next = Math.min(next, until);
         return;
       }
       running++;
+      if (huggingFace) hfRunning = true;
       runJob(job);
     });
     // A service told to wait: its generations start again on their own
@@ -5391,6 +5537,11 @@
     schedule(false);
     return true;
   };
+  const groupHuggingFaceAreas = (areas, account) => {
+    if (account.service !== Gen.HF_SERVICE || areas.length < 2) return areas;
+    const longest = Gen.longestFor(account);
+    return Mask.mergeNearby(areas, Math.floor(longest / 2), Math.floor(longest / 16));
+  };
   const runGenerative = async (modelOverride) => {
     if (!Gen || pixelsOnly()) return;
     const doc = app.doc;
@@ -5407,27 +5558,31 @@
     // background are filled with that colour at once, as the Bubble Cleaner does, and only the
     // rest goes to the model.
     let plain = [];
-    let targets = [selection];
+    let art = [];
     if (Mask && !nemesisOnly) {
       const described = Gen.takesPrompt(account) && gen.prompt.trim();
       const full = ops.selectionFullMask(selection);
       const areas = described ? Mask.split(full, doc.width, doc.height, textLink(doc)) : selectionAreas(doc, full, ops.reshapePage());
       plain = areas.filter((area) => area.plain);
-      const art = areas.filter((area) => !area.plain);
+      art = areas.filter((area) => !area.plain);
       if (plain.length && !art.length) {
         fillPlainAreas(doc, plain, "Generative Fill");
         ops.deselect();
         schedule(false);
         return;
       }
-      // A single part keeps the selection as it was drawn
-      if (art.length > 1 || plain.length) targets = art.map((area) => ops.maskSelection(area.data, area.width, area.height, area.left, area.top, "mask"));
     }
     if (!Gen.ready(account)) {
       account = await generativeSettings();
       if (!account || !Gen.ready(account) || app.doc !== doc || doc.state.selection !== selection) return;
     }
     if (!(await agreeToDownload(account)) || app.doc !== doc || doc.state.selection !== selection) return;
+    // A single part keeps the selection as it was drawn. Nearby text can share one ZeroGPU run.
+    const prompt = Gen.takesPrompt(account) ? gen.prompt.trim() : "";
+    const parts = prompt ? art : groupHuggingFaceAreas(art, account);
+    const targets = art.length > 1 || plain.length
+      ? parts.map((area) => ops.maskSelection(area.data, area.width, area.height, area.left, area.top, "mask"))
+      : [selection];
     // A paid model, several parts: what it will cost, asked first
     const price = Gen.priceOf(account, account.service, Gen.modelOf(account));
     if (targets.length > 1 && price && !price.free && price.usd > 0) {
@@ -5443,7 +5598,6 @@
       ops.deselect();
     }
     const activeIds = doc.state.activeIds.slice();
-    const prompt = Gen.takesPrompt(account) ? gen.prompt.trim() : "";
     targets.forEach((target) => {
       genJobs.push({
         id: ++genJobCount,
@@ -5633,7 +5787,7 @@
     if (!art.length) return;
     const folder = { name: T("Text removed"), id: null };
     const activeIds = doc.state.activeIds.slice();
-    art.forEach((area, index) => {
+    groupHuggingFaceAreas(art, account).forEach((area, index) => {
       genJobs.push({
         id: ++genJobCount,
         doc,
@@ -5897,7 +6051,7 @@
         row.append(picture, text);
         // A finished one takes you to its layer; one under way, to its page
         row.addEventListener("click", (event) => {
-          if (event.target.closest("button") || !app.docs.includes(job.doc)) return;
+          if (event.target.closest("button, a") || !app.docs.includes(job.doc)) return;
           if (job.doc !== app.doc) switchDoc(job.doc);
           if (job.state === "done" && job.doc.state.layers.some((layer) => layer.id === job.layerId)) ops.selectLayer(job.layerId);
         });
@@ -5905,12 +6059,36 @@
         actions.className = "gentray__actions";
         if (job.state === "failed") {
           if (job.kind === "key" || job.kind === "nokey" || job.kind === "adobeauth") actions.appendChild(iconButton("key", T("Generative Fill settings"), false, () => generativeSettings()));
+          if (job.account.service === Gen.HF_SERVICE && (job.kind === "quota" || job.kind === "hfruns")) {
+            const billing = document.createElement("a");
+            billing.href = "https://huggingface.co/settings/billing";
+            billing.target = "_blank";
+            billing.rel = "noopener noreferrer";
+            billing.textContent = T("Check ZeroGPU usage");
+            text.appendChild(billing);
+            const model = Gen.modelOf(job.account);
+            const space = document.createElement("a");
+            space.href = window.TypeRHuggingFace.spaceUrl(model);
+            space.target = "_blank";
+            space.rel = "noopener noreferrer";
+            space.textContent = fill(T("Open {model} on Hugging Face"), { model: modelName(job.account, model) });
+            text.appendChild(space);
+          }
           if (app.docs.includes(job.doc)) {
-            actions.appendChild(iconButton("redo", T("Try again"), false, () => {
-              Object.assign(job, { state: "waiting", message: "", kind: "", cost: null, started: 0, ended: 0, percent: 0, download: null, controller: new AbortController(), account: Gen.load() });
+            const retry = (account) => {
+              Object.assign(job, { state: "waiting", message: "", kind: "", cost: null, started: 0, ended: 0, percent: 0, download: null, inference: null, controller: new AbortController(), account });
               startJobs();
               renderGenTray();
-            }));
+            };
+            actions.appendChild(iconButton("redo", T("Try again"), false, () => retry(Gen.load())));
+            if (job.account.service === Gen.HF_SERVICE && !job.prompt?.trim() && window.TypeRNemesis) {
+              actions.appendChild(iconButton("sparkles", T("Retry with Nemesis Manhwa"), false, () => {
+                const local = Gen.load();
+                local.service = "local";
+                local.models.local = Gen.NEMESIS_ID;
+                retry(local);
+              }));
+            }
           }
           actions.appendChild(iconButton("close", T("Dismiss"), false, () => dropJob(job)));
         } else if (job.state === "done") {
@@ -6166,6 +6344,11 @@
   };
   const removalPrice = (account) => {
     if (account.service === "adobe") return T("Uses your Adobe plan's generative credits. Photoshop can stay closed. Experimental connection to Firefly web.");
+    if (account.service === Gen.HF_SERVICE) {
+      return T(Gen.ready(account)
+        ? "Uses your Hugging Face account's ZeroGPU quota. The selection and nearby artwork are uploaded to the selected model's Space."
+        : "Connect your Hugging Face account in Generative Fill settings to use your ZeroGPU quota.");
+    }
     if (Gen.isLocal(account.service)) return fill(T("{model} runs on this device: nothing to pay."), { model: modelName(account) });
     if (!Gen.ready(account)) return fill(T("{service} needs its key: Generative Fill's settings open before it starts."), { service: serviceName(account.service) });
     const price = Gen.priceOf(account, account.service, Gen.modelOf(account));

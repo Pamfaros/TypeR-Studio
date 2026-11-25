@@ -13179,7 +13179,8 @@
     // texts the first time (its id kept in `folder.id`) and made again if it was deleted.
     // `matchTones`: the inside then brought to the brightness of the page that borders it.
     // `nativePixels`: keep the original resolution and the exact selection for tiled inpainting.
-    async generativeFill({ draw, ratios, name, settle, doc: wanted, selection: chosen, activeIds, hide, fixed, inPlace: drawnInPlace, nativePixels, longest, folder, matchTones: tones }, progress = () => {}) {
+    // `restoreLettering`: give cloud inpainting more visible context and preserve more of it in the mask.
+    async generativeFill({ draw, ratios, name, settle, doc: wanted, selection: chosen, activeIds, hide, fixed, inPlace: drawnInPlace, nativePixels, restoreLettering, longest, folder, matchTones: tones }, progress = () => {}) {
       const inPlace = Boolean(fixed || drawnInPlace);
       const adjustLevels = !fixed && !nativePixels;
       const doc = wanted || app.doc;
@@ -13190,7 +13191,10 @@
       const activeAtStart = (activeIds || doc.state.activeIds).slice();
       const sizeAtStart = [doc.width, doc.height];
       // Enough around the selection for the model to see the art it continues
-      const reach = nativePixels ? 128 : Math.max(48, Math.round(Math.max(b.width, b.height) * 0.4));
+      const span = Math.max(b.width, b.height);
+      const reach = nativePixels ? 128 : restoreLettering
+        ? Math.max(64, Math.round(span * 0.6))
+        : Math.max(48, Math.round(span * 0.4));
       let x0 = b.left - reach;
       let y0 = b.top - reach;
       let x1 = b.right + reach;
@@ -13255,7 +13259,7 @@
       const hctx = hole.getContext("2d", { willReadFrequently: true });
       const clip = selectionCanvas(selection);
       if (!nativePixels) {
-        const grow = Math.max(3, Math.round(Math.max(b.width, b.height) * 0.02));
+        const grow = restoreLettering ? 2 : Math.max(3, Math.round(span * 0.02));
         for (let step = 0; step < 16; step++) {
           const turn = (step / 16) * Math.PI * 2;
           hctx.drawImage(clip, b.left - x0 + Math.round(Math.cos(turn) * grow), b.top - y0 + Math.round(Math.sin(turn) * grow));

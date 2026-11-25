@@ -8,6 +8,10 @@
   const STORE = "typer.web.generative";
   const nemesis = window.TypeRNemesis;
   const NEMESIS_ID = "nemesis-manhwa";
+  const huggingFace = window.TypeRHuggingFace;
+  const HF_SERVICE = "huggingface";
+  const HF_MODEL = "flux-1-fill-dev";
+  const SDXL = huggingFace?.SDXL;
   const desktopAI = window.TypeRDesktop?.localAI || null;
   const adobe = window.TypeRDesktop && window.TypeRDesktop.firefly;
   let adobeState = { connected: false, connecting: false };
@@ -61,6 +65,7 @@
   // FLUX on this computer redraws only the selection: it has to hear that the characters drawn
   // over the art are text too, or it keeps a big katakana sound effect as part of the drawing
   const FLUX_PROMPT = "Remove all the text from this manga image: every word, letter and sound effect, including Japanese, Korean and Chinese characters and the large hand-drawn katakana sound effects. Redraw the artwork that was behind them so the line art, screentone and background continue naturally. Keep everything else exactly the same.";
+  const CLEAN_ART_PROMPT = "Unlettered background matching the surrounding image. Continue the existing lines, color gradients, and textures through the masked area. Match the neighboring colors, lighting, perspective, and drawing style. Preserve existing shapes and outlines.";
   const KEEP_FRAMING = "Keep the framing, the scale and everything not mentioned exactly as it is.";
 
   const SERVICES = {
@@ -86,6 +91,11 @@
         ["ideogram/v4.5/edit", "Ideogram 4.5 Edit"],
       ],
     },
+    ...(huggingFace ? { [HF_SERVICE]: {
+      name: "Hugging Face ZeroGPU",
+      account: true,
+      models: huggingFace.models,
+    } } : {}),
     ...(nemesis || desktopAI ? { local: {
       name: "On this device",
       local: true,
@@ -144,6 +154,7 @@
 
   const load = () => {
     const out = { service: nemesis && window.TypeRMobile ? "local" : "google", keys: {}, models: {}, custom: {}, quality: {}, matchTones: true };
+    Object.defineProperty(out, "huggingFaceAccount", { value: huggingFace?.account() });
     try {
       const saved = JSON.parse(window.localStorage.getItem(STORE)) || {};
       if (SERVICES[saved.service]) out.service = saved.service;
@@ -178,7 +189,7 @@
   // A model as people find it: fal.ai's page address or its slug ("fal-ai/flux-pro/kontext"),
   // Google's id ("gemini-3-pro-image", or "models/…"). Null when it can't be one.
   const slugOf = (service, text) => {
-    if (isLocal(service) || service === "adobe") return null;
+    if (isLocal(service) || SERVICES[service]?.account) return null;
     let slug = String(text || "").trim();
     if (service === "fal") {
       slug = slug.replace(/^https?:\/\/(www\.)?fal\.ai\/models\//, "").replace(/^https?:\/\/(queue\.)?fal\.run\//, "").replace(/[?#].*$/, "").replace(/\/(api|playground|llms\.txt)\/?$/, "").replace(/^\/+|\/+$/g, "");
@@ -291,14 +302,20 @@
       // Nothing kept anyway
     }
   };
-  const ready = (settings) => settings.service === "adobe" ? adobeState.connected : isLocal(settings.service) || Boolean((settings.keys[settings.service] || "").trim());
+  const ready = (settings) => {
+    if (settings.service === HF_SERVICE) return Boolean(settings.huggingFaceAccount && settings.huggingFaceAccount === huggingFace?.account());
+    return settings.service === "adobe" ? adobeState.connected : isLocal(settings.service) || Boolean((settings.keys[settings.service] || "").trim());
+  };
   // A local model takes no prompt: it redraws the selection from what surrounds it
   const takesPrompt = (settings) => !isLocal(settings.service) || isFlux(modelOf(settings));
   // The local models draw in place, pixel for pixel: their picture needs no aligning
-  const drawsInPlace = (settings) => isLocal(settings.service) || (settings.service === "adobe" && modelOf(settings) === "firefly-fill");
+  const drawsInPlace = (settings) => settings.service === HF_SERVICE || isLocal(settings.service) || (settings.service === "adobe" && modelOf(settings) === "firefly-fill");
   // FLUX on this computer: its time grows faster than the area, so the area goes no bigger than
   // this (a 600 × 900 area took 166 s on an M4, 560 × 560 about 55 s)
-  const longestFor = (settings) => (isLocal(settings.service) && isFlux(modelOf(settings)) ? 768 : 0);
+  const longestFor = (settings) => {
+    if (settings.service === HF_SERVICE) return 1024;
+    return isLocal(settings.service) && isFlux(modelOf(settings)) ? 768 : 0;
+  };
 
   // The shapes the models draw: the area sent grows to the nearest one, so nothing is squeezed
   const RATIOS = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"];
@@ -306,8 +323,9 @@
   const knowsLongRatios = (model) => /3\.1-flash|nano-banana-2/.test(model);
   // Models that draw at 1K, 2K or 4K; the others at about one megapixel
   const knowsSizes = (model) => /gemini-3|nano-banana-2|nano-banana-pro/.test(model) && !/lite/.test(model);
-  const ratiosFor = (model) => ((model === NEMESIS_ID || isMat(model) || isFlux(model)) ? RATIOS.concat(LONG_RATIOS) : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
-    .map((label) => {
+  const ratiosFor = (model) => (model === HF_MODEL || model === SDXL ? RATIOS.filter((r) => r !== "21:9")
+    : (model === NEMESIS_ID || isMat(model) || isFlux(model)) ? RATIOS.concat(LONG_RATIOS)
+    : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS).map((label) => {
       const [w, h] = label.split(":").map(Number);
       return { label, value: w / h };
     });
@@ -502,6 +520,21 @@
   // one). Resolves with the model's picture, as an ImageBitmap; `onCost` hears what it cost.
   const generate = async ({ settings, prompt, canvas, mask, ratio, size, signal, onCost, onProgress }) => {
     const service = settings.service;
+    if (service === HF_SERVICE) {
+      const model = modelOf(settings);
+      const words = String(prompt || "").trim();
+      try {
+        const picture = await huggingFace.run({
+          model, profile: settings.huggingFaceAccount, canvas, mask, signal,
+          prompt: words || CLEAN_ART_PROMPT,
+          cleanText: !words,
+        });
+        return await toBitmap(picture);
+      } catch (error) {
+        if (error.name === "AbortError" || error instanceof GenerativeError) throw error;
+        throw new GenerativeError(error.kind || "other", error.message);
+      }
+    }
     if (service === "adobe") {
       const model = modelOf(settings);
       const words = String(prompt || "").trim();
@@ -708,5 +741,5 @@
     }
   };
 
-  window.TypeRGenerative = { SERVICES, NEMESIS_ID, DEFAULT_PROMPT, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isMat, isFlux, takesPrompt, drawsInPlace, longestFor, localDownload, localStatus, localRemove, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent, adobeStatus, adobeConnect, adobeDisconnect, adobeCredits };
+  window.TypeRGenerative = { SERVICES, NEMESIS_ID, HF_SERVICE, DEFAULT_PROMPT, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isMat, isFlux, takesPrompt, drawsInPlace, longestFor, localDownload, localStatus, localRemove, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent, adobeStatus, adobeConnect, adobeDisconnect, adobeCredits };
 })();

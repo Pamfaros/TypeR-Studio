@@ -9,6 +9,7 @@ on:
       - "web/**"
       - "desktop/scripts/site-files.js"
       - "scripts/test-nemesis.mjs"
+      - "scripts/test-hugging-face.mjs"
 
 permissions:
   contents: read
@@ -32,7 +33,7 @@ jobs:
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - run: npm ci
         working-directory: mobile
-      - run: node --test scripts/test-nemesis.mjs
+      - run: node --test scripts/test-nemesis.mjs scripts/test-hugging-face.mjs
       - run: npm run android:apk
         working-directory: mobile
       - name: Verify debug APK

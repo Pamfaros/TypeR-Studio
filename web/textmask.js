@@ -312,6 +312,49 @@
     return areas;
   };
 
+  // Pack nearby regions into bounded crops for a single cloud inference. Leave the pixels
+  // between the regions unselected, even when their bounding boxes overlap.
+  const mergeNearby = (areas, maxSpan, maxGap) => {
+    const groups = [];
+    const ordered = areas.slice().sort((a, b) => a.top - b.top || a.left - b.left);
+    for (const area of ordered) {
+      const { left, top, width, height } = area;
+      const right = left + width;
+      const bottom = top + height;
+      let merged = false;
+      for (let i = groups.length - 1; i >= 0; i--) {
+        const group = groups[i];
+        if (bottom - group.top > maxSpan) break;
+        if (top - group.bottom > maxGap || left - group.right > maxGap || group.left - right > maxGap) continue;
+        const nextLeft = Math.min(left, group.left);
+        const nextRight = Math.max(right, group.right);
+        const nextBottom = Math.max(bottom, group.bottom);
+        if (nextRight - nextLeft > maxSpan || nextBottom - group.top > maxSpan) continue;
+        Object.assign(group, { left: nextLeft, right: nextRight, bottom: nextBottom });
+        group.parts.push(area);
+        merged = true;
+        break;
+      }
+      if (!merged) groups.push({ left, top, right, bottom, parts: [area] });
+    }
+    return groups.map(({ left, top, right, bottom, parts }) => {
+      if (parts.length === 1) return parts[0];
+      const width = right - left;
+      const height = bottom - top;
+      const data = new Uint8Array(width * height);
+      for (const part of parts) {
+        for (let y = 0; y < part.height; y++) {
+          const start = (part.top - top + y) * width + part.left - left;
+          const offset = y * part.width;
+          for (let x = 0; x < part.width; x++) {
+            if (part.data[offset + x]) data[start + x] = 1;
+          }
+        }
+      }
+      return { left, top, width, height, data };
+    });
+  };
+
   // A pixel this light (0 to 255) is the paper or a balloon's inside, not a line
   const LIGHT = 200;
   // A text with less of the light around it than this is on the art: its background tells nothing
@@ -1187,5 +1230,5 @@
   // False only once the service has missed several times in a row
   const available = () => health !== "down";
 
-  window.TypeRTextMask = { API, load, enabled, available, watch, detect, dilate, split, textAreas, plainOf, areasOf, TextMaskError };
+  window.TypeRTextMask = { API, load, enabled, available, watch, detect, dilate, split, mergeNearby, textAreas, plainOf, areasOf, TextMaskError };
 })();

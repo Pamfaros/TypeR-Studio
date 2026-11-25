@@ -714,7 +714,9 @@
             finally { button.disabled = false; }
           });
         };
-        const list = services.map((service) => (Gen.SERVICES[service].account
+        const list = services.map((service) => (service === Gen.HF_SERVICE
+          ? { id: service, title: Gen.SERVICES[service].name, text: T("Connect your Hugging Face account in Generative Fill settings to use your ZeroGPU quota.") }
+          : service === "adobe"
           ? { id: service, title: Gen.SERVICES[service].name, text: T("Uses your Adobe plan's generative credits. Photoshop can stay closed. Experimental connection to Firefly web."), extra: adobeAccount }
           : Gen.isLocal(service)
           ? { id: service, title: `${setup.serviceName(service)} · ${T("Free of charge")}`, extra: localModel(service) }
