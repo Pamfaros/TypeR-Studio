@@ -137,8 +137,9 @@ function validateMatIntegration() {
   ]);
 
   validateMarkers("src/content.js", [
-    'require("./mat-fork").enabled',
-    "if (MAT_FORK)"
+    'const check = async () => false',
+    'const update = async () => "none"',
+    'const isDownloaded = () => false'
   ]);
 
   validateMarkers("src/main.js", [
